@@ -1,3 +1,4 @@
+#include "EngineSetup.h"
 #include "model/DemoSong.h"
 #include "sync/EditSync.h"
 
@@ -132,7 +133,8 @@ int main (int argc, char* argv[])
         return args.isEmpty() ? 0 : 1;
     }
 
-    te::Engine engine { "orionish-te" };
+    auto enginePtr = orionish::createEngine ("orionish-te");
+    auto& engine = *enginePtr;
 
     if (args[0] == "--scan")
         return scanPlugins (engine);

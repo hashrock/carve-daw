@@ -1,5 +1,6 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include "EngineSetup.h"
 #include "MainComponent.h"
 
 namespace orionish::app
@@ -13,7 +14,7 @@ public:
 
     void initialise (const juce::String&) override
     {
-        engine = std::make_unique<te::Engine> ("Orionish TE");
+        engine = orionish::createEngine ("Orionish TE");
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
     }
 
