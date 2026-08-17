@@ -1,8 +1,10 @@
 #pragma once
 
-#include <juce_gui_basics/juce_gui_basics.h>
+#include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
+
+namespace te = tracktion;
 
 namespace orionish::app
 {
@@ -16,11 +18,13 @@ class GeneratorPanel : public juce::Component,
                        private juce::AsyncUpdater
 {
 public:
-    GeneratorPanel (model::Song songModel, juce::UndoManager& um);
+    GeneratorPanel (te::Engine& engineToUse, model::Song songModel, juce::UndoManager& um);
     ~GeneratorPanel() override;
 
     // (generatorId, patternId) — patternId may be empty if none exists
     std::function<void (const juce::String&, const juce::String&)> onSelectionChanged;
+    std::function<void (const juce::String&)> onOpenPluginEditor;   // generatorId
+    std::function<void()> onManagePlugins;
 
     void setSong (model::Song newSong);
     void selectGenerator (const juce::String& generatorId);
@@ -45,12 +49,17 @@ private:
     void refresh();
     void rebuildPatternBox();
     void fireSelectionChanged();
+    void showAddGeneratorMenu();
+    void addGenerator (const juce::String& name, const juce::String& type,
+                       const juce::PluginDescription* description);
 
+    te::Engine& engine;
     model::Song song;
     juce::UndoManager& undoManager;
 
     juce::ListBox generatorList;
     juce::TextButton addGeneratorButton { "+ Generator" };
+    juce::TextButton instrumentButton { "Instrument UI" };
     juce::Label patternHeader;
     juce::ComboBox patternBox;
     juce::TextButton addPatternButton { "+ Pattern" };

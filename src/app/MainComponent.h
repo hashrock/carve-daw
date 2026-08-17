@@ -5,6 +5,7 @@
 #include "GeneratorPanel.h"
 #include "PianoRollComponent.h"
 #include "PlaylistComponent.h"
+#include "PluginWindows.h"
 #include "TransportBar.h"
 #include "model/SongModel.h"
 #include "sync/EditSync.h"
@@ -28,6 +29,8 @@ private:
     void selectionChanged (const juce::String& generatorId, const juce::String& patternId);
     void saveSong();
     void openSong();
+    void openPluginEditor (const juce::String& generatorId);
+    void openPluginManager();
 
     te::Engine& engine;
     std::unique_ptr<te::Edit> edit;
@@ -42,6 +45,8 @@ private:
     juce::Viewport pianoRollViewport, playlistViewport;
 
     std::shared_ptr<juce::FileChooser> fileChooser;
+    std::map<juce::String, std::unique_ptr<PluginEditorWindow>> pluginEditorWindows;
+    std::unique_ptr<PluginScanWindow> pluginScanWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

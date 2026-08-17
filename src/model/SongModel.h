@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 
+#include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 #include <juce_data_structures/juce_data_structures.h>
 
@@ -65,6 +66,14 @@ public:
     juce::String getType() const    { return state[ids::type]; }
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
+
+    // For type "plugin": which external plugin this generator hosts, and its
+    // saved state (base64 of getStateInformation). The state is captured from
+    // the live instance on save and restored on load.
+    void setPlugin (const juce::PluginDescription&, juce::UndoManager*);
+    std::optional<juce::PluginDescription> getPluginDescription() const;
+    void setPluginState (const juce::String& base64, juce::UndoManager*);
+    juce::String getPluginState() const;
 
     int getNumPatterns() const;
     Pattern getPattern (int index) const;

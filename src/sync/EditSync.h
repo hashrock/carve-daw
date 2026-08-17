@@ -29,6 +29,10 @@ public:
 
     void resyncNow();
 
+    // Copies each live external plugin's state (getStateInformation) back
+    // into the model. Call before saving the song.
+    void captureLivePluginState();
+
 private:
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { triggerAsyncUpdate(); }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { triggerAsyncUpdate(); }

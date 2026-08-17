@@ -41,10 +41,15 @@ $BIN --demo demo.wav              # デモ曲をレンダリング
 $BIN --write-demo demo.orion      # デモ曲を .orion として書き出し
 $BIN demo.orion out.wav           # .orion をレンダリング
 $BIN some.tracktionedit out.wav   # 素の tracktion edit もレンダリング可
+$BIN --scan                       # VST3/AU をスキャン (結果は設定に永続化)
+$BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ曲をレンダ
 ```
 
 ### GUI 操作
 
+- **+ Generator**: 4OSC(内蔵)またはスキャン済み VST3/AU インストゥルメントを選択。
+  「Scan / manage plugins...」でスキャン画面を開ける
+- **Instrument UI**: 選択中 Generator のプラグインエディタを開く(外部プラグインのみ)
 - **ピアノロール**: 空セルをクリックでノート追加 / ドラッグで移動 / 右端ドラッグで長さ変更 /
   右クリック(または⌥クリック)で削除
 - **Playlist**: 空きをクリックで選択中パターンを配置(小節スナップ)/ クリップをクリックで削除 /
@@ -55,7 +60,8 @@ $BIN some.tracktionedit out.wav   # 素の tracktion edit もレンダリング�
 ## ロードマップ
 
 - [x] モデル層 + EditSync + パターン編集 GUI + 再生
-- [ ] Generator を選べる音源に (4OSC のパッチ編集、VST3/AUi のスキャン・ロード)
+- [x] VST3/AU ホスティング (スキャン、Generator として選択、エディタ表示、状態の保存/復元)
+- [ ] 4OSC のパッチ編集 UI
 - [ ] ミキサービュー (volume/pan/insert、tracktion の Plugin をそのまま活用)
 - [ ] オートメーション (AutomatableParameter + カーブ編集)
 - [ ] オーディオトラック・録音

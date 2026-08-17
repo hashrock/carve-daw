@@ -3,21 +3,19 @@
 namespace orionish::app
 {
 
-GeneratorPanel::GeneratorPanel (model::Song songModel, juce::UndoManager& um)
-    : song (std::move (songModel)), undoManager (um)
+GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, juce::UndoManager& um)
+    : engine (engineToUse), song (std::move (songModel)), undoManager (um)
 {
     generatorList.setModel (this);
     generatorList.setRowHeight (26);
 
-    addGeneratorButton.onClick = [this]
+    addGeneratorButton.onClick = [this] { showAddGeneratorMenu(); };
+
+    instrumentButton.onClick = [this]
     {
-        undoManager.beginNewTransaction();
-        auto generator = song.addGenerator ("Synth " + juce::String (song.getNumGenerators() + 1),
-                                            "internal-synth", &undoManager);
-        auto pattern = generator.addPattern ("Pattern 1", 4.0, &undoManager);
-        selectedPatternId = pattern.getId();
-        refresh();
-        generatorList.selectRow (song.getNumGenerators() - 1);
+        if (onOpenPluginEditor)
+            if (auto id = getSelectedGeneratorId(); id.isNotEmpty())
+                onOpenPluginEditor (id);
     };
 
     patternHeader.setText ("Patterns", juce::dontSendNotification);
@@ -55,8 +53,8 @@ GeneratorPanel::GeneratorPanel (model::Song songModel, juce::UndoManager& um)
     };
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &generatorList, &addGeneratorButton, &patternHeader,
-             &patternBox, &addPatternButton })
+             &generatorList, &addGeneratorButton, &instrumentButton,
+             &patternHeader, &patternBox, &addPatternButton })
         addAndMakeVisible (c);
 
     song.state.addListener (this);
@@ -70,6 +68,60 @@ GeneratorPanel::~GeneratorPanel()
 {
     song.state.removeListener (this);
     generatorList.setModel (nullptr);
+}
+
+void GeneratorPanel::showAddGeneratorMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem (1, "4OSC (internal synth)");
+
+    const auto types = engine.getPluginManager().knownPluginList.getTypes();
+    juce::Array<juce::PluginDescription> instruments;
+    for (const auto& type : types)
+        if (type.isInstrument)
+            instruments.add (type);
+
+    if (! instruments.isEmpty())
+    {
+        menu.addSeparator();
+        menu.addSectionHeader ("Plugins");
+        for (int i = 0; i < instruments.size(); ++i)
+            menu.addItem (100 + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")");
+    }
+
+    menu.addSeparator();
+    menu.addItem (2, "Scan / manage plugins...");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addGeneratorButton),
+                        [this, instruments] (int result)
+    {
+        if (result == 1)
+            addGenerator ("Synth " + juce::String (song.getNumGenerators() + 1),
+                          "internal-synth", nullptr);
+        else if (result == 2)
+        {
+            if (onManagePlugins)
+                onManagePlugins();
+        }
+        else if (result >= 100 && result < 100 + instruments.size())
+        {
+            const auto& description = instruments.getReference (result - 100);
+            addGenerator (description.name, "plugin", &description);
+        }
+    });
+}
+
+void GeneratorPanel::addGenerator (const juce::String& name, const juce::String& type,
+                                   const juce::PluginDescription* description)
+{
+    undoManager.beginNewTransaction();
+    auto generator = song.addGenerator (name, type, &undoManager);
+    if (description != nullptr)
+        generator.setPlugin (*description, &undoManager);
+    auto pattern = generator.addPattern ("Pattern 1", 4.0, &undoManager);
+    selectedPatternId = pattern.getId();
+    refresh();
+    generatorList.selectRow (song.getNumGenerators() - 1);
 }
 
 void GeneratorPanel::setSong (model::Song newSong)
@@ -193,9 +245,11 @@ void GeneratorPanel::resized()
     addGeneratorButton.setBounds (area.removeFromTop (28));
     area.removeFromTop (6);
 
-    auto bottom = area.removeFromBottom (96);
+    auto bottom = area.removeFromBottom (130);
     generatorList.setBounds (area);
 
+    bottom.removeFromTop (6);
+    instrumentButton.setBounds (bottom.removeFromTop (28));
     bottom.removeFromTop (6);
     patternHeader.setBounds (bottom.removeFromTop (22));
     patternBox.setBounds (bottom.removeFromTop (28));

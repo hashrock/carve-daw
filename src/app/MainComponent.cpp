@@ -14,12 +14,17 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onSave = [this] { saveSong(); };
     transportBar->onOpen = [this] { openSong(); };
 
-    generatorPanel = std::make_unique<GeneratorPanel> (song, undoManager);
+    generatorPanel = std::make_unique<GeneratorPanel> (engine, song, undoManager);
     generatorPanel->onSelectionChanged = [this] (const juce::String& generatorId,
                                                  const juce::String& patternId)
     {
         selectionChanged (generatorId, patternId);
     };
+    generatorPanel->onOpenPluginEditor = [this] (const juce::String& generatorId)
+    {
+        openPluginEditor (generatorId);
+    };
+    generatorPanel->onManagePlugins = [this] { openPluginManager(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
@@ -49,6 +54,7 @@ MainComponent::~MainComponent()
 void MainComponent::loadSong (model::Song newSong)
 {
     edit->getTransport().stop (false, false);
+    pluginEditorWindows.clear();
     undoManager.clearUndoHistory();
 
     song = std::move (newSong);
@@ -69,8 +75,69 @@ void MainComponent::selectionChanged (const juce::String& generatorId, const juc
     playlist.setSelection (generatorId, patternId);
 }
 
+void MainComponent::openPluginEditor (const juce::String& generatorId)
+{
+    if (auto existing = pluginEditorWindows.find (generatorId);
+        existing != pluginEditorWindows.end())
+    {
+        existing->second->toFront (true);
+        return;
+    }
+
+    // generator order == track order (EditSync invariant)
+    const auto generators = song.getGenerators();
+    const auto tracks = te::getAudioTracks (*edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+    {
+        if (generators[(size_t) i].getId() != generatorId)
+            continue;
+
+        if (auto external = tracks[i]->pluginList.findFirstPluginOfType<te::ExternalPlugin>())
+        {
+            if (auto instance = external->getAudioPluginInstance())
+            {
+                // destruction is deferred: the close callback runs inside the
+                // window's own member function
+                auto onClose = [safe = juce::Component::SafePointer (this), generatorId]
+                {
+                    juce::MessageManager::callAsync ([safe, generatorId]
+                    {
+                        if (safe != nullptr)
+                            safe->pluginEditorWindows.erase (generatorId);
+                    });
+                };
+                pluginEditorWindows[generatorId] =
+                    std::make_unique<PluginEditorWindow> (*instance, std::move (onClose));
+            }
+        }
+        return;   // internal 4OSC has no editor window yet
+    }
+}
+
+void MainComponent::openPluginManager()
+{
+    if (pluginScanWindow != nullptr)
+    {
+        pluginScanWindow->toFront (true);
+        return;
+    }
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->pluginScanWindow.reset();
+        });
+    };
+    pluginScanWindow = std::make_unique<PluginScanWindow> (engine, std::move (onClose));
+}
+
 void MainComponent::saveSong()
 {
+    if (editSync != nullptr)
+        editSync->captureLivePluginState();
+
     fileChooser = std::make_shared<juce::FileChooser> ("Save song", juce::File(), "*.orion");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                   | juce::FileBrowserComponent::canSelectFiles,

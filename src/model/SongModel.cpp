@@ -100,6 +100,38 @@ Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juc
     return Pattern (pattern);
 }
 
+void Generator::setPlugin (const juce::PluginDescription& description, juce::UndoManager* um)
+{
+    auto plugin = getOrCreateChild (state, ids::PLUGIN);
+    if (auto xml = description.createXml())
+        plugin.setProperty (ids::desc, xml->toString(), um);
+}
+
+std::optional<juce::PluginDescription> Generator::getPluginDescription() const
+{
+    auto plugin = state.getChildWithName (ids::PLUGIN);
+    if (! plugin.isValid())
+        return std::nullopt;
+
+    if (auto xml = juce::parseXML (plugin[ids::desc].toString()))
+    {
+        juce::PluginDescription description;
+        if (description.loadFromXml (*xml))
+            return description;
+    }
+    return std::nullopt;
+}
+
+void Generator::setPluginState (const juce::String& base64, juce::UndoManager* um)
+{
+    getOrCreateChild (state, ids::PLUGIN).setProperty (ids::state, base64, um);
+}
+
+juce::String Generator::getPluginState() const
+{
+    return state.getChildWithName (ids::PLUGIN)[ids::state];
+}
+
 //==============================================================================
 // Playlist
 

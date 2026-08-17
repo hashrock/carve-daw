@@ -12,7 +12,10 @@ void printUsage()
                  "  orionish-te-render --demo <out.wav>          render the built-in demo song\n"
                  "  orionish-te-render --write-demo <out.orion>  write the demo song as a project file\n"
                  "  orionish-te-render <song.orion> <out.wav>    render an Orionish project file\n"
-                 "  orionish-te-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n";
+                 "  orionish-te-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n"
+                 "  orionish-te-render --scan                    scan VST3/AU plugins (cached in settings)\n"
+                 "  orionish-te-render --plugin-demo <name> <out.wav>\n"
+                 "        render the demo song using the named (substring-matched) instrument plugin\n";
 }
 
 juce::File resolveFile (const juce::String& path)
@@ -49,6 +52,71 @@ int renderSongToWav (te::Engine& engine, const orionish::model::Song& song, cons
     return renderEditToWav (*edit, outputFile, song.getName());
 }
 
+int scanPlugins (te::Engine& engine)
+{
+    auto& pluginManager = engine.getPluginManager();
+
+    for (auto* format : pluginManager.pluginFormatManager.getFormats())
+    {
+        std::cout << "Scanning " << format->getName() << "...\n";
+        juce::PluginDirectoryScanner scanner (
+            pluginManager.knownPluginList, *format,
+            format->getDefaultLocationsToSearch(), true,
+            engine.getTemporaryFileManager().getTempFile ("scan-dead-mans-pedal"));
+
+        juce::String pluginBeingScanned;
+        while (scanner.scanNextFile (true, pluginBeingScanned)) {}
+    }
+
+    // PluginManager normally saves the list from an async change callback,
+    // which never runs in this CLI — persist it explicitly.
+    if (auto xml = pluginManager.knownPluginList.createXml())
+        engine.getPropertyStorage().setXmlProperty (te::SettingID::knownPluginList64, *xml);
+
+    const auto types = pluginManager.knownPluginList.getTypes();
+    std::cout << "\nFound " << types.size() << " plugins:\n";
+    for (const auto& type : types)
+        std::cout << (type.isInstrument ? "  [inst] " : "  [fx]   ")
+                  << type.pluginFormatName << "  " << type.name
+                  << "  (" << type.fileOrIdentifier << ")\n";
+    return 0;
+}
+
+int renderPluginDemo (te::Engine& engine, const juce::String& nameSubstring,
+                      const juce::File& outputFile)
+{
+    const auto types = engine.getPluginManager().knownPluginList.getTypes();
+    if (types.isEmpty())
+    {
+        std::cerr << "No plugins known — run --scan first\n";
+        return 1;
+    }
+
+    const juce::PluginDescription* match = nullptr;
+    for (const auto& type : types)
+        if (type.isInstrument && type.name.containsIgnoreCase (nameSubstring))
+        {
+            match = &type;
+            break;
+        }
+
+    if (match == nullptr)
+    {
+        std::cerr << "No instrument plugin matching \"" << nameSubstring << "\"\n";
+        return 1;
+    }
+
+    std::cout << "Using " << match->pluginFormatName << ": " << match->name << "\n";
+
+    auto song = orionish::model::buildDemoSong();
+    for (auto generator : song.getGenerators())
+    {
+        generator.state.setProperty (orionish::model::ids::type, "plugin", nullptr);
+        generator.setPlugin (*match, nullptr);
+    }
+    return renderSongToWav (engine, song, outputFile);
+}
+
 } // namespace
 
 int main (int argc, char* argv[])
@@ -56,13 +124,21 @@ int main (int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     juce::StringArray args (argv + 1, argc - 1);
 
-    if (args.size() != 2)
+    if (args.isEmpty() || (args[0] == "--scan" ? args.size() != 1
+                           : args[0] == "--plugin-demo" ? args.size() != 3
+                                                        : args.size() != 2))
     {
         printUsage();
         return args.isEmpty() ? 0 : 1;
     }
 
     te::Engine engine { "orionish-te" };
+
+    if (args[0] == "--scan")
+        return scanPlugins (engine);
+
+    if (args[0] == "--plugin-demo")
+        return renderPluginDemo (engine, args[1], resolveFile (args[2]));
 
     if (args[0] == "--demo")
         return renderSongToWav (engine, orionish::model::buildDemoSong(), resolveFile (args[1]));
