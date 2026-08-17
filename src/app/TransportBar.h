@@ -9,7 +9,8 @@ namespace te = tracktion;
 namespace orionish::app
 {
 
-// Play/stop, loop toggle, BPM, position readout, undo/redo and save/open.
+// Play/stop, loop toggle, BPM, position readout, document name, undo/redo and
+// save/open.
 class TransportBar : public juce::Component,
                      private juce::Timer
 {
@@ -19,6 +20,12 @@ public:
     std::function<void()> onSave, onOpen, onOpenMixer;
 
     void setSong (model::Song newSong);
+
+    // The window title is the authoritative place for this, but the title bar
+    // is easy to lose behind the floating editors, so the transport bar shows
+    // it too. Owned by MainComponent, which tracks the document.
+    void setDocumentState (const juce::String& documentName, bool hasUnsavedChanges);
+
     void togglePlay();
 
     void resized() override;
@@ -36,7 +43,7 @@ private:
                      undoButton { "Undo" }, redoButton { "Redo" },
                      saveButton { "Save" }, openButton { "Open" };
     juce::ToggleButton loopButton { "Loop" };
-    juce::Label bpmLabel, positionLabel;
+    juce::Label bpmLabel, positionLabel, documentLabel;
 };
 
 } // namespace orionish::app

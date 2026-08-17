@@ -150,6 +150,18 @@ void GeneratorPanel::selectGenerator (const juce::String& generatorId)
         }
 }
 
+void GeneratorPanel::selectPattern (const juce::String& patternId)
+{
+    if (patternId.isEmpty())
+        return;
+
+    // rebuildPatternBox falls back to the first pattern if this id isn't one
+    // of the selected generator's, so a stale id can't leave a bad selection.
+    selectedPatternId = patternId;
+    rebuildPatternBox();
+    fireSelectionChanged();
+}
+
 juce::String GeneratorPanel::getSelectedGeneratorId() const
 {
     const int row = generatorList.getSelectedRow();

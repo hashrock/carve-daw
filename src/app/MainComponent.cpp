@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "EngineSetup.h"
 #include "model/DemoSong.h"
 
 namespace orionish::app
@@ -34,6 +35,16 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         generatorPanel->selectGenerator (generatorId);
     };
 
+    // Double-clicking a clip edits the pattern it plays: make that pattern the
+    // selection, then open (or retarget) the pattern editor on it.
+    playlist.onEditPattern = [this] (const juce::String& generatorId,
+                                     const juce::String& patternId)
+    {
+        generatorPanel->selectGenerator (generatorId);
+        generatorPanel->selectPattern (patternId);
+        openPatternEditor();
+    };
+
     playlistViewport.setViewedComponent (&playlist, false);
 
     addAndMakeVisible (*transportBar);
@@ -49,10 +60,11 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
 MainComponent::~MainComponent()
 {
+    song.state.removeListener (this);
     edit->getTransport().stop (false, false);
 }
 
-void MainComponent::loadSong (model::Song newSong)
+void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 {
     edit->getTransport().stop (false, false);
     pluginEditorWindows.clear();
@@ -60,12 +72,50 @@ void MainComponent::loadSong (model::Song newSong)
     mixerWindow.reset();
     undoManager.clearUndoHistory();
 
+    song.state.removeListener (this);
     song = std::move (newSong);
+    song.state.addListener (this);
+
     editSync = std::make_unique<sync::EditSync> (song, *edit);
 
     transportBar->setSong (song);
     playlist.setSong (song);
     generatorPanel->setSong (song);   // fires onSelectionChanged -> updates piano roll
+
+    // Last, because handing the song to the views can write to the tree and a
+    // song that has just been loaded has nothing unsaved by definition.
+    currentFile = std::move (sourceFile);
+    hasUnsavedChanges = false;
+    updateDocumentDisplay();
+}
+
+void MainComponent::markDirty()
+{
+    if (hasUnsavedChanges)
+        return;   // a fader drag arrives here on every mouse move
+
+    hasUnsavedChanges = true;
+    updateDocumentDisplay();
+}
+
+void MainComponent::updateDocumentDisplay()
+{
+    const auto documentName = currentFile != juce::File() ? currentFile.getFileName()
+                                                          : juce::String ("Untitled");
+
+    // The window does not exist yet while the constructor loads the demo song;
+    // parentHierarchyChanged() comes back here once it does.
+    if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+        window->setName (documentName + (hasUnsavedChanges ? " *" : "")
+                             + " - " + orionish::applicationName);
+
+    if (transportBar != nullptr)
+        transportBar->setDocumentState (documentName, hasUnsavedChanges);
+}
+
+void MainComponent::parentHierarchyChanged()
+{
+    updateDocumentDisplay();
 }
 
 void MainComponent::selectionChanged (const juce::String& generatorId, const juce::String& patternId)
@@ -194,19 +244,48 @@ void MainComponent::openPluginManager()
 
 void MainComponent::saveSong()
 {
-    if (editSync != nullptr)
-        editSync->captureLivePluginState();
+    if (currentFile != juce::File())
+    {
+        writeSongTo (currentFile);
+        return;
+    }
 
-    fileChooser = std::make_shared<juce::FileChooser> ("Save song", juce::File(), "*.orion");
+    saveSongAs();
+}
+
+void MainComponent::saveSongAs()
+{
+    fileChooser = std::make_shared<juce::FileChooser> ("Save song", currentFile, "*.orion");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
-                                  | juce::FileBrowserComponent::canSelectFiles,
+                                  | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
                               [this] (const juce::FileChooser& chooser)
     {
         auto file = chooser.getResult();
         if (file == juce::File())
             return;
-        song.saveToFile (file.withFileExtension ("orion"));
+        writeSongTo (file.withFileExtension ("orion"));
     });
+}
+
+void MainComponent::writeSongTo (const juce::File& file)
+{
+    // An external plugin's state only exists inside the live instance until
+    // this copies it into the model, so every save has to come through here.
+    if (editSync != nullptr)
+        editSync->captureLivePluginState();
+
+    if (! song.saveToFile (file))
+    {
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                     "Save failed",
+                                                     "Could not write " + file.getFullPathName());
+        return;
+    }
+
+    currentFile = file;
+    hasUnsavedChanges = false;   // captureLivePluginState above will have set it
+    updateDocumentDisplay();
 }
 
 void MainComponent::openSong()
@@ -220,7 +299,7 @@ void MainComponent::openSong()
         if (file == juce::File())
             return;
         if (auto loaded = model::Song::loadFromFile (file))
-            loadSong (*loaded);
+            loadSong (*loaded, file);
     });
 }
 
@@ -245,6 +324,17 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
                                         | juce::ModifierKeys::shiftModifier, 0))
     {
         undoManager.redo();
+        return true;
+    }
+    if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier, 0))
+    {
+        saveSong();
+        return true;
+    }
+    if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier
+                                        | juce::ModifierKeys::shiftModifier, 0))
+    {
+        saveSongAs();
         return true;
     }
     return false;
