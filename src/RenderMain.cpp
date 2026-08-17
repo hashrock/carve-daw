@@ -149,8 +149,7 @@ int main (int argc, char* argv[])
         return args.isEmpty() ? 0 : 1;
     }
 
-    auto enginePtr = orionish::createEngine ("orionish-te",
-                                             std::make_unique<orionish::HeadlessUIBehaviour>());
+    auto enginePtr = orionish::createEngine (std::make_unique<orionish::HeadlessUIBehaviour>());
     auto& engine = *enginePtr;
 
     if (args[0] == "--scan")

@@ -12,9 +12,19 @@ public:
     const juce::String getApplicationName() override     { return "Orionish TE"; }
     const juce::String getApplicationVersion() override  { return "0.1.0"; }
 
-    void initialise (const juce::String&) override
+    void initialise (const juce::String& commandLine) override
     {
-        engine = orionish::createEngine ("Orionish TE");
+        // Plugin scans run in a child process, which is this same executable
+        // re-launched with a command line the engine recognises. This has to
+        // come first: a scanner process must not start an engine or open a
+        // window. Paired with canScanPluginsOutOfProcess() in EngineSetup.h.
+        if (te::PluginManager::startChildProcessPluginScan (commandLine))
+        {
+            juce::Process::setDockIconVisible (false);
+            return;
+        }
+
+        engine = orionish::createEngine (nullptr, true);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
     }
 

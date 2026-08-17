@@ -41,14 +41,17 @@ $BIN --demo demo.wav              # デモ曲をレンダリング
 $BIN --write-demo demo.orion      # デモ曲を .orion として書き出し
 $BIN demo.orion out.wav           # .orion をレンダリング
 $BIN some.tracktionedit out.wav   # 素の tracktion edit もレンダリング可
-$BIN --scan                       # VST3/AU をスキャン (結果は設定に永続化)
+$BIN --scan                       # VST3/AU をスキャン (GUI と共有の設定に永続化)
 $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ曲をレンダ
 ```
 
 ### GUI 操作
 
 - **+ Generator**: 4OSC(内蔵)またはスキャン済み VST3/AU インストゥルメントを選択。
-  「Scan / manage plugins...」でスキャン画面を開ける
+  「Scan / manage plugins...」でスキャン画面を開ける。
+  GUI のスキャンは子プロセスで走るので、読み込みで落ちるプラグインがあっても
+  アプリは巻き添えにならず、そのプラグインはブラックリスト入りして続行する
+  (CLI の `--scan` はメッセージループが無いため同一プロセスで走る)
 - **Instrument UI**: 選択中 Generator のプラグインエディタを開く(外部プラグインのみ)
 - **Edit Pattern**(または Generator をダブルクリック): パターンエディタをポップアップで開く。
   選択中のパターンに追従する
