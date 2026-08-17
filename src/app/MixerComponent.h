@@ -31,6 +31,10 @@ public:
 
     void setSong (model::Song newSong);
 
+    // Fired when adding or removing a generator has changed how wide the
+    // strips need to be, so the containing window can re-fit itself.
+    std::function<void()> onContentWidthChanged;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 

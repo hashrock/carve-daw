@@ -15,20 +15,37 @@ namespace orionish::app
 {
 
 class MainComponent : public juce::Component,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ValueTree::Listener
 {
 public:
     explicit MainComponent (te::Engine& engineToUse);
     ~MainComponent() override;
 
     void resized() override;
+    void parentHierarchyChanged() override;
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
     void timerCallback() override;
-    void loadSong (model::Song newSong);
+
+    // The one place a new song arrives, whether from disk or the demo builder.
+    void loadSong (model::Song newSong, juce::File sourceFile = {});
     void selectionChanged (const juce::String& generatorId, const juce::String& patternId);
+
+    // Any edit at all reaches the song tree, so that is what "dirty" watches.
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { markDirty(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { markDirty(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { markDirty(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { markDirty(); }
+    void valueTreeParentChanged (juce::ValueTree&) override                             {}
+
+    void markDirty();
+    void updateDocumentDisplay();
+
     void saveSong();
+    void saveSongAs();
+    void writeSongTo (const juce::File& file);
     void openSong();
     void openPluginEditor (const juce::String& generatorId);
     void openPluginManager();
@@ -41,6 +58,11 @@ private:
     juce::UndoManager undoManager;
     model::Song song { model::Song::create ("Untitled") };
     std::unique_ptr<sync::EditSync> editSync;
+
+    // The file the song came from / goes back to on Cmd-S; empty until it has
+    // been saved once.
+    juce::File currentFile;
+    bool hasUnsavedChanges = false;
 
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<GeneratorPanel> generatorPanel;
