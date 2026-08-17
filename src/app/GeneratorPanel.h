@@ -30,6 +30,11 @@ public:
     void setSong (model::Song newSong);
     void selectGenerator (const juce::String& generatorId);
 
+    // Selects one of the current generator's patterns. Call after
+    // selectGenerator: selecting a generator picks its first pattern, so the
+    // order matters.
+    void selectPattern (const juce::String& patternId);
+
     juce::String getSelectedGeneratorId() const;
     juce::String getSelectedPatternId() const;
 

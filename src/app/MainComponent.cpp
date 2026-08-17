@@ -35,6 +35,16 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         generatorPanel->selectGenerator (generatorId);
     };
 
+    // Double-clicking a clip edits the pattern it plays: make that pattern the
+    // selection, then open (or retarget) the pattern editor on it.
+    playlist.onEditPattern = [this] (const juce::String& generatorId,
+                                     const juce::String& patternId)
+    {
+        generatorPanel->selectGenerator (generatorId);
+        generatorPanel->selectPattern (patternId);
+        openPatternEditor();
+    };
+
     playlistViewport.setViewedComponent (&playlist, false);
 
     addAndMakeVisible (*transportBar);
