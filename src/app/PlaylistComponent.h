@@ -28,7 +28,7 @@ public:
 
 private:
     static constexpr int labelWidth = 120;
-    static constexpr int rowHeight = 30;
+    static constexpr int rowHeight = 44;
     static constexpr double pixelsPerBeat = 14.0;
     static constexpr double snapBeats = 4.0;   // place on bar boundaries
 

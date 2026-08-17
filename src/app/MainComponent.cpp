@@ -25,25 +25,24 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         openPluginEditor (generatorId);
     };
     generatorPanel->onManagePlugins = [this] { openPluginManager(); };
+    generatorPanel->onOpenPatternEditor = [this] { openPatternEditor(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
         generatorPanel->selectGenerator (generatorId);
     };
 
-    pianoRollViewport.setViewedComponent (&pianoRoll, false);
     playlistViewport.setViewedComponent (&playlist, false);
 
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*generatorPanel);
-    addAndMakeVisible (pianoRollViewport);
     addAndMakeVisible (playlistViewport);
 
     loadSong (model::buildDemoSong());
 
     setWantsKeyboardFocus (true);
     startTimerHz (30);
-    setSize (1200, 760);
+    setSize (1100, 620);
 }
 
 MainComponent::~MainComponent()
@@ -55,6 +54,7 @@ void MainComponent::loadSong (model::Song newSong)
 {
     edit->getTransport().stop (false, false);
     pluginEditorWindows.clear();
+    pianoRollWindow.reset();
     undoManager.clearUndoHistory();
 
     song = std::move (newSong);
@@ -67,12 +67,43 @@ void MainComponent::loadSong (model::Song newSong)
 
 void MainComponent::selectionChanged (const juce::String& generatorId, const juce::String& patternId)
 {
-    std::optional<model::Pattern> pattern;
-    if (auto generator = song.findGenerator (generatorId))
-        pattern = generator->findPattern (patternId);
-
-    pianoRoll.setPattern (pattern);
+    selectedGeneratorId = generatorId;
+    selectedPatternId = patternId;
     playlist.setSelection (generatorId, patternId);
+
+    if (pianoRollWindow != nullptr)
+        openPatternEditor();   // retarget the open editor to the new selection
+}
+
+void MainComponent::openPatternEditor()
+{
+    std::optional<model::Pattern> pattern;
+    juce::String title;
+
+    if (auto generator = song.findGenerator (selectedGeneratorId))
+        if ((pattern = generator->findPattern (selectedPatternId)))
+            title = generator->getName() + " / " + pattern->getName();
+
+    if (pianoRollWindow == nullptr)
+    {
+        auto onClose = [safe = juce::Component::SafePointer (this)]
+        {
+            juce::MessageManager::callAsync ([safe]
+            {
+                if (safe != nullptr)
+                    safe->pianoRollWindow.reset();
+            });
+        };
+        auto keyHandler = [safe = juce::Component::SafePointer (this)] (const juce::KeyPress& key)
+        {
+            return safe != nullptr && safe->handleGlobalKey (key);
+        };
+        pianoRollWindow = std::make_unique<PianoRollWindow> (undoManager, std::move (onClose),
+                                                             std::move (keyHandler));
+    }
+
+    pianoRollWindow->setPattern (std::move (pattern), title);
+    pianoRollWindow->toFront (true);
 }
 
 void MainComponent::openPluginEditor (const juce::String& generatorId)
@@ -167,6 +198,11 @@ void MainComponent::openSong()
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
+    return handleGlobalKey (key);
+}
+
+bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
+{
     if (key == juce::KeyPress::spaceKey)
     {
         transportBar->togglePlay();
@@ -196,13 +232,8 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
     transportBar->setBounds (area.removeFromTop (44));
-
-    auto bottom = area.removeFromBottom (190);
     generatorPanel->setBounds (area.removeFromLeft (220));
-    pianoRollViewport.setBounds (area);
-
-    bottom.removeFromTop (4);
-    playlistViewport.setBounds (bottom);
+    playlistViewport.setBounds (area);
 }
 
 } // namespace orionish::app

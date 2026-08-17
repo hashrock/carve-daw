@@ -25,6 +25,7 @@ public:
     std::function<void (const juce::String&, const juce::String&)> onSelectionChanged;
     std::function<void (const juce::String&)> onOpenPluginEditor;   // generatorId
     std::function<void()> onManagePlugins;
+    std::function<void()> onOpenPatternEditor;
 
     void setSong (model::Song newSong);
     void selectGenerator (const juce::String& generatorId);
@@ -38,6 +39,7 @@ private:
     int getNumRows() override;
     void paintListBoxItem (int row, juce::Graphics&, int width, int height, bool selected) override;
     void selectedRowsChanged (int) override;
+    void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { triggerAsyncUpdate(); }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { triggerAsyncUpdate(); }
@@ -60,6 +62,7 @@ private:
     juce::ListBox generatorList;
     juce::TextButton addGeneratorButton { "+ Generator" };
     juce::TextButton instrumentButton { "Instrument UI" };
+    juce::TextButton editPatternButton { "Edit Pattern" };
     juce::Label patternHeader;
     juce::ComboBox patternBox;
     juce::TextButton addPatternButton { "+ Pattern" };

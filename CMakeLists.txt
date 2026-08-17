@@ -63,6 +63,8 @@ target_sources(orionish-te PRIVATE
     src/app/GeneratorPanel.cpp
     src/app/PianoRollComponent.h
     src/app/PianoRollComponent.cpp
+    src/app/PianoRollWindow.h
+    src/app/PluginWindows.h
     src/app/PlaylistComponent.h
     src/app/PlaylistComponent.cpp)
 orionish_configure_target(orionish-te)

@@ -18,6 +18,12 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
                 onOpenPluginEditor (id);
     };
 
+    editPatternButton.onClick = [this]
+    {
+        if (onOpenPatternEditor)
+            onOpenPatternEditor();
+    };
+
     patternHeader.setText ("Patterns", juce::dontSendNotification);
     patternHeader.setJustificationType (juce::Justification::centredLeft);
 
@@ -54,7 +60,7 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &generatorList, &addGeneratorButton, &instrumentButton,
-             &patternHeader, &patternBox, &addPatternButton })
+             &editPatternButton, &patternHeader, &patternBox, &addPatternButton })
         addAndMakeVisible (c);
 
     song.state.addListener (this);
@@ -176,6 +182,12 @@ void GeneratorPanel::paintListBoxItem (int row, juce::Graphics& g, int width, in
     }
 }
 
+void GeneratorPanel::listBoxItemDoubleClicked (int, const juce::MouseEvent&)
+{
+    if (onOpenPatternEditor)
+        onOpenPatternEditor();
+}
+
 void GeneratorPanel::selectedRowsChanged (int row)
 {
     if (isRefreshing)
@@ -245,7 +257,7 @@ void GeneratorPanel::resized()
     addGeneratorButton.setBounds (area.removeFromTop (28));
     area.removeFromTop (6);
 
-    auto bottom = area.removeFromBottom (130);
+    auto bottom = area.removeFromBottom (164);
     generatorList.setBounds (area);
 
     bottom.removeFromTop (6);
@@ -254,7 +266,10 @@ void GeneratorPanel::resized()
     patternHeader.setBounds (bottom.removeFromTop (22));
     patternBox.setBounds (bottom.removeFromTop (28));
     bottom.removeFromTop (6);
-    addPatternButton.setBounds (bottom.removeFromTop (28));
+    auto patternButtons = bottom.removeFromTop (28);
+    addPatternButton.setBounds (patternButtons.removeFromLeft (patternButtons.getWidth() / 2 - 3));
+    patternButtons.removeFromLeft (6);
+    editPatternButton.setBounds (patternButtons);
 }
 
 } // namespace orionish::app
