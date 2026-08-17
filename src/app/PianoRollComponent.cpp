@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "PianoRollComponent.h"
 
 namespace orionish::app
@@ -9,6 +11,15 @@ namespace
     {
         const int n = pitch % 12;
         return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
+    }
+
+    // Grid positions land on thirds for triplet grids, so exact comparisons
+    // against bar/beat boundaries need a tolerance. remainder() (unlike fmod)
+    // is signed and centred on zero, which makes one comparison enough on both
+    // sides of the boundary.
+    bool isMultipleOf (double beat, double unit)
+    {
+        return std::abs (std::remainder (beat, unit)) < 1.0e-6;
     }
 } // namespace
 
@@ -40,6 +51,31 @@ void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
     repaint();
 }
 
+void PianoRollComponent::setGridBeats (double beats)
+{
+    // exactlyEqual because the question is "would this write change anything",
+    // not "are these two numbers close"; it also keeps -Wfloat-equal quiet
+    if (beats > 0.0 && ! juce::exactlyEqual (beats, gridBeats))
+    {
+        gridBeats = beats;
+        repaint();
+    }
+}
+
+void PianoRollComponent::setSnapEnabled (bool shouldSnap)
+{
+    snapEnabled = shouldSnap;
+}
+
+void PianoRollComponent::patternChanged()
+{
+    // The pattern length drives the component width, so any property change
+    // may need a resize. setSize() early-outs when nothing moved, which makes
+    // this cheap enough to run for note edits too.
+    updateSize();
+    repaint();
+}
+
 void PianoRollComponent::updateSize()
 {
     const double lengthBeats = pattern ? pattern->getLengthBeats() : 16.0;
@@ -51,6 +87,27 @@ double PianoRollComponent::xToBeat (float x) const     { return (x - (float) key
 float PianoRollComponent::beatToX (double beat) const  { return (float) (keyboardWidth + beat * pixelsPerBeat); }
 int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / rowHeight); }
 float PianoRollComponent::pitchToY (int pitch) const   { return (float) ((highestPitch - pitch) * rowHeight); }
+
+double PianoRollComponent::snapDown (double beat) const
+{
+    if (! snapEnabled)
+        return beat;
+
+    return std::floor (beat / gridBeats + 1.0e-9) * gridBeats;
+}
+
+double PianoRollComponent::snapUp (double beat) const
+{
+    if (! snapEnabled)
+        return beat;
+
+    return std::ceil (beat / gridBeats - 1.0e-9) * gridBeats;
+}
+
+double PianoRollComponent::minLengthBeats() const
+{
+    return snapEnabled ? gridBeats : freeMinLengthBeats;
+}
 
 juce::Rectangle<float> PianoRollComponent::noteBounds (const model::Note& note) const
 {
@@ -71,6 +128,16 @@ std::optional<model::Note> PianoRollComponent::noteAt (juce::Point<float> positi
             return note;
     }
     return std::nullopt;
+}
+
+bool PianoRollComponent::isOverResizeZone (const model::Note& note, juce::Point<float> position) const
+{
+    const auto bounds = noteBounds (note);
+
+    // never let the resize zone swallow a short note whole, or it becomes
+    // impossible to drag
+    const auto zone = juce::jmin (resizeZoneWidth, bounds.getWidth() * 0.4f);
+    return position.x > bounds.getRight() - zone;
 }
 
 void PianoRollComponent::paint (juce::Graphics& g)
@@ -96,16 +163,23 @@ void PianoRollComponent::paint (juce::Graphics& g)
         }
     }
 
-    // vertical grid
-    for (double beat = 0.0; beat <= lengthBeats + 1.0e-9; beat += gridBeats)
+    // Vertical grid. Stepped by index rather than by accumulating gridBeats so
+    // that a triplet grid does not drift across a long pattern.
+    const int numGridLines = (int) std::floor (lengthBeats / gridBeats + 1.0e-9);
+    for (int i = 0; i <= numGridLines; ++i)
     {
-        const bool isBar = std::abs (std::fmod (beat, 4.0)) < 1.0e-9;
-        const bool isBeat = std::abs (std::fmod (beat, 1.0)) < 1.0e-9;
+        const double beat = (double) i * gridBeats;
+        const bool isBar = isMultipleOf (beat, beatsPerBar);
+        const bool isBeat = isMultipleOf (beat, 1.0);
         g.setColour (isBar ? juce::Colour (0xff55555e)
                            : isBeat ? juce::Colour (0xff3a3a40)
                                     : juce::Colour (0xff2c2c31));
         g.drawVerticalLine ((int) beatToX (beat), 0.0f, (float) getHeight());
     }
+
+    // end of the pattern, which an off-grid length would otherwise not mark
+    g.setColour (juce::Colour (0xff6a6a74));
+    g.drawVerticalLine ((int) gridRight, 0.0f, (float) getHeight());
 
     // notes
     if (pattern)
@@ -138,79 +212,174 @@ void PianoRollComponent::paint (juce::Graphics& g)
     }
 }
 
+juce::MouseCursor PianoRollComponent::cursorFor (juce::Point<float> position,
+                                                 const juce::ModifierKeys& mods) const
+{
+    // the keyboard column is not editable, and neither is an empty editor
+    if (! pattern || position.x < (float) keyboardWidth)
+        return juce::MouseCursor::NormalCursor;
+
+    if (isEraseGesture (mods))
+        return juce::MouseCursor::CrosshairCursor;
+
+    if (auto note = noteAt (position))
+        return isOverResizeZone (*note, position) ? juce::MouseCursor::LeftRightResizeCursor
+                                                  : juce::MouseCursor::DraggingHandCursor;
+
+    return juce::MouseCursor::NormalCursor;
+}
+
+void PianoRollComponent::updateCursor (const juce::MouseEvent& e)
+{
+    setMouseCursor (cursorFor (e.position, e.mods));
+}
+
+void PianoRollComponent::modifierKeysChanged (const juce::ModifierKeys& modifiers)
+{
+    // holding alt turns the pointer into the erase cursor without moving the
+    // mouse, so react to the modifier itself as well as to mouseMove
+    if (dragMode == DragMode::none && isMouseOver (false))
+        setMouseCursor (cursorFor (getMouseXYRelative().toFloat(), modifiers));
+}
+
+void PianoRollComponent::mouseMove (const juce::MouseEvent& e)
+{
+    updateCursor (e);
+}
+
+void PianoRollComponent::eraseAt (juce::Point<float> position)
+{
+    if (! pattern)
+        return;
+
+    // notes may overlap, so keep going until the cursor is over empty grid;
+    // bounded by the note count so a stuck removal cannot hang the UI
+    for (int guard = pattern->getNumNotes(); --guard >= 0;)
+    {
+        auto note = noteAt (position);
+        if (! note)
+            break;
+
+        pattern->removeNote (*note, &undoManager);
+    }
+}
+
+void PianoRollComponent::eraseAlong (juce::Point<float> from, juce::Point<float> to)
+{
+    // Sample along the segment rather than only at the end points: mouse
+    // events arrive far apart during a fast sweep, and a note is only 12px
+    // tall, so testing the end point alone would skip whole rows.
+    const auto distance = from.getDistanceFrom (to);
+    const int steps = juce::jlimit (1, 64, (int) std::ceil (distance / 4.0f));
+
+    for (int i = 1; i <= steps; ++i)
+        eraseAt (from + (to - from) * ((float) i / (float) steps));
+}
+
 void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 {
     if (! pattern || e.position.x < (float) keyboardWidth)
         return;
 
+    // One transaction per gesture: everything mouseDrag does afterwards is
+    // appended to it, so a whole move or erase sweep undoes in a single step.
     undoManager.beginNewTransaction();
+
+    if (isEraseGesture (e.mods))
+    {
+        dragMode = DragMode::erase;
+        lastErasePosition = e.position;
+        eraseAt (e.position);
+        updateCursor (e);
+        return;
+    }
 
     if (auto note = noteAt (e.position))
     {
-        if (e.mods.isRightButtonDown() || e.mods.isAltDown())
-        {
-            pattern->removeNote (*note, &undoManager);
-            return;
-        }
-
         draggedNote = note;
-        const auto bounds = noteBounds (*note);
-        if (e.position.x > bounds.getRight() - 6.0f)
+
+        if (isOverResizeZone (*note, e.position))
         {
             dragMode = DragMode::resize;
         }
         else
         {
+            // Remember where inside the note it was grabbed, in both axes, so
+            // the note keeps its position under the cursor for the whole drag
+            // instead of snapping its centre to the pointer.
             dragMode = DragMode::move;
             grabOffsetBeats = xToBeat (e.position.x) - note->getStart();
+            grabPitchOffset = note->getPitch() - yToPitch (e.position.y);
         }
+
+        updateCursor (e);
         return;
     }
 
-    if (e.mods.isRightButtonDown() || e.mods.isAltDown())
-        return;
-
-    const auto start = juce::jlimit (0.0, pattern->getLengthBeats() - gridBeats,
-                                     snap (xToBeat (e.position.x)));
+    const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLengthBeats());
+    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x)));
     const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (e.position.y));
-    const auto length = juce::jmin (lastNoteLength, pattern->getLengthBeats() - start);
+    const auto length = juce::jmax (minLengthBeats(),
+                                    juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
     draggedNote = pattern->addNote (start, length, pitch, 100, &undoManager);
     dragMode = DragMode::move;
     grabOffsetBeats = xToBeat (e.position.x) - start;
+    grabPitchOffset = 0;   // a new note is created on the row under the cursor
+    updateCursor (e);
 }
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! pattern || ! draggedNote || dragMode == DragMode::none)
+    if (! pattern)
+        return;
+
+    if (dragMode == DragMode::erase)
+    {
+        eraseAlong (lastErasePosition, e.position);
+        lastErasePosition = e.position;
+        return;
+    }
+
+    if (! draggedNote)
         return;
 
     if (dragMode == DragMode::move)
     {
-        const auto start = juce::jlimit (0.0, pattern->getLengthBeats() - draggedNote->getLength(),
-                                         snap (xToBeat (e.position.x) - grabOffsetBeats));
-        const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (e.position.y));
-        draggedNote->setStart (start, &undoManager);
-        draggedNote->setPitch (pitch, &undoManager);
+        const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - draggedNote->getLength());
+        const auto start = juce::jlimit (0.0, maxStart,
+                                         snapDown (xToBeat (e.position.x) - grabOffsetBeats));
+        const auto pitch = juce::jlimit (lowestPitch, highestPitch,
+                                         yToPitch (e.position.y) + grabPitchOffset);
+
+        // Only write when the result actually moved: every property change
+        // triggers a full EditSync resync, and a drag produces a lot of events.
+        if (! juce::exactlyEqual (start, draggedNote->getStart()))
+            draggedNote->setStart (start, &undoManager);
+
+        if (pitch != draggedNote->getPitch())
+            draggedNote->setPitch (pitch, &undoManager);
     }
     else if (dragMode == DragMode::resize)
     {
-        const auto rawLength = xToBeat (e.position.x) - draggedNote->getStart();
-        const auto snapped = std::ceil (rawLength / gridBeats) * gridBeats;
-        const auto length = juce::jlimit (gridBeats,
-                                          pattern->getLengthBeats() - draggedNote->getStart(),
-                                          snapped);
-        draggedNote->setLength (length, &undoManager);
+        const auto maxLength = juce::jmax (minLengthBeats(),
+                                           pattern->getLengthBeats() - draggedNote->getStart());
+        const auto length = juce::jlimit (minLengthBeats(), maxLength,
+                                          snapUp (xToBeat (e.position.x) - draggedNote->getStart()));
+
+        if (! juce::exactlyEqual (length, draggedNote->getLength()))
+            draggedNote->setLength (length, &undoManager);
     }
 }
 
-void PianoRollComponent::mouseUp (const juce::MouseEvent&)
+void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 {
     if (draggedNote && dragMode == DragMode::resize)
         lastNoteLength = draggedNote->getLength();
 
     dragMode = DragMode::none;
     draggedNote.reset();
+    updateCursor (e);
 }
 
 } // namespace orionish::app
