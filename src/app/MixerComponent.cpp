@@ -310,9 +310,14 @@ void MixerComponent::rebuildStrips()
         strips.push_back (std::move (strip));
     }
 
+    const auto previousWidth = getWidth();
+
     setSize (juce::jmax (stripWidth, (int) strips.size() * stripWidth),
              juce::jmax (minHeight, getHeight()));
     resized();
+
+    if (getWidth() != previousWidth && onContentWidthChanged != nullptr)
+        onContentWidthChanged();
 }
 
 void MixerComponent::timerCallback()

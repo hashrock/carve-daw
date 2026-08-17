@@ -37,9 +37,14 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     positionLabel.setJustificationType (juce::Justification::centredLeft);
 
+    documentLabel.setJustificationType (juce::Justification::centredRight);
+    documentLabel.setMinimumHorizontalScale (1.0f);   // ellipsis, not squashed text
+    documentLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
+
     for (auto* c : std::initializer_list<juce::Component*> {
              &playButton, &stopButton, &loopButton, &bpmLabel, &positionLabel,
-             &mixerButton, &undoButton, &redoButton, &saveButton, &openButton })
+             &mixerButton, &documentLabel,
+             &undoButton, &redoButton, &saveButton, &openButton })
         addAndMakeVisible (c);
 
     startTimerHz (15);
@@ -48,6 +53,13 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 void TransportBar::setSong (model::Song newSong)
 {
     song = std::move (newSong);
+}
+
+void TransportBar::setDocumentState (const juce::String& documentName, bool hasUnsavedChanges)
+{
+    // Same "edited" marker the window title carries.
+    documentLabel.setText (documentName + (hasUnsavedChanges ? " *" : ""),
+                           juce::dontSendNotification);
 }
 
 double TransportBar::getSongLengthBeats() const
@@ -123,6 +135,10 @@ void TransportBar::resized()
     redoButton.setBounds (right.removeFromRight (60));
     right.removeFromRight (6);
     undoButton.setBounds (right.removeFromRight (60));
+
+    // whatever is left in the middle
+    right.removeFromRight (12);
+    documentLabel.setBounds (right);
 }
 
 } // namespace orionish::app
