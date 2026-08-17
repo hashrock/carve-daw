@@ -1,11 +1,245 @@
 #pragma once
 
+#include <cmath>
+#include <iterator>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "PianoRollComponent.h"
 
 namespace orionish::app
 {
+
+// Content of the pattern editor window: a toolbar over a scrolling piano roll.
+//
+// The toolbar mixes two kinds of setting. The pattern name and length belong to
+// the song, so they go through the model and the UndoManager; the grid unit and
+// the snap toggle are view state that only the roll cares about, so they never
+// touch the model and are not undoable.
+class PianoRollContent : public juce::Component,
+                         private juce::ValueTree::Listener
+{
+public:
+    explicit PianoRollContent (juce::UndoManager& um)
+        : undoManager (um), pianoRoll (um)
+    {
+        nameLabel.setEditable (false, true, false);
+        nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2c2c31));
+        nameLabel.setColour (juce::Label::outlineColourId, juce::Colour (0xff3a3a40));
+        nameLabel.onTextChange = [this] { applyName(); };
+
+        lengthLabel.setEditable (false, true, false);
+        lengthLabel.setJustificationType (juce::Justification::centred);
+        lengthLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2c2c31));
+        lengthLabel.setColour (juce::Label::outlineColourId, juce::Colour (0xff3a3a40));
+        lengthLabel.onTextChange = [this] { applyLength(); };
+
+        lengthHeader.setText ("Bars", juce::dontSendNotification);
+        lengthHeader.setJustificationType (juce::Justification::centredRight);
+
+        gridHeader.setText ("Grid", juce::dontSendNotification);
+        gridHeader.setJustificationType (juce::Justification::centredRight);
+
+        for (int i = 0; i < numGridOptions; ++i)
+            gridBox.addItem (gridOptions[i].name, i + 1);
+
+        gridBox.onChange = [this]
+        {
+            const auto index = gridBox.getSelectedId() - 1;
+            if (juce::isPositiveAndBelow (index, numGridOptions))
+                pianoRoll.setGridBeats (gridOptions[index].beats);
+        };
+
+        snapButton.setToggleState (pianoRoll.isSnapEnabled(), juce::dontSendNotification);
+        snapButton.onClick = [this] { pianoRoll.setSnapEnabled (snapButton.getToggleState()); };
+
+        // select the entry matching the roll's own default rather than
+        // assuming an index, so the two cannot drift apart
+        for (int i = 0; i < numGridOptions; ++i)
+            if (std::abs (gridOptions[i].beats - pianoRoll.getGridBeats()) < 1.0e-9)
+                gridBox.setSelectedId (i + 1, juce::dontSendNotification);
+
+        viewport.setViewedComponent (&pianoRoll, false);
+        viewport.setScrollBarsShown (true, true);
+
+        for (auto* c : std::initializer_list<juce::Component*> {
+                 &nameLabel, &lengthHeader, &lengthLabel, &gridHeader, &gridBox,
+                 &snapButton, &viewport })
+            addAndMakeVisible (c);
+
+        refreshFromPattern();
+    }
+
+    ~PianoRollContent() override
+    {
+        if (pattern)
+            pattern->state.removeListener (this);
+    }
+
+    // fired after a rename so the window can refresh its title bar
+    std::function<void (const juce::String&)> onPatternRenamed;
+
+    void setPattern (std::optional<model::Pattern> newPattern)
+    {
+        if (pattern)
+            pattern->state.removeListener (this);
+
+        pattern = newPattern;
+
+        if (pattern)
+            pattern->state.addListener (this);
+
+        pianoRoll.setPattern (std::move (newPattern));
+        refreshFromPattern();
+    }
+
+    // Start scrolled to the middle of the pitch range, where the notes usually
+    // are. Only meaningful once the viewport has a size.
+    void scrollToMiddleOfPitchRange()
+    {
+        viewport.setViewPosition (0, juce::jmax (0, pianoRoll.getHeight() / 2 - 200));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (juce::Colour (0xff2a2a2f));
+        g.fillRect (getLocalBounds().removeFromTop (toolbarHeight));
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 5);
+        viewport.setBounds (area);
+
+        auto place = [&toolbar] (juce::Component& c, int width, int gap = 6)
+        {
+            c.setBounds (toolbar.removeFromLeft (width));
+            toolbar.removeFromLeft (gap);
+        };
+
+        place (nameLabel, 180, 18);
+        place (lengthHeader, 34, 4);
+        place (lengthLabel, 54, 18);
+        place (gridHeader, 34, 4);
+        place (gridBox, 74, 18);
+        place (snapButton, 70);
+    }
+
+private:
+    static constexpr int toolbarHeight = 34;
+
+    // The model has no time signature, and the roll already draws its bar
+    // lines every four beats, so the toolbar counts bars the same way.
+    static constexpr double beatsPerBar = 4.0;
+    static constexpr double maxBars = 256.0;
+
+    struct GridOption { const char* name; double beats; };
+    static constexpr GridOption gridOptions[] = {
+        { "1/4",   1.0 },
+        { "1/8",   0.5 },
+        { "1/16",  0.25 },
+        { "1/32",  0.125 },
+        { "1/8T",  1.0 / 3.0 },
+        { "1/16T", 1.0 / 6.0 },
+    };
+    static constexpr int numGridOptions = (int) std::size (gridOptions);
+
+    // Only the pattern's own properties matter here; note edits arrive on the
+    // NOTE children and would just churn the toolbar text.
+    void valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property) override
+    {
+        if (pattern && tree == pattern->state
+             && (property == model::ids::name || property == model::ids::lengthBeats))
+            refreshFromPattern();
+    }
+
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override         {}
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override  {}
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override          {}
+    void valueTreeParentChanged (juce::ValueTree&) override                        {}
+
+    void refreshFromPattern()
+    {
+        const auto hasPattern = pattern.has_value();
+        nameLabel.setEnabled (hasPattern);
+        lengthLabel.setEnabled (hasPattern);
+
+        if (! hasPattern)
+        {
+            nameLabel.setText ("(no pattern)", juce::dontSendNotification);
+            lengthLabel.setText ("-", juce::dontSendNotification);
+            return;
+        }
+
+        // dontSendNotification so writing the text back does not re-enter
+        // applyName()/applyLength()
+        if (! nameLabel.isBeingEdited())
+            nameLabel.setText (pattern->getName(), juce::dontSendNotification);
+
+        if (! lengthLabel.isBeingEdited())
+            lengthLabel.setText (formatBars (pattern->getLengthBeats() / beatsPerBar),
+                                 juce::dontSendNotification);
+    }
+
+    static juce::String formatBars (double bars)
+    {
+        // keep whole bars (the normal case) free of a pointless ".00"
+        return juce::exactlyEqual (bars, std::floor (bars)) ? juce::String ((int) bars)
+                                                            : juce::String (bars, 2);
+    }
+
+    void applyName()
+    {
+        if (! pattern)
+            return;
+
+        const auto name = nameLabel.getText().trim();
+
+        if (name.isNotEmpty() && name != pattern->getName())
+        {
+            undoManager.beginNewTransaction();
+            pattern->setName (name, &undoManager);
+
+            if (onPatternRenamed)
+                onPatternRenamed (name);
+        }
+
+        refreshFromPattern();   // rewrite the text if the edit was rejected
+    }
+
+    void applyLength()
+    {
+        if (! pattern)
+            return;
+
+        const auto bars = lengthLabel.getText().getDoubleValue();
+
+        // Shrinking leaves notes past the new end in the pattern: they are kept
+        // deliberately, so that undoing a mistaken shorten restores everything.
+        if (bars > 0.0 && bars <= maxBars)
+        {
+            const auto beats = bars * beatsPerBar;
+
+            if (! juce::exactlyEqual (beats, pattern->getLengthBeats()))
+            {
+                undoManager.beginNewTransaction();
+                pattern->setLengthBeats (beats, &undoManager);
+            }
+        }
+
+        refreshFromPattern();
+    }
+
+    juce::UndoManager& undoManager;
+    std::optional<model::Pattern> pattern;
+
+    juce::Label nameLabel, lengthHeader, lengthLabel, gridHeader;
+    juce::ComboBox gridBox;
+    juce::ToggleButton snapButton { "Snap" };
+    juce::Viewport viewport;
+    PianoRollComponent pianoRoll;
+};
 
 // Floating pattern editor (Orion-style): the playlist stays in the main
 // window and each pattern is edited in this popup. Shows whichever pattern
@@ -21,27 +255,38 @@ public:
                                 juce::DocumentWindow::closeButton),
           onClose (std::move (onCloseCallback)),
           onKey (std::move (keyHandler)),
-          pianoRoll (um)
+          content (um)
     {
-        viewport.setViewedComponent (&pianoRoll, false);
-        viewport.setScrollBarsShown (true, true);
-        viewport.setSize (860, 520);
+        content.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
+        content.setSize (860, 554);
 
-        setContentNonOwned (&viewport, true);
+        setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
         setResizable (true, false);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
         toFront (true);
 
-        // start scrolled to the middle of the pitch range
-        viewport.setViewPosition (0, juce::jmax (0, pianoRoll.getHeight() / 2 - 200));
+        content.scrollToMiddleOfPitchRange();
     }
 
     void setPattern (std::optional<model::Pattern> pattern, const juce::String& title)
     {
-        pianoRoll.setPattern (std::move (pattern));
-        setName (title.isNotEmpty() ? "Pattern Editor — " + title : "Pattern Editor");
+        // The owner builds the title as "<generator> / <pattern>". Keep the
+        // part in front of the pattern name so that renaming from in here can
+        // refresh the title bar without knowing about generators.
+        titlePrefix = {};
+        juce::String name;
+
+        if (pattern)
+        {
+            name = pattern->getName();
+            if (name.isNotEmpty() && title.endsWith (name))
+                titlePrefix = title.dropLastCharacters (name.length());
+        }
+
+        content.setPattern (std::move (pattern));
+        updateTitle (name);
     }
 
     void closeButtonPressed() override
@@ -58,10 +303,16 @@ public:
     }
 
 private:
+    void updateTitle (const juce::String& patternName)
+    {
+        setName (patternName.isNotEmpty() ? "Pattern Editor — " + titlePrefix + patternName
+                                          : "Pattern Editor");
+    }
+
     std::function<void()> onClose;
     std::function<bool (const juce::KeyPress&)> onKey;
-    juce::Viewport viewport;
-    PianoRollComponent pianoRoll;
+    juce::String titlePrefix;
+    PianoRollContent content;
 };
 
 } // namespace orionish::app

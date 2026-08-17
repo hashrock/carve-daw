@@ -13,10 +13,10 @@ namespace orionish::app
 // Viewport.
 //
 // Interactions:
-//   click empty cell        add a note (grid-snapped)
-//   drag a note             move it (pitch + start)
+//   click empty cell          add a note (snapped, if snapping is on)
+//   drag a note               move it (pitch + start), keeping the grab point
 //   drag a note's right edge  resize it
-//   right/alt-click a note  delete it
+//   right/alt-drag            erase every note the cursor sweeps over
 class PianoRollComponent : public juce::Component,
                            private juce::ValueTree::Listener
 {
@@ -26,10 +26,20 @@ public:
 
     void setPattern (std::optional<model::Pattern> newPattern);
 
+    // View settings, driven by the toolbar above the roll. The grid unit and
+    // the snap flag describe how the song is *edited*, not what it is, so
+    // neither of them touches the model.
+    void setGridBeats (double beats);
+    void setSnapEnabled (bool shouldSnap);
+    double getGridBeats() const  { return gridBeats; }
+    bool isSnapEnabled() const   { return snapEnabled; }
+
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void modifierKeysChanged (const juce::ModifierKeys&) override;
 
 private:
     static constexpr int keyboardWidth = 48;
@@ -37,14 +47,20 @@ private:
     static constexpr int lowestPitch = 24;    // C1
     static constexpr int highestPitch = 96;   // C7
     static constexpr double pixelsPerBeat = 96.0;
-    static constexpr double gridBeats = 0.25;  // 16th-note grid
+    static constexpr double beatsPerBar = 4.0;      // no time signature in the model yet
+    static constexpr float resizeZoneWidth = 6.0f;
 
-    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { repaint(); }
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { repaint(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { repaint(); }
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { repaint(); }
+    // Shortest note the mouse can produce with snapping off. Small enough to
+    // feel free, large enough to stay clickable.
+    static constexpr double freeMinLengthBeats = 1.0 / 32.0;
+
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { patternChanged(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { patternChanged(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { patternChanged(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { patternChanged(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
 
+    void patternChanged();
     void updateSize();
     double xToBeat (float x) const;
     float beatToX (double beat) const;
@@ -52,15 +68,31 @@ private:
     float pitchToY (int pitch) const;
     juce::Rectangle<float> noteBounds (const model::Note&) const;
     std::optional<model::Note> noteAt (juce::Point<float>) const;
-    static double snap (double beat)  { return std::floor (beat / gridBeats) * gridBeats; }
+    bool isOverResizeZone (const model::Note&, juce::Point<float>) const;
+
+    double snapDown (double beat) const;
+    double snapUp (double beat) const;
+    double minLengthBeats() const;
+
+    static bool isEraseGesture (const juce::ModifierKeys& mods)  { return mods.isRightButtonDown() || mods.isAltDown(); }
+    juce::MouseCursor cursorFor (juce::Point<float>, const juce::ModifierKeys&) const;
+    void updateCursor (const juce::MouseEvent&);
+
+    void eraseAt (juce::Point<float>);
+    void eraseAlong (juce::Point<float> from, juce::Point<float> to);
 
     juce::UndoManager& undoManager;
     std::optional<model::Pattern> pattern;
 
-    enum class DragMode { none, move, resize };
+    double gridBeats = 0.25;   // 16th-note grid
+    bool snapEnabled = true;
+
+    enum class DragMode { none, move, resize, erase };
     DragMode dragMode = DragMode::none;
     std::optional<model::Note> draggedNote;
     double grabOffsetBeats = 0.0;
+    int grabPitchOffset = 0;                 // note pitch minus the pitch under the cursor
+    juce::Point<float> lastErasePosition;
     double lastNoteLength = 0.5;
 };
 
