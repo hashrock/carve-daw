@@ -10,8 +10,8 @@ src/
 ├─ model/   Orion風モデル (Song → Generators[] → Patterns[] → Notes + Playlist)
 │           ValueTree + 型付きラッパー。undo・.orion (XML) 保存。真実の源。
 ├─ sync/    EditSync: モデル変更を監視して tracktion Edit へ全再同期
-│           (Generator → AudioTrack + 4OSC、Pattern配置 → MidiClip)
-├─ app/     GUI: Transportバー / Generator・Patternパネル / ピアノロール / Playlist
+│           (Generator → AudioTrack + 4OSC + ミキサー状態、Pattern配置 → MidiClip)
+├─ app/     GUI: Transportバー / Generator・Patternパネル / ピアノロール / ミキサー / Playlist
 └─ RenderMain.cpp   ヘッドレスレンダラ CLI
 ```
 
@@ -54,6 +54,9 @@ $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ�
   選択中のパターンに追従する
 - **ピアノロール**(ポップアップ): 空セルをクリックでノート追加 / ドラッグで移動 /
   右端ドラッグで長さ変更 / 右クリック(または⌥クリック)で削除
+- **Mixer**(トランスポートバー): Generator ごとのチャンネルストリップをポップアップで開く。
+  音量フェーダー / パン / Mute / Solo とポストフェーダーのレベルメーター。
+  フェーダーとパンはダブルクリックで既定値に戻る
 - **Playlist**: 空きをクリックで選択中パターンを配置(小節スナップ)/ クリップをクリックで削除 /
   行ラベルクリックで Generator 選択
 - **Space** 再生/停止、**⌘Z / ⇧⌘Z** undo/redo
@@ -63,8 +66,9 @@ $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ�
 
 - [x] モデル層 + EditSync + パターン編集 GUI + 再生
 - [x] VST3/AU ホスティング (スキャン、Generator として選択、エディタ表示、状態の保存/復元)
+- [x] ミキサー (volume/pan/mute/solo + レベルメーター、ポップアップウィンドウ)
 - [ ] 4OSC のパッチ編集 UI
-- [ ] ミキサービュー (volume/pan/insert、tracktion の Plugin をそのまま活用)
+- [ ] ミキサーの insert エフェクトスロット
 - [ ] オートメーション (AutomatableParameter + カーブ編集)
 - [ ] オーディオトラック・録音 (下記の注意点あり)
 

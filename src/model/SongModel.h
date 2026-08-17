@@ -67,6 +67,30 @@ public:
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 
+    // Mixer state, applied to the generator's track by EditSync. Stored as
+    // optional properties so older songs (and the demo) load with the defaults
+    // a freshly created track used to get.
+    static constexpr float defaultVolumeDb = -6.0f;
+
+    float getVolumeDb() const  { return state.getProperty (ids::volumeDb, defaultVolumeDb); }
+    float getPan() const       { return state.getProperty (ids::pan, 0.0f); }
+    bool isMuted() const       { return state.getProperty (ids::mute, false); }
+    bool isSoloed() const      { return state.getProperty (ids::solo, false); }
+
+    void setVolumeDb (float db, juce::UndoManager* um)  { state.setProperty (ids::volumeDb, db, um); }
+    void setPan (float p, juce::UndoManager* um)        { state.setProperty (ids::pan, p, um); }
+    void setMuted (bool m, juce::UndoManager* um)       { state.setProperty (ids::mute, m, um); }
+    void setSoloed (bool s, juce::UndoManager* um)      { state.setProperty (ids::solo, s, um); }
+
+    // True for the properties above. Lets listeners treat mixer moves (which
+    // arrive continuously while a fader is dragged) differently from
+    // structural edits.
+    static bool isMixerProperty (const juce::Identifier& property)
+    {
+        return property == ids::volumeDb || property == ids::pan
+                || property == ids::mute || property == ids::solo;
+    }
+
     // For type "plugin": which external plugin this generator hosts, and its
     // saved state (base64 of getStateInformation). The state is captured from
     // the live instance on save and restored on load.

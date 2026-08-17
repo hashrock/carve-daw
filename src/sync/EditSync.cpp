@@ -5,10 +5,24 @@ namespace orionish::sync
 
 namespace
 {
-    void setDefaultTrackVolume (te::AudioTrack& track)
+    // Volume/pan round-trip through the fader taper, so compare loosely rather
+    // than re-setting (and re-notifying) the parameter on every sync.
+    void applyMixerState (const model::Generator& generator, te::AudioTrack& track)
     {
         if (auto volume = track.getVolumePlugin())
-            volume->setVolumeDb (-6.0f);
+        {
+            if (std::abs (volume->getVolumeDb() - generator.getVolumeDb()) > 0.01f)
+                volume->setVolumeDb (generator.getVolumeDb());
+
+            if (std::abs (volume->getPan() - generator.getPan()) > 0.001f)
+                volume->setPan (generator.getPan());
+        }
+
+        if (track.isMuted (false) != generator.isMuted())
+            track.setMute (generator.isMuted());
+
+        if (track.isSolo (false) != generator.isSoloed())
+            track.setSolo (generator.isSoloed());
     }
 
     void removeInstruments (te::AudioTrack& track)
@@ -49,7 +63,6 @@ namespace
             return;
 
         track.pluginList.insertPlugin (plugin, 0, nullptr);
-        setDefaultTrackVolume (track);
 
         if (auto external = dynamic_cast<te::ExternalPlugin*> (plugin.get()))
             restorePluginState (*external, generator.getPluginState());
@@ -64,10 +77,7 @@ namespace
 
         if (auto synth = dynamic_cast<te::FourOscPlugin*> (
                 edit.getPluginCache().createNewPlugin (te::FourOscPlugin::xmlTypeName, {}).get()))
-        {
             track.pluginList.insertPlugin (*synth, 0, nullptr);
-            setDefaultTrackVolume (track);
-        }
     }
 
     void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
@@ -139,6 +149,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
             track.setName (generator.getName());
 
         ensureInstrument (edit, track, generator);
+        applyMixerState (generator, track);
         rebuildClips (song, generator, edit, track);
     }
 }
@@ -184,6 +195,15 @@ void EditSync::resyncNow()
 {
     cancelPendingUpdate();
     syncSongToEdit (song, edit);
+}
+
+void EditSync::applyMixerStateOnly()
+{
+    const auto generators = song.getGenerators();
+    const auto tracks = te::getAudioTracks (edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        applyMixerState (generators[(size_t) i], *tracks[i]);
 }
 
 } // namespace orionish::sync

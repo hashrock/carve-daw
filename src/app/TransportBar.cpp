@@ -14,6 +14,8 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
         transport.setPosition (te::TimePosition());
     };
 
+    mixerButton.onClick = [this] { if (onOpenMixer) onOpenMixer(); };
+
     undoButton.onClick = [this] { undoManager.undo(); };
     redoButton.onClick = [this] { undoManager.redo(); };
     saveButton.onClick = [this] { if (onSave) onSave(); };
@@ -37,7 +39,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &playButton, &stopButton, &loopButton, &bpmLabel, &positionLabel,
-             &undoButton, &redoButton, &saveButton, &openButton })
+             &mixerButton, &undoButton, &redoButton, &saveButton, &openButton })
         addAndMakeVisible (c);
 
     startTimerHz (15);
@@ -110,6 +112,8 @@ void TransportBar::resized()
     place (loopButton, 60);
     place (bpmLabel, 90);
     place (positionLabel, 110);
+
+    place (mixerButton, 60);
 
     auto right = area;
     openButton.setBounds (right.removeFromRight (60));

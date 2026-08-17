@@ -27,6 +27,8 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     generatorPanel->onManagePlugins = [this] { openPluginManager(); };
     generatorPanel->onOpenPatternEditor = [this] { openPatternEditor(); };
 
+    transportBar->onOpenMixer = [this] { openMixer(); };
+
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
         generatorPanel->selectGenerator (generatorId);
@@ -55,6 +57,7 @@ void MainComponent::loadSong (model::Song newSong)
     edit->getTransport().stop (false, false);
     pluginEditorWindows.clear();
     pianoRollWindow.reset();
+    mixerWindow.reset();
     undoManager.clearUndoHistory();
 
     song = std::move (newSong);
@@ -104,6 +107,31 @@ void MainComponent::openPatternEditor()
 
     pianoRollWindow->setPattern (std::move (pattern), title);
     pianoRollWindow->toFront (true);
+}
+
+void MainComponent::openMixer()
+{
+    if (mixerWindow != nullptr)
+    {
+        mixerWindow->toFront (true);
+        return;
+    }
+
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->mixerWindow.reset();
+        });
+    };
+    auto keyHandler = [safe = juce::Component::SafePointer (this)] (const juce::KeyPress& key)
+    {
+        return safe != nullptr && safe->handleGlobalKey (key);
+    };
+    mixerWindow = std::make_unique<MixerWindow> (*edit, undoManager,
+                                                 std::move (onClose), std::move (keyHandler));
+    mixerWindow->setSong (song);
 }
 
 void MainComponent::openPluginEditor (const juce::String& generatorId)

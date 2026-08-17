@@ -6,14 +6,16 @@
 //
 // SONG {name, tempo}
 // ├─ GENERATORS
-// │  └─ GENERATOR {id, name, type}          type: "internal-synth" | "plugin"
+// │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
+// │     │                                  type: "internal-synth" | "plugin"
+// │     │                                  mixer properties are optional; see
+// │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
 // │     └─ PATTERNS
 // │        └─ PATTERN {id, name, lengthBeats}
 // │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
 // ├─ PLAYLIST
 // │  └─ CLIP {generatorId, patternId, start}
-// ├─ MIXER      (M4)
 // └─ AUTOMATION (M6)
 
 namespace orionish::model::ids
@@ -30,7 +32,6 @@ ORIONISH_DECLARE_ID (NOTE)
 ORIONISH_DECLARE_ID (PLUGIN)
 ORIONISH_DECLARE_ID (PLAYLIST)
 ORIONISH_DECLARE_ID (CLIP)
-ORIONISH_DECLARE_ID (MIXER)
 ORIONISH_DECLARE_ID (AUTOMATION)
 
 ORIONISH_DECLARE_ID (id)
@@ -46,6 +47,10 @@ ORIONISH_DECLARE_ID (generatorId)
 ORIONISH_DECLARE_ID (patternId)
 ORIONISH_DECLARE_ID (desc)
 ORIONISH_DECLARE_ID (state)
+ORIONISH_DECLARE_ID (volumeDb)
+ORIONISH_DECLARE_ID (pan)
+ORIONISH_DECLARE_ID (mute)
+ORIONISH_DECLARE_ID (solo)
 
 #undef ORIONISH_DECLARE_ID
 

@@ -61,6 +61,9 @@ target_sources(orionish-te PRIVATE
     src/app/TransportBar.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
+    src/app/MixerComponent.h
+    src/app/MixerComponent.cpp
+    src/app/MixerWindow.h
     src/app/PianoRollComponent.h
     src/app/PianoRollComponent.cpp
     src/app/PianoRollWindow.h

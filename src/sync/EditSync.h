@@ -34,13 +34,25 @@ public:
     void captureLivePluginState();
 
 private:
-    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { triggerAsyncUpdate(); }
+    // A full resync tears down and rebuilds every MIDI clip, which glitches
+    // playback. Mixer moves arrive continuously while a fader is dragged and
+    // only ever touch track plugins, so they take a cheap path instead.
+    void valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property) override
+    {
+        if (tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
+            applyMixerStateOnly();
+        else
+            triggerAsyncUpdate();
+    }
+
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { triggerAsyncUpdate(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { triggerAsyncUpdate(); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { triggerAsyncUpdate(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
 
     void handleAsyncUpdate() override  { resyncNow(); }
+
+    void applyMixerStateOnly();
 
     model::Song song;
     te::Edit& edit;

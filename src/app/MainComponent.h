@@ -3,6 +3,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "GeneratorPanel.h"
+#include "MixerWindow.h"
 #include "PianoRollWindow.h"
 #include "PlaylistComponent.h"
 #include "PluginWindows.h"
@@ -32,6 +33,7 @@ private:
     void openPluginEditor (const juce::String& generatorId);
     void openPluginManager();
     void openPatternEditor();
+    void openMixer();
     bool handleGlobalKey (const juce::KeyPress&);
 
     te::Engine& engine;
@@ -51,6 +53,7 @@ private:
     std::map<juce::String, std::unique_ptr<PluginEditorWindow>> pluginEditorWindows;
     std::unique_ptr<PluginScanWindow> pluginScanWindow;
     std::unique_ptr<PianoRollWindow> pianoRollWindow;
+    std::unique_ptr<MixerWindow> mixerWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
