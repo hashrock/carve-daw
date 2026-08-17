@@ -28,9 +28,23 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
     bool shouldOpenAudioInputByDefault() override  { return false; }
 };
 
-inline std::unique_ptr<te::Engine> createEngine (const juce::String& applicationName)
+// The engine hands long jobs (rendering) to the UI to run behind a progress
+// bar. With no UI to put one in, run them inline on the calling thread — the
+// default implementation is a jassertfalse that silently does nothing, which
+// would make Renderer::renderToFile return an empty file.
+struct HeadlessUIBehaviour : te::UIBehaviour
 {
-    return std::make_unique<te::Engine> (applicationName, nullptr,
+    void runTaskWithProgressBar (te::ThreadPoolJobWithProgress& job) override
+    {
+        while (job.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
+        {}
+    }
+};
+
+inline std::unique_ptr<te::Engine> createEngine (const juce::String& applicationName,
+                                                 std::unique_ptr<te::UIBehaviour> uiBehaviour = nullptr)
+{
+    return std::make_unique<te::Engine> (applicationName, std::move (uiBehaviour),
                                          std::make_unique<PlaybackOnlyEngineBehaviour>());
 }
 

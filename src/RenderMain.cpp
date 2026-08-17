@@ -26,17 +26,33 @@ juce::File resolveFile (const juce::String& path)
 
 int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::String& name)
 {
-    // Render the whole edit plus a second of tail, all tracks, no UI thread.
-    const auto endTime = te::TimePosition::fromSeconds (edit.getLength().inSeconds() + 1.0);
+    // Render the whole edit plus a second of tail.
+    //
+    // This goes through Renderer::Parameters rather than the convenient
+    // renderToFile(task, file, edit, range, tracks, ...) overload on purpose:
+    // that one wraps the render in a FreezePointPlugin::ScopedTrackSoloIsolator,
+    // which unmutes every track it is asked to render ("useful for rendering",
+    // per tracktion). A generator muted in the mixer would still be audible in
+    // the exported file.
+    auto& engine = edit.engine;
+    auto& deviceManager = engine.getDeviceManager();
 
-    juce::BigInteger tracksToDo;
-    for (int i = 0; i < te::getAllTracks (edit).size(); ++i)
-        tracksToDo.setBit (i);
+    const te::Edit::ScopedRenderStatus renderStatus (edit, true);
+
+    te::Renderer::Parameters params (edit);
+    params.destFile = outputFile;
+    params.audioFormat = engine.getAudioFileFormatManager().getDefaultFormat();
+    params.bitDepth = 24;
+    params.sampleRateForAudio = deviceManager.getSampleRate();
+    params.blockSizeForAudio = deviceManager.getBlockSize();
+    params.time = { te::TimePosition(),
+                    te::TimePosition::fromSeconds (edit.getLength().inSeconds() + 1.0) };
+    params.usePlugins = true;
+    params.useMasterPlugins = true;
+    params.tracksToDo = te::toBitSet (te::getAllTracks (edit));
 
     outputFile.deleteFile();
-    if (! te::Renderer::renderToFile ("Render", outputFile, edit,
-                                      { te::TimePosition(), endTime },
-                                      tracksToDo, true, true, {}, false))
+    if (te::Renderer::renderToFile ("Render", params) == juce::File())
     {
         std::cerr << "Render failed\n";
         return 1;
@@ -133,7 +149,8 @@ int main (int argc, char* argv[])
         return args.isEmpty() ? 0 : 1;
     }
 
-    auto enginePtr = orionish::createEngine ("orionish-te");
+    auto enginePtr = orionish::createEngine ("orionish-te",
+                                             std::make_unique<orionish::HeadlessUIBehaviour>());
     auto& engine = *enginePtr;
 
     if (args[0] == "--scan")
