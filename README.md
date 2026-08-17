@@ -1,19 +1,23 @@
 # orionish-tracktion
 
-[orionish](../orionish)(自作エンジン版)と比較するための **tracktion_engine スパイク**。
+Synapse Orion 風の「Generator 中心・パターンベース」DAW。エンジンは **tracktion_engine**、
+モデルは独自の Orion 風 ValueTree ドキュメント(`.orion`)。
 
-同じデモ曲(Bass/Chords/Lead、16拍、120BPM)を tracktion_engine の Edit として組み立てて
-ヘッドレスレンダリングする。Orion 的な概念のマッピング:
+## アーキテクチャ
 
-| Orion 概念 | tracktion_engine |
-|---|---|
-| Generator | `AudioTrack` + インストゥルメントプラグイン (`FourOscPlugin` / 外部VSTi) |
-| Pattern | `MidiClip` の中身 (`MidiList`)。配置ごとにクリップとして展開 |
-| Playlist | Edit のタイムラインへの Clip 配置 |
-| Mixer | トラック標準の `VolumeAndPanPlugin` + `pluginList` (Insert) + AuxSend/Return |
-| Automation | `AutomatableParameter` + カーブ (全プラグインパラメータが最初から対応) |
-| Transport | `TransportControl` + `TempoSequence` (テンポマップ・拍子込み) |
-| 保存形式 | `.tracktionedit` (ValueTree XML、ネイティブでシリアライズ可能) |
+```
+src/
+├─ model/   Orion風モデル (Song → Generators[] → Patterns[] → Notes + Playlist)
+│           ValueTree + 型付きラッパー。undo・.orion (XML) 保存。真実の源。
+├─ sync/    EditSync: モデル変更を監視して tracktion Edit へ全再同期
+│           (Generator → AudioTrack + 4OSC、Pattern配置 → MidiClip)
+├─ app/     GUI: Transportバー / Generator・Patternパネル / ピアノロール / Playlist
+└─ RenderMain.cpp   ヘッドレスレンダラ CLI
+```
+
+ポイント: tracktion の Clip は配置ごとのコピーだが、本アプリでは **Pattern が第一級**。
+パターンを編集すると EditSync が全配置の MidiClip を作り直すので、Orion 流の
+「パターンを直せば曲中の全配置に反映」が成立する。
 
 ## ビルド
 
@@ -22,20 +26,42 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release   # tracktion_engine + JUCE を自動�
 cmake --build build --parallel
 ```
 
-macOS で Xcode.app と Command Line Tools のバージョンが食い違う環境では
-orionish 本体の README と同じく CC/CXX/SDKROOT を CLT に固定して configure する。
+macOS で Xcode.app と Command Line Tools のバージョンが食い違う環境では、
+CC/CXX/SDKROOT を CLT 側に固定して configure する(orionish 本体の README 参照)。
 
 ## 使い方
 
 ```sh
+# GUI (デモ曲入りで起動)
+open "build/orionish-te_artefacts/Release/Orionish TE.app"
+
+# CLI
 BIN=./build/orionish-te-render_artefacts/Release/orionish-te-render
-$BIN --demo demo.wav                  # デモ曲をレンダリング
-$BIN --write-demo demo.tracktionedit  # デモ曲を .tracktionedit として保存
-$BIN demo.tracktionedit out.wav       # Edit ファイルをレンダリング
+$BIN --demo demo.wav              # デモ曲をレンダリング
+$BIN --write-demo demo.orion      # デモ曲を .orion として書き出し
+$BIN demo.orion out.wav           # .orion をレンダリング
+$BIN some.tracktionedit out.wav   # 素の tracktion edit もレンダリング可
 ```
 
-## メモ
+### GUI 操作
 
-- tracktion_engine は **GPLv3 / 商用デュアルライセンス**。クローズドソースで出すなら要ライセンス契約。
-- Waveform の実エンジンなので、プラグインホスティング・オートメーション・録音・
-  タイムストレッチ等がすべて既製。一方でエンジン内部の学習・改造の自由度は下がる。
+- **ピアノロール**: 空セルをクリックでノート追加 / ドラッグで移動 / 右端ドラッグで長さ変更 /
+  右クリック(または⌥クリック)で削除
+- **Playlist**: 空きをクリックで選択中パターンを配置(小節スナップ)/ クリップをクリックで削除 /
+  行ラベルクリックで Generator 選択
+- **Space** 再生/停止、**⌘Z / ⇧⌘Z** undo/redo
+- 編集は再生中でもリアルタイムに反映される(EditSync が同期)
+
+## ロードマップ
+
+- [x] モデル層 + EditSync + パターン編集 GUI + 再生
+- [ ] Generator を選べる音源に (4OSC のパッチ編集、VST3/AUi のスキャン・ロード)
+- [ ] ミキサービュー (volume/pan/insert、tracktion の Plugin をそのまま活用)
+- [ ] オートメーション (AutomatableParameter + カーブ編集)
+- [ ] オーディオトラック・録音
+- [ ] パターンのステップシーケンサ表示 (Orion 流のもう一つの編集モード)
+
+## ライセンス注意
+
+tracktion_engine は GPLv3 / 商用デュアルライセンス。クローズドソース配布には
+商用ライセンスが必要。

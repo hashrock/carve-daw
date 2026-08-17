@@ -1,0 +1,124 @@
+#include "TransportBar.h"
+
+namespace orionish::app
+{
+
+TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um)
+    : edit (editToControl), song (std::move (songModel)), undoManager (um)
+{
+    playButton.onClick = [this] { togglePlay(); };
+    stopButton.onClick = [this]
+    {
+        auto& transport = edit.getTransport();
+        transport.stop (false, false);
+        transport.setPosition (te::TimePosition());
+    };
+
+    undoButton.onClick = [this] { undoManager.undo(); };
+    redoButton.onClick = [this] { undoManager.redo(); };
+    saveButton.onClick = [this] { if (onSave) onSave(); };
+    openButton.onClick = [this] { if (onOpen) onOpen(); };
+
+    loopButton.setToggleState (true, juce::dontSendNotification);
+
+    bpmLabel.setEditable (false, true, false);
+    bpmLabel.setJustificationType (juce::Justification::centred);
+    bpmLabel.onTextChange = [this]
+    {
+        const auto bpm = bpmLabel.getText().getDoubleValue();
+        if (bpm >= 20.0 && bpm <= 999.0)
+        {
+            undoManager.beginNewTransaction();
+            song.setTempo (bpm, &undoManager);
+        }
+    };
+
+    positionLabel.setJustificationType (juce::Justification::centredLeft);
+
+    for (auto* c : std::initializer_list<juce::Component*> {
+             &playButton, &stopButton, &loopButton, &bpmLabel, &positionLabel,
+             &undoButton, &redoButton, &saveButton, &openButton })
+        addAndMakeVisible (c);
+
+    startTimerHz (15);
+}
+
+void TransportBar::setSong (model::Song newSong)
+{
+    song = std::move (newSong);
+}
+
+double TransportBar::getSongLengthBeats() const
+{
+    double length = 0.0;
+    for (const auto& clip : song.getPlaylist().getClips())
+        if (auto generator = song.findGenerator (clip.getGeneratorId()))
+            if (auto pattern = generator->findPattern (clip.getPatternId()))
+                length = std::max (length, clip.getStart() + pattern->getLengthBeats());
+    return length;
+}
+
+void TransportBar::togglePlay()
+{
+    auto& transport = edit.getTransport();
+
+    if (transport.isPlaying())
+    {
+        transport.stop (false, false);
+        return;
+    }
+
+    const auto lengthBeats = std::max (4.0, getSongLengthBeats());
+    transport.setLoopRange (edit.tempoSequence.toTime (
+        te::BeatRange (te::BeatPosition(), te::BeatPosition::fromBeats (lengthBeats))));
+    transport.looping = loopButton.getToggleState();
+    transport.ensureContextAllocated();
+    transport.play (false);
+}
+
+void TransportBar::timerCallback()
+{
+    auto& transport = edit.getTransport();
+    playButton.setButtonText (transport.isPlaying() ? "Pause" : "Play");
+
+    if (! bpmLabel.isBeingEdited())
+        bpmLabel.setText (juce::String (song.getTempo(), 1) + " BPM", juce::dontSendNotification);
+
+    const auto position = transport.getPosition();
+    const auto beats = edit.tempoSequence.toBeats (position).inBeats();
+    positionLabel.setText (juce::String::formatted ("%d.%d | %.1fs",
+                                                    (int) (beats / 4.0) + 1,
+                                                    (int) std::fmod (beats, 4.0) + 1,
+                                                    position.inSeconds()),
+                           juce::dontSendNotification);
+
+    undoButton.setEnabled (undoManager.canUndo());
+    redoButton.setEnabled (undoManager.canRedo());
+}
+
+void TransportBar::resized()
+{
+    auto area = getLocalBounds().reduced (6, 6);
+    auto place = [&area] (juce::Component& c, int width, int gap = 6)
+    {
+        c.setBounds (area.removeFromLeft (width));
+        area.removeFromLeft (gap);
+    };
+
+    place (playButton, 70);
+    place (stopButton, 60);
+    place (loopButton, 60);
+    place (bpmLabel, 90);
+    place (positionLabel, 110);
+
+    auto right = area;
+    openButton.setBounds (right.removeFromRight (60));
+    right.removeFromRight (6);
+    saveButton.setBounds (right.removeFromRight (60));
+    right.removeFromRight (18);
+    redoButton.setBounds (right.removeFromRight (60));
+    right.removeFromRight (6);
+    undoButton.setBounds (right.removeFromRight (60));
+}
+
+} // namespace orionish::app

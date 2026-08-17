@@ -22,19 +22,53 @@ FetchContent_Declare(tracktion
 
 FetchContent_MakeAvailable(tracktion)
 
+set(ORIONISH_CORE_SOURCES
+    src/model/ModelIds.h
+    src/model/SongModel.h
+    src/model/SongModel.cpp
+    src/model/DemoSong.h
+    src/model/DemoSong.cpp
+    src/sync/EditSync.h
+    src/sync/EditSync.cpp)
+
+function(orionish_configure_target target)
+    target_sources(${target} PRIVATE ${ORIONISH_CORE_SOURCES})
+    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(${target} PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
+        JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
+    target_link_libraries(${target} PRIVATE
+        tracktion::tracktion_engine
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endfunction()
+
+# --- GUI app ---
+juce_add_gui_app(orionish-te
+    PRODUCT_NAME "Orionish TE"
+    BUNDLE_ID    "com.hashrock.orionish-te"
+    MICROPHONE_PERMISSION_ENABLED TRUE)
+target_sources(orionish-te PRIVATE
+    src/app/Main.cpp
+    src/app/MainComponent.h
+    src/app/MainComponent.cpp
+    src/app/TransportBar.h
+    src/app/TransportBar.cpp
+    src/app/GeneratorPanel.h
+    src/app/GeneratorPanel.cpp
+    src/app/PianoRollComponent.h
+    src/app/PianoRollComponent.cpp
+    src/app/PlaylistComponent.h
+    src/app/PlaylistComponent.cpp)
+orionish_configure_target(orionish-te)
+
+# --- Headless renderer CLI ---
 juce_add_console_app(orionish-te-render
     PRODUCT_NAME "orionish-te-render")
-target_sources(orionish-te-render PRIVATE src/RenderMain.cpp src/DemoEdit.h)
-target_include_directories(orionish-te-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(orionish-te-render PRIVATE
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_PLUGINHOST_VST3=1
-    $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
-    JUCE_MODAL_LOOPS_PERMITTED=1
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:orionish-te-render,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:orionish-te-render,JUCE_VERSION>")
-target_link_libraries(orionish-te-render PRIVATE
-    tracktion::tracktion_engine
-    juce::juce_recommended_config_flags
-    juce::juce_recommended_warning_flags)
+target_sources(orionish-te-render PRIVATE src/RenderMain.cpp)
+orionish_configure_target(orionish-te-render)

@@ -1,16 +1,18 @@
-#include "DemoEdit.h"
+#include "model/DemoSong.h"
+#include "sync/EditSync.h"
 
 namespace
 {
 
 void printUsage()
 {
-    std::cout << "orionish-te-render — tracktion_engine spike renderer\n"
+    std::cout << "orionish-te-render — Orionish (tracktion_engine) headless renderer\n"
                  "\n"
                  "Usage:\n"
-                 "  orionish-te-render --demo <out.wav>              render the built-in demo song\n"
-                 "  orionish-te-render --write-demo <out.tracktionedit>  save the demo song as an edit file\n"
-                 "  orionish-te-render <in.tracktionedit> <out.wav>  render an edit file\n";
+                 "  orionish-te-render --demo <out.wav>          render the built-in demo song\n"
+                 "  orionish-te-render --write-demo <out.orion>  write the demo song as a project file\n"
+                 "  orionish-te-render <song.orion> <out.wav>    render an Orionish project file\n"
+                 "  orionish-te-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n";
 }
 
 juce::File resolveFile (const juce::String& path)
@@ -18,7 +20,7 @@ juce::File resolveFile (const juce::String& path)
     return juce::File::getCurrentWorkingDirectory().getChildFile (path);
 }
 
-int renderEditToWav (te::Edit& edit, const juce::File& outputFile)
+int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::String& name)
 {
     // Render the whole edit plus a second of tail, all tracks, no UI thread.
     const auto endTime = te::TimePosition::fromSeconds (edit.getLength().inSeconds() + 1.0);
@@ -36,9 +38,15 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile)
         return 1;
     }
 
-    std::cout << "Rendered \"" << edit.getName() << "\" -> "
-              << outputFile.getFullPathName() << "\n";
+    std::cout << "Rendered \"" << name << "\" -> " << outputFile.getFullPathName() << "\n";
     return 0;
+}
+
+int renderSongToWav (te::Engine& engine, const orionish::model::Song& song, const juce::File& outputFile)
+{
+    auto edit = te::Edit::createSingleTrackEdit (engine);
+    orionish::sync::syncSongToEdit (song, *edit);
+    return renderEditToWav (*edit, outputFile, song.getName());
 }
 
 } // namespace
@@ -57,36 +65,43 @@ int main (int argc, char* argv[])
     te::Engine engine { "orionish-te" };
 
     if (args[0] == "--demo")
-    {
-        auto edit = orionish::buildDemoEdit (engine);
-        return renderEditToWav (*edit, resolveFile (args[1]));
-    }
+        return renderSongToWav (engine, orionish::model::buildDemoSong(), resolveFile (args[1]));
 
     if (args[0] == "--write-demo")
     {
         auto file = resolveFile (args[1]);
-        auto edit = orionish::buildDemoEdit (engine);
-        if (! te::EditFileOperations (*edit).saveAs (file, true))
+        if (! orionish::model::buildDemoSong().saveToFile (file))
         {
             std::cerr << "Failed to write " << file.getFullPathName() << "\n";
             return 1;
         }
-        std::cout << "Wrote edit -> " << file.getFullPathName() << "\n";
+        std::cout << "Wrote demo project -> " << file.getFullPathName() << "\n";
         return 0;
     }
 
-    auto editFile = resolveFile (args[0]);
-    if (! editFile.existsAsFile())
+    auto inputFile = resolveFile (args[0]);
+    if (! inputFile.existsAsFile())
     {
-        std::cerr << "Could not load edit file: " << args[0] << "\n";
+        std::cerr << "Could not find input file: " << args[0] << "\n";
         return 1;
     }
 
-    auto edit = te::loadEditFromFile (engine, editFile);
-    if (edit == nullptr)
+    if (inputFile.hasFileExtension ("tracktionedit"))
     {
-        std::cerr << "Could not parse edit file: " << args[0] << "\n";
+        auto edit = te::loadEditFromFile (engine, inputFile);
+        if (edit == nullptr)
+        {
+            std::cerr << "Could not parse edit file: " << args[0] << "\n";
+            return 1;
+        }
+        return renderEditToWav (*edit, resolveFile (args[1]), inputFile.getFileName());
+    }
+
+    auto song = orionish::model::Song::loadFromFile (inputFile);
+    if (! song)
+    {
+        std::cerr << "Could not parse project file: " << args[0] << "\n";
         return 1;
     }
-    return renderEditToWav (*edit, resolveFile (args[1]));
+    return renderSongToWav (engine, *song, resolveFile (args[1]));
 }
