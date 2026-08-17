@@ -66,8 +66,24 @@ $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ�
 - [ ] 4OSC のパッチ編集 UI
 - [ ] ミキサービュー (volume/pan/insert、tracktion の Plugin をそのまま活用)
 - [ ] オートメーション (AutomatableParameter + カーブ編集)
-- [ ] オーディオトラック・録音
-- [ ] パターンのステップシーケンサ表示 (Orion 流のもう一つの編集モード)
+- [ ] オーディオトラック・録音 (下記の注意点あり)
+
+### 録音に着手するときの注意
+
+本アプリは録音しないので、`src/EngineSetup.h` の `EngineBehaviour` で
+`shouldOpenAudioInputByDefault()` を false にし、オーディオ入力を開かないように
+している。これは JUCE 8.0.6 の CoreAudio バックエンドにある境界外書き込みの回避も
+兼ねている:
+
+`CoreAudioInternal::reopen()` はデインターリーブ用の temp バッファをデバイスの
+実ブロックサイズで確保した後、`bufferSize` を**要求値**に上書きするが再確保しない。
+そのため要求サイズを受け付けないデバイスがあると、コールバックが小さいバッファに
+要求サイズ分を書き込んでヒープを壊す。既定の入力と出力が別デバイスだと JUCE が
+`AudioIODeviceCombiner` を作って両方に同じサイズを要求するので、これを踏みやすい
+(Bluetooth ヘッドセットの入力が 16kHz / 320 フレームなのに 512 を要求する等)。
+
+入力を開くように戻す場合は、`getAvailableBufferSizes()` が返す値から要求サイズを
+選ぶか、JUCE 側にパッチを当てる対応が必要。
 
 ## ライセンス注意
 
