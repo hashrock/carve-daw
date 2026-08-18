@@ -153,10 +153,39 @@ void MainComponent::openPatternEditor()
         };
         pianoRollWindow = std::make_unique<PianoRollWindow> (undoManager, std::move (onClose),
                                                              std::move (keyHandler));
+
+        pianoRollWindow->setPreviewNoteCallback (
+            [safe = juce::Component::SafePointer (this)] (int pitch, int velocity)
+            {
+                if (safe != nullptr)
+                    safe->previewNote (pitch, velocity);
+            });
     }
 
     pianoRollWindow->setPattern (std::move (pattern), title);
     pianoRollWindow->toFront (true);
+}
+
+void MainComponent::previewNote (int pitch, int velocity)
+{
+    // generator order == track order (EditSync invariant)
+    const auto generators = song.getGenerators();
+    const auto tracks = te::getAudioTracks (*edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+    {
+        if (generators[(size_t) i].getId() != selectedGeneratorId)
+            continue;
+
+        // Guide notes go through the live MIDI path, which needs a playback
+        // context — there isn't one until the transport has been started once.
+        edit->getTransport().ensureContextAllocated();
+
+        // autorelease: the roll only tells us a note was touched, never that it
+        // was let go, so the engine has to end it for us.
+        tracks[i]->playGuideNote (pitch, te::MidiChannel (1), velocity, true, false, true);
+        return;
+    }
 }
 
 void MainComponent::openMixer()

@@ -80,6 +80,12 @@ public:
     // fired after a rename so the window can refresh its title bar
     std::function<void (const juce::String&)> onPatternRenamed;
 
+    // The roll knows nothing about the engine, so whoever does supplies this.
+    void setPreviewNoteCallback (std::function<void (int, int)> callback)
+    {
+        pianoRoll.onPreviewNote = std::move (callback);
+    }
+
     void setPattern (std::optional<model::Pattern> newPattern)
     {
         if (pattern)
@@ -302,6 +308,11 @@ public:
         toFront (true);
 
         content.scrollToMiddleOfPitchRange();
+    }
+
+    void setPreviewNoteCallback (std::function<void (int, int)> callback)
+    {
+        content.setPreviewNoteCallback (std::move (callback));
     }
 
     void setPattern (std::optional<model::Pattern> pattern, const juce::String& title)

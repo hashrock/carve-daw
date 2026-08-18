@@ -51,6 +51,7 @@ private:
     void openPluginManager();
     void openPatternEditor();
     void openMixer();
+    void previewNote (int pitch, int velocity);
     bool handleGlobalKey (const juce::KeyPress&);
 
     te::Engine& engine;
