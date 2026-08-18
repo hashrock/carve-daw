@@ -198,7 +198,13 @@ public:
     // two only name a plugin.
     static constexpr const char* samplerType = "sampler";
 
-    bool isSampler() const  { return getType() == samplerType; }
+    // A drum kit is the same SamplerPlugin with one sample per pad instead of
+    // one stretched across the keyboard, so it differs only in how it is
+    // presented and filled in -- everything downstream treats it as a sampler.
+    static constexpr const char* drumKitType = "drum-sampler";
+
+    bool isDrumKit() const  { return getType() == drumKitType; }
+    bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 

@@ -8,10 +8,11 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
 // │     │                          type: "internal-synth" | "plugin" | "sampler"
+// │     │                                | "drum-sampler"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
-// │     ├─ SOUNDS                           type "sampler" only, absent otherwise
+// │     ├─ SOUNDS                           sampler types only, absent otherwise
 // │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan}
 // │     │        file: absolute path to the sample. relPath: the same file
 // │     │        relative to the .carve's folder, rewritten on every save.
