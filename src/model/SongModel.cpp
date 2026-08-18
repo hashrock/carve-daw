@@ -30,7 +30,30 @@ namespace
 } // namespace
 
 //==============================================================================
+// PatternSlot
+
+std::optional<PatternSlot> PatternSlot::fromKey (const juce::String& key)
+{
+    if (key.length() < 2)
+        return std::nullopt;
+
+    const PatternSlot slot { key[0] - 'A', key.substring (1).getIntValue() - 1 };
+    if (! slot.isValid() || slot.getKey() != key)   // rejects "A01", "AA1", ...
+        return std::nullopt;
+
+    return slot;
+}
+
+//==============================================================================
 // Pattern
+
+bool Pattern::hasDefaultSlotName() const
+{
+    if (auto slot = getSlot())
+        return getName() == slot->getKey();
+
+    return false;
+}
 
 int Pattern::getNumNotes() const
 {
@@ -90,6 +113,38 @@ std::optional<Pattern> Generator::findPattern (const juce::String& patternId) co
     return Pattern (found);
 }
 
+std::vector<Pattern> Generator::getUnslottedPatterns() const
+{
+    std::vector<Pattern> result;
+    for (const auto& pattern : getPatterns())
+        if (! pattern.getSlot())
+            result.push_back (pattern);
+    return result;
+}
+
+std::optional<Pattern> Generator::findPatternInSlot (const PatternSlot& slot) const
+{
+    if (! slot.isValid())
+        return std::nullopt;
+
+    auto found = state.getChildWithName (ids::PATTERNS)
+                      .getChildWithProperty (ids::slot, slot.getKey());
+    if (! found.isValid())
+        return std::nullopt;
+
+    return Pattern (found);
+}
+
+Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um)
+{
+    if (auto existing = findPatternInSlot (slot))
+        return *existing;
+
+    // The slot key doubles as the default name, so an untouched slot reads as
+    // "A1" everywhere until the user renames it.
+    return addPattern (slot, slot.getKey(), Pattern::defaultLengthBeats, um);
+}
+
 Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um)
 {
     juce::ValueTree pattern (ids::PATTERN);
@@ -98,6 +153,20 @@ Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juc
     pattern.setProperty (ids::lengthBeats, lengthBeats, nullptr);
     getOrCreateChild (state, ids::PATTERNS).appendChild (pattern, um);
     return Pattern (pattern);
+}
+
+Pattern Generator::addPattern (const PatternSlot& slot, const juce::String& name,
+                               double lengthBeats, juce::UndoManager* um)
+{
+    auto pattern = addPattern (name, lengthBeats, um);
+    if (slot.isValid())
+        pattern.setSlot (slot, um);
+    return pattern;
+}
+
+void Generator::removePattern (const Pattern& pattern, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::PATTERNS).removeChild (pattern.state, um);
 }
 
 void Generator::setPlugin (const juce::PluginDescription& description, juce::UndoManager* um)
@@ -258,6 +327,17 @@ Generator Song::addGenerator (const juce::String& name, const juce::String& type
 Playlist Song::getPlaylist() const
 {
     return Playlist (getOrCreateChild (state, ids::PLAYLIST));
+}
+
+bool Song::isPatternUsedInPlaylist (const Pattern& pattern) const
+{
+    const auto patternId = pattern.getId();
+
+    for (const auto& clip : getPlaylist().getClips())
+        if (clip.getPatternId() == patternId)
+            return true;
+
+    return false;
 }
 
 } // namespace orionish::model
