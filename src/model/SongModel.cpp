@@ -437,13 +437,13 @@ std::vector<AudioClip> Playlist::getAudioClips() const
 }
 
 AudioClip Playlist::addAudioClip (const Generator& generator, const juce::File& file,
-                                  double startBeats, double lengthBeats, juce::UndoManager* um)
+                                  double startBeats, double lengthSeconds, juce::UndoManager* um)
 {
     juce::ValueTree clip (ids::AUDIOCLIP);
     clip.setProperty (ids::id, newId(), nullptr);
     clip.setProperty (ids::generatorId, generator.getId(), nullptr);
     clip.setProperty (ids::start, std::max (0.0, startBeats), nullptr);
-    clip.setProperty (ids::length, std::max (AudioClip::minLengthBeats, lengthBeats), nullptr);
+    clip.setProperty (ids::length, std::max (AudioClip::minLengthSeconds, lengthSeconds), nullptr);
     state.appendChild (clip, um);
 
     AudioClip wrapper (clip);
@@ -614,8 +614,12 @@ double Song::getLengthBeats() const
             if (auto pattern = generator->findPattern (clip.getPatternId()))
                 length = std::max (length, clip.getStart() + clip.getLength (pattern->getLengthBeats()));
 
+    // An audio clip's length is in seconds, so where it ends in beats depends
+    // on the tempo it plays through.
     for (const auto& clip : playlist.getAudioClips())
-        length = std::max (length, clip.getStart() + clip.getLength());
+        length = std::max (length,
+                           beatsFromSeconds (secondsFromBeats (clip.getStart())
+                                                 + clip.getLengthSeconds()));
 
     return length;
 }
@@ -629,6 +633,209 @@ bool Song::isPatternUsedInPlaylist (const Pattern& pattern) const
             return true;
 
     return false;
+}
+
+
+//==============================================================================
+// Tempo and time signature
+
+namespace
+{
+    template <typename Change>
+    std::vector<Change> collectSorted (const juce::ValueTree& parent, const juce::Identifier& type)
+    {
+        auto result = collectChildren<Change> (parent, type);
+
+        // Beat order is what every walk below assumes; the tree keeps whatever
+        // order things were added in.
+        std::sort (result.begin(), result.end(),
+                   [] (const Change& a, const Change& b) { return a.getStartBeat() < b.getStartBeat(); });
+
+        return result;
+    }
+} // namespace
+
+std::vector<TempoChange> Song::getTempoChanges() const
+{
+    return collectSorted<TempoChange> (state.getChildWithName (ids::TEMPOS), ids::TEMPO);
+}
+
+TempoChange Song::addTempoChange (double startBeat, double bpm, juce::UndoManager* um)
+{
+    juce::ValueTree change (ids::TEMPO);
+    getOrCreateChild (state, ids::TEMPOS).appendChild (change, um);
+
+    TempoChange wrapper (change);
+    wrapper.setStartBeat (startBeat, um);
+    wrapper.setBpm (bpm, um);
+    return wrapper;
+}
+
+void Song::removeTempoChange (const TempoChange& change, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::TEMPOS).removeChild (change.state, um);
+}
+
+double Song::getTempoAt (double beat) const
+{
+    double bpm = getTempo();
+
+    for (const auto& change : getTempoChanges())
+    {
+        if (change.getStartBeat() > beat)
+            break;
+
+        bpm = change.getBpm();
+    }
+
+    return bpm > 0.0 ? bpm : 120.0;
+}
+
+std::vector<TimeSigChange> Song::getTimeSigChanges() const
+{
+    return collectSorted<TimeSigChange> (state.getChildWithName (ids::TIMESIGS), ids::TIMESIG);
+}
+
+TimeSigChange Song::addTimeSigChange (double startBeat, TimeSignature sig, juce::UndoManager* um)
+{
+    juce::ValueTree change (ids::TIMESIG);
+    getOrCreateChild (state, ids::TIMESIGS).appendChild (change, um);
+
+    TimeSigChange wrapper (change);
+    wrapper.setStartBeat (startBeat, um);
+    wrapper.setSignature (sig, um);
+    return wrapper;
+}
+
+void Song::removeTimeSigChange (const TimeSigChange& change, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::TIMESIGS).removeChild (change.state, um);
+}
+
+TimeSignature Song::getTimeSigAt (double beat) const
+{
+    TimeSignature sig;
+
+    for (const auto& change : getTimeSigChanges())
+    {
+        if (change.getStartBeat() > beat)
+            break;
+
+        sig = change.getSignature();
+    }
+
+    return sig;
+}
+
+double Song::secondsFromBeats (double beats) const
+{
+    if (beats <= 0.0)
+        return 0.0;
+
+    double seconds = 0.0, cursor = 0.0, bpm = getTempo() > 0.0 ? getTempo() : 120.0;
+
+    for (const auto& change : getTempoChanges())
+    {
+        const auto at = change.getStartBeat();
+
+        if (at >= beats)
+            break;
+
+        if (at > cursor)
+        {
+            seconds += (at - cursor) * 60.0 / bpm;
+            cursor = at;
+        }
+
+        bpm = change.getBpm();
+    }
+
+    return seconds + (beats - cursor) * 60.0 / bpm;
+}
+
+double Song::beatsFromSeconds (double seconds) const
+{
+    if (seconds <= 0.0)
+        return 0.0;
+
+    double elapsed = 0.0, cursor = 0.0, bpm = getTempo() > 0.0 ? getTempo() : 120.0;
+
+    for (const auto& change : getTempoChanges())
+    {
+        const auto at = change.getStartBeat();
+
+        if (at > cursor)
+        {
+            const auto span = (at - cursor) * 60.0 / bpm;
+
+            // The answer falls inside this stretch of constant tempo.
+            if (elapsed + span >= seconds)
+                return cursor + (seconds - elapsed) * bpm / 60.0;
+
+            elapsed += span;
+            cursor = at;
+        }
+
+        bpm = change.getBpm();
+    }
+
+    return cursor + (seconds - elapsed) * bpm / 60.0;
+}
+
+Song::BarsAndBeats Song::toBarsAndBeats (double beat) const
+{
+    // A tolerance, because a bar line computed by division lands a hair either
+    // side of the beat a clip was snapped to.
+    constexpr double tolerance = 1.0e-9;
+
+    int bar = 0;
+    double cursor = 0.0;
+    TimeSignature sig;
+
+    for (const auto& change : getTimeSigChanges())
+    {
+        const auto at = change.getStartBeat();
+
+        if (at > beat)
+            break;
+
+        if (at > cursor)
+        {
+            bar += (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+            cursor = at;
+        }
+
+        sig = change.getSignature();
+    }
+
+    const auto into = beat - cursor;
+    const auto barsIn = std::floor (into / sig.getBeatsPerBar() + tolerance);
+
+    return { bar + (int) barsIn, into - barsIn * sig.getBeatsPerBar() };
+}
+
+double Song::beatOfBar (int bar) const
+{
+    constexpr double tolerance = 1.0e-9;
+
+    int barCursor = 0;
+    double cursor = 0.0;
+    TimeSignature sig;
+
+    for (const auto& change : getTimeSigChanges())
+    {
+        const auto at = change.getStartBeat();
+        const auto barsUntil = (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+
+        if (barCursor + barsUntil > bar)
+            break;
+
+        barCursor += barsUntil;
+        cursor = at;
+        sig = change.getSignature();
+    }
+
+    return cursor + (bar - barCursor) * sig.getBeatsPerBar();
 }
 
 } // namespace carve::model

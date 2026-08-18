@@ -354,14 +354,13 @@ namespace
     // negative for a clip trimmed further than its own start position.
     te::ClipPosition toClipPosition (te::Edit& edit, const model::AudioClip& placement)
     {
-        const auto start = placement.getStart();
-        const te::BeatRange beats (te::BeatPosition::fromBeats (start),
-                                   te::BeatPosition::fromBeats (start + placement.getLength()));
-        const te::BeatRange offsetBeats (te::BeatPosition(),
-                                         te::BeatPosition::fromBeats (placement.getOffset()));
+        // The start is musical, so it moves with the tempo; the length and the
+        // offset describe a span of the source file, which no tempo change can
+        // stretch, so they are already the units the Edit wants.
+        const auto start = edit.tempoSequence.toTime (te::BeatPosition::fromBeats (placement.getStart()));
 
-        return { edit.tempoSequence.toTime (beats),
-                 edit.tempoSequence.toTime (offsetBeats).getLength() };
+        return { te::TimeRange (start, te::TimeDuration::fromSeconds (placement.getLengthSeconds())),
+                 te::TimeDuration::fromSeconds (placement.getOffsetSeconds()) };
     }
 
     // Times round-trip through the tempo sequence, so compare with a tolerance
@@ -511,13 +510,67 @@ namespace
             }
         }
     }
+    // Rebuilds the Edit's tempo sequence from the model. Everything downstream
+    // is positioned in beats and converted through this sequence, so it has to
+    // be right before a single clip is placed.
+    //
+    // remapEdit is false throughout: it exists to drag an Edit's clips along
+    // with a tempo change, and ours are rebuilt from the model straight after,
+    // so letting it move them too would apply the change twice.
+    void syncTempoSequence (const model::Song& song, te::Edit& edit)
+    {
+        auto& sequence = edit.tempoSequence;
+
+        for (int i = sequence.getNumTempos(); --i > 0;)
+            sequence.removeTempo (i, false);
+
+        if (auto first = sequence.getTempo (0))
+            if (first->getBpm() != song.getTempo())
+                first->setBpm (song.getTempo());
+
+        for (const auto& change : song.getTempoChanges())
+        {
+            // A change at beat zero replaces the sequence's own first tempo
+            // rather than adding a second one on top of it.
+            if (change.getStartBeat() <= 0.0)
+            {
+                if (auto first = sequence.getTempo (0))
+                    first->setBpm (change.getBpm());
+
+                continue;
+            }
+
+            sequence.insertTempo (te::BeatPosition::fromBeats (change.getStartBeat()),
+                                  change.getBpm(), 1.0f);
+        }
+
+        for (int i = sequence.getNumTimeSigs(); --i > 0;)
+            sequence.removeTimeSig (i);
+
+        auto applySignature = [] (te::TimeSigSetting& setting, model::TimeSignature sig)
+        {
+            setting.numerator = sig.numerator;
+            setting.denominator = sig.denominator;
+        };
+
+        if (auto first = sequence.getTimeSig (0))
+            applySignature (*first, song.getTimeSigAt (0.0));
+
+        for (const auto& change : song.getTimeSigChanges())
+        {
+            if (change.getStartBeat() <= 0.0)
+                continue;   // already applied as the sequence's first
+
+            if (auto inserted = sequence.insertTimeSig (te::BeatPosition::fromBeats (change.getStartBeat())))
+                applySignature (*inserted, change.getSignature());
+        }
+    }
+
 } // namespace
 
 void syncSongToEdit (const model::Song& song, te::Edit& edit)
 {
-    if (auto tempo = edit.tempoSequence.getTempo (0))
-        if (tempo->getBpm() != song.getTempo())
-            tempo->setBpm (song.getTempo());
+    syncTempoSequence (song, edit);
 
     const auto generators = song.getGenerators();
 

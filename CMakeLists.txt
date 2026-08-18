@@ -92,3 +92,4 @@ juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
 target_sources(carve-render PRIVATE src/RenderMain.cpp)
 carve_configure_target(carve-render)
+

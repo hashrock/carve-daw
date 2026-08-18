@@ -5,6 +5,11 @@
 // ValueTree schema:
 //
 // SONG {name, tempo, loopStart, loopEnd}
+// ├─ TEMPOS                                 changes after the first; the song's
+// │  └─ TEMPO {start, bpm}                  own "tempo" is what plays until the
+// │                                         first one. Absent = one tempo.
+// ├─ TIMESIGS
+// │  └─ TIMESIG {start, numerator, denominator}   absent = 4/4 throughout
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
 // │     │                          type: "internal-synth" | "plugin" | "sampler"
@@ -35,6 +40,8 @@
 // │  │                               length and transpose are per-placement
 // │  │                               and optional; see PlaylistClip
 // │  └─ AUDIOCLIP {id, generatorId, file, relPath, start, length, offset}
+// │                                  start is in beats; length and offset are in
+// │                                  SECONDS -- see AudioClip for why
 // │                                  a file placed on an "audio" generator's
 // │                                  row. Its own node type rather than a CLIP
 // │                                  with a file: it names no pattern, carries
@@ -68,11 +75,18 @@ CARVE_DECLARE_ID (EFFECT)
 CARVE_DECLARE_ID (PLAYLIST)
 CARVE_DECLARE_ID (CLIP)
 CARVE_DECLARE_ID (AUDIOCLIP)
+CARVE_DECLARE_ID (TEMPOS)
+CARVE_DECLARE_ID (TEMPO)
+CARVE_DECLARE_ID (TIMESIGS)
+CARVE_DECLARE_ID (TIMESIG)
 CARVE_DECLARE_ID (AUTOMATION)
 
 CARVE_DECLARE_ID (id)
 CARVE_DECLARE_ID (name)
 CARVE_DECLARE_ID (tempo)
+CARVE_DECLARE_ID (bpm)
+CARVE_DECLARE_ID (numerator)
+CARVE_DECLARE_ID (denominator)
 CARVE_DECLARE_ID (type)
 CARVE_DECLARE_ID (lengthBeats)
 CARVE_DECLARE_ID (slot)

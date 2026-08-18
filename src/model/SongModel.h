@@ -381,9 +381,9 @@ class AudioClip
 public:
     explicit AudioClip (juce::ValueTree v) : state (std::move (v)) {}
 
-    // Trimming can take a placement down to a sixteenth note, which is also
-    // the floor PlaylistClip uses.
-    static constexpr double minLengthBeats = 0.0625;
+    // A placement can be trimmed down to a tenth of a second. Short, because
+    // this is a floor against a zero-length clip rather than a musical limit.
+    static constexpr double minLengthSeconds = 0.1;
 
     juce::String getId() const           { return state[ids::id]; }
     juce::String getGeneratorId() const  { return state[ids::generatorId]; }
@@ -396,18 +396,22 @@ public:
     // because nothing here renames a placement.
     juce::String getName() const  { return getFile().getFileNameWithoutExtension(); }
 
-    double getStart() const   { return state[ids::start]; }
-    double getLength() const  { return std::max (minLengthBeats, (double) state[ids::length]); }
+    // Start is musical and length is not, on purpose. Where a clip sits is an
+    // arrangement decision -- a vocal that enters at bar 9 should still enter
+    // at bar 9 after a tempo change -- but how much of the file it plays is a
+    // property of the file, and no tempo change can stretch it.
+    double getStart() const           { return state[ids::start]; }
+    double getLengthSeconds() const   { return std::max (minLengthSeconds, (double) state[ids::length]); }
 
     // Where in the source the placement starts, so a clip can play from part
     // way in. Everything reads and honours it, but no gesture writes one yet:
     // the grid only trims the end. Absent means "from the top", which is what
     // a dropped file gets.
-    double getOffset() const  { return std::max (0.0, (double) state.getProperty (ids::offset, 0.0)); }
+    double getOffsetSeconds() const  { return std::max (0.0, (double) state.getProperty (ids::offset, 0.0)); }
 
-    void setStart (double beats, juce::UndoManager* um)   { state.setProperty (ids::start, std::max (0.0, beats), um); }
-    void setLength (double beats, juce::UndoManager* um)  { state.setProperty (ids::length, std::max (minLengthBeats, beats), um); }
-    void setOffset (double beats, juce::UndoManager* um)  { state.setProperty (ids::offset, std::max (0.0, beats), um); }
+    void setStart (double beats, juce::UndoManager* um)             { state.setProperty (ids::start, std::max (0.0, beats), um); }
+    void setLengthSeconds (double seconds, juce::UndoManager* um)   { state.setProperty (ids::length, std::max (minLengthSeconds, seconds), um); }
+    void setOffsetSeconds (double seconds, juce::UndoManager* um)   { state.setProperty (ids::offset, std::max (0.0, seconds), um); }
 
     juce::ValueTree state;
 };
@@ -430,8 +434,65 @@ public:
     std::vector<AudioClip> getAudioClips() const;
 
     AudioClip addAudioClip (const Generator& generator, const juce::File& file,
-                            double startBeats, double lengthBeats, juce::UndoManager* um);
+                            double startBeats, double lengthSeconds, juce::UndoManager* um);
     void removeAudioClip (const AudioClip& clip, juce::UndoManager* um);
+
+    juce::ValueTree state;
+};
+
+
+// Beats are quarter notes, as they are in tracktion, so a 6/8 bar is three of
+// them rather than six.
+struct TimeSignature
+{
+    int numerator = 4;
+    int denominator = 4;
+
+    double getBeatsPerBar() const  { return numerator * 4.0 / juce::jmax (1, denominator); }
+
+    bool operator== (const TimeSignature&) const = default;
+};
+
+// A tempo change part way through the song. The song's own "tempo" is what
+// plays until the first of these, so a song without any behaves exactly as it
+// did before they existed.
+class TempoChange
+{
+public:
+    explicit TempoChange (juce::ValueTree v) : state (std::move (v)) {}
+
+    double getStartBeat() const  { return state[ids::start]; }
+    double getBpm() const        { return juce::jmax (1.0, (double) state[ids::bpm]); }
+
+    void setStartBeat (double beat, juce::UndoManager* um)  { state.setProperty (ids::start, juce::jmax (0.0, beat), um); }
+    void setBpm (double bpm, juce::UndoManager* um)         { state.setProperty (ids::bpm, juce::jlimit (20.0, 999.0, bpm), um); }
+
+    juce::ValueTree state;
+};
+
+// A time signature change. Constrained to a bar line by whatever writes it --
+// the model does not enforce it, because "which bar" is only meaningful once
+// you have walked the changes before this one.
+class TimeSigChange
+{
+public:
+    explicit TimeSigChange (juce::ValueTree v) : state (std::move (v)) {}
+
+    double getStartBeat() const  { return state[ids::start]; }
+
+    TimeSignature getSignature() const
+    {
+        return { juce::jmax (1, (int) state[ids::numerator]),
+                 juce::jmax (1, (int) state[ids::denominator]) };
+    }
+
+    void setStartBeat (double beat, juce::UndoManager* um)  { state.setProperty (ids::start, juce::jmax (0.0, beat), um); }
+
+    void setSignature (TimeSignature sig, juce::UndoManager* um)
+    {
+        state.setProperty (ids::numerator, juce::jmax (1, sig.numerator), um);
+        state.setProperty (ids::denominator, juce::jmax (1, sig.denominator), um);
+    }
 
     juce::ValueTree state;
 };
@@ -505,8 +566,35 @@ public:
 
     // Beats and seconds, at the song's one tempo. Placing an audio file needs
     // this: the file's length only exists in seconds.
-    double beatsFromSeconds (double seconds) const  { return getTempo() > 0.0 ? seconds * getTempo() / 60.0 : 0.0; }
-    double secondsFromBeats (double beats) const    { return getTempo() > 0.0 ? beats * 60.0 / getTempo() : 0.0; }
+
+    // Tempo and time signature changes, in beat order. Both lists are empty in
+    // a song that never changes either, and the getters below fall back to the
+    // song's own tempo and to 4/4 -- so nothing written before these existed
+    // has to be migrated.
+    std::vector<TempoChange> getTempoChanges() const;
+    TempoChange addTempoChange (double startBeat, double bpm, juce::UndoManager*);
+    void removeTempoChange (const TempoChange&, juce::UndoManager*);
+    double getTempoAt (double beat) const;
+
+    std::vector<TimeSigChange> getTimeSigChanges() const;
+    TimeSigChange addTimeSigChange (double startBeat, TimeSignature, juce::UndoManager*);
+    void removeTimeSigChange (const TimeSigChange&, juce::UndoManager*);
+    TimeSignature getTimeSigAt (double beat) const;
+
+    // Bars are 0-based here and displayed 1-based, like every other DAW.
+    struct BarsAndBeats
+    {
+        int bar = 0;
+        double beat = 0.0;
+    };
+
+    BarsAndBeats toBarsAndBeats (double beat) const;
+    double beatOfBar (int bar) const;
+
+    // Piecewise across the tempo changes: the only place in the app that turns
+    // beats into wall-clock time, so a tempo change lands everywhere at once.
+    double beatsFromSeconds (double seconds) const;
+    double secondsFromBeats (double beats) const;
 
     // Whether anything on the playlist plays this pattern. Used to decide if a
     // slot the user only browsed past can be dropped again.

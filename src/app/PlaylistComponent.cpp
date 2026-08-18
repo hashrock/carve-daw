@@ -253,12 +253,20 @@ std::optional<model::Pattern> PlaylistComponent::patternForRow (const model::Gen
     return pattern;
 }
 
+// How much of the grid an audio clip covers. Its length is in seconds, so this
+// depends on the tempo it plays through and therefore on where it sits.
+double PlaylistComponent::audioLengthBeats (const model::AudioClip& clip) const
+{
+    return song.beatsFromSeconds (song.secondsFromBeats (clip.getStart()) + clip.getLengthSeconds())
+             - clip.getStart();
+}
+
 std::optional<PlaylistComponent::Placement> PlaylistComponent::placementFor (const juce::ValueTree& state) const
 {
     if (state.hasType (model::ids::AUDIOCLIP))
     {
         const model::AudioClip clip (state);
-        return Placement { state, clip.getStart(), clip.getLength() };
+        return Placement { state, clip.getStart(), audioLengthBeats (clip) };
     }
 
     if (! state.hasType (model::ids::CLIP))
@@ -535,8 +543,8 @@ void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioCli
         // Which slice of the source this placement shows. Past the end of the
         // file there is nothing to draw and the clip plays silence, so the
         // waveform simply stops -- which is also how an over-long clip reads.
-        const auto fromSeconds = song.secondsFromBeats (clip.getOffset());
-        const auto toSeconds = fromSeconds + song.secondsFromBeats (clip.getLength());
+        const auto fromSeconds = clip.getOffsetSeconds();
+        const auto toSeconds = fromSeconds + clip.getLengthSeconds();
         const auto buckets = (double) peaks.minima.size();
         const auto centreY = r.getCentreY();
         const auto halfHeight = r.getHeight() * 0.5f - 3.0f;
@@ -897,7 +905,7 @@ void PlaylistComponent::trimSelectionTo (double targetEnd)
         return;
 
     model::AudioClip clip (trimClip);
-    const auto length = std::max (model::AudioClip::minLengthBeats, targetEnd - clip.getStart());
+    const auto length = std::max (0.0, targetEnd - clip.getStart());
 
     if (std::abs (clip.getStart() + length - trimLastEnd) < beatTolerance)
         return;   // still inside the beat we last wrote: no model write, no resync
@@ -909,7 +917,11 @@ void PlaylistComponent::trimSelectionTo (double targetEnd)
     if (! generator || ! isRangeFree (*generator, clip.getStart(), length, false, trimClip))
         return;
 
-    clip.setLength (length, &undoManager);
+    // The grid trims in beats but the clip is measured in seconds, so convert
+    // through the tempo the clip actually plays through.
+    clip.setLengthSeconds (song.secondsFromBeats (clip.getStart() + length)
+                               - song.secondsFromBeats (clip.getStart()),
+                           &undoManager);
     trimLastEnd = clip.getStart() + length;
 }
 
@@ -996,10 +1008,11 @@ void PlaylistComponent::duplicateSelection()
             // The same slice of the same file: length and offset are the whole
             // of what an audio placement says beyond where it sits.
             const model::AudioClip source (state);
-            auto copy = playlist.addAudioClip (*generator, source.getFile(), start, length, &undoManager);
+            auto copy = playlist.addAudioClip (*generator, source.getFile(), start,
+                                               source.getLengthSeconds(), &undoManager);
 
-            if (source.getOffset() > 0.0)
-                copy.setOffset (source.getOffset(), &undoManager);
+            if (source.getOffsetSeconds() > 0.0)
+                copy.setOffsetSeconds (source.getOffsetSeconds(), &undoManager);
 
             copies.push_back (copy.state);
             continue;
@@ -1589,21 +1602,29 @@ void PlaylistComponent::filesDropped (const juce::StringArray& files, int x, int
 
     for (const auto& file : audioFiles)
     {
-        const auto length = song.beatsFromSeconds (model::readAudioFileLengthSeconds (file));
+        const auto seconds = model::readAudioFileLengthSeconds (file);
 
-        if (length <= 0.0)
+        if (seconds <= 0.0)
             continue;   // nothing here we can read, so nothing to place
 
         if (! generator)
             generator = song.addGenerator (file.getFileNameWithoutExtension(),
                                            model::Generator::audioType, &undoManager);
 
+        // How much grid the file covers depends on where it lands, so this is
+        // recomputed as the search below moves it.
+        auto lengthInBeats = [this, seconds] (double at)
+        {
+            return song.beatsFromSeconds (song.secondsFromBeats (at) + seconds) - at;
+        };
+
         // Never stack, the same rule painting follows: slide past whatever the
         // row already holds rather than burying it.
-        while (! isRangeFree (*generator, start, length))
+        while (! isRangeFree (*generator, start, lengthInBeats (start)))
             start += snapBeats;
 
-        placed.push_back (playlist.addAudioClip (*generator, file, start, length, &undoManager).state);
+        const auto length = lengthInBeats (start);
+        placed.push_back (playlist.addAudioClip (*generator, file, start, seconds, &undoManager).state);
 
         // Several files dropped at once lay out end to end, rounded up to the
         // bar so the next one still lands on the grid.

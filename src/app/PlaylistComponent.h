@@ -190,6 +190,7 @@ private:
     // whose length isn't its pattern's ends up drawn in one place and clicked
     // in another. Empty when the clip's generator, or the pattern it names,
     // has gone.
+    double audioLengthBeats (const model::AudioClip&) const;
     std::optional<Placement> placementFor (const juce::ValueTree&) const;
     std::vector<Placement> placementsFor (const model::Generator&) const;
     std::optional<Placement> placementAt (const model::Generator&, double beat) const;
