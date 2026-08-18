@@ -61,6 +61,9 @@ target_sources(orionish-te PRIVATE
     src/app/TransportBar.cpp
     src/app/ClipPropertiesPanel.h
     src/app/ClipPropertiesPanel.cpp
+    src/app/EffectParameterWindow.h
+    src/app/EffectSlotList.h
+    src/app/EffectSlotList.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
     src/app/MixerComponent.h
