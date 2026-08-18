@@ -16,13 +16,11 @@ FetchContent_Declare(tracktion
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
     GIT_TAG        v3.2.0
     GIT_SHALLOW    TRUE
-    # Local fixes, each explained in its own patch header:
-    #   * fixed-seed oscillator phase, so two renders of a song are identical
-    #   * live MIDI (note previews) reaches a track with no clips on it
+    # Fixed-seed oscillator phase, so two renders of the same song are
+    # bit-identical. See the patch header for why this is safe.
     # Idempotent: CMake re-runs this on reconfigure, so an already-patched
     # tree has to pass. "Reverse would apply" means the patch is in place.
-    # (No semicolons in here: CMake would split the command on them.)
-    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-guide-notes-on-empty-tracks.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-guide-notes-on-empty-tracks.patch')"
+    PATCH_COMMAND  bash -c "git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch'"
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)
