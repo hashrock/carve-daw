@@ -192,6 +192,15 @@ namespace
 
     void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
+        if (generator.isAudio())
+        {
+            // Nothing generates on an audio track: its wave clips already are
+            // the sound. Still worth clearing, so retyping a generator to
+            // "audio" doesn't leave the old synth sitting in the chain.
+            removeInstruments (track);
+            return;
+        }
+
         if (generator.isSampler())
         {
             ensureSamplerInstrument (edit, track, generator);
@@ -328,6 +337,118 @@ namespace
                     plugin->setEnabled (effect.isEnabled());
     }
 
+    // Stamped onto the wave clip built for a model AUDIOCLIP, the way an
+    // effect plugin is stamped with its Effect's id: it is what lets a resync
+    // recognise a placement it has already built and leave it -- and the audio
+    // tracktion has read off disk for it -- alone.
+    const juce::Identifier audioClipIdProperty ("carveAudioClipId");
+
+    juce::String getAudioClipId (const te::Clip& clip)
+    {
+        return clip.state.getProperty (audioClipIdProperty).toString();
+    }
+
+    // Where a placement sits on the timeline, in the Edit's own units. The
+    // offset is measured from beat zero rather than from the clip's start:
+    // both give the same duration at a constant tempo, and it can't come out
+    // negative for a clip trimmed further than its own start position.
+    te::ClipPosition toClipPosition (te::Edit& edit, const model::AudioClip& placement)
+    {
+        const auto start = placement.getStart();
+        const te::BeatRange beats (te::BeatPosition::fromBeats (start),
+                                   te::BeatPosition::fromBeats (start + placement.getLength()));
+        const te::BeatRange offsetBeats (te::BeatPosition(),
+                                         te::BeatPosition::fromBeats (placement.getOffset()));
+
+        return { edit.tempoSequence.toTime (beats),
+                 edit.tempoSequence.toTime (offsetBeats).getLength() };
+    }
+
+    // Times round-trip through the tempo sequence, so compare with a tolerance
+    // rather than re-setting (and re-notifying) the position on every sync.
+    bool positionsMatch (const te::ClipPosition& a, const te::ClipPosition& b)
+    {
+        constexpr double tolerance = 1.0e-6;
+
+        return std::abs ((a.getStart() - b.getStart()).inSeconds()) < tolerance
+                && std::abs ((a.getLength() - b.getLength()).inSeconds()) < tolerance
+                && std::abs ((a.getOffset() - b.getOffset()).inSeconds()) < tolerance;
+    }
+
+    // Reconciles an audio generator's track against its placements, in the
+    // spirit of the effect chain: only what changed is touched. Re-inserting a
+    // wave clip would throw away the file tracktion has already opened and cut
+    // whatever it is playing, and a placement is re-synced every time anything
+    // else in the song is edited.
+    void syncAudioClips (const model::Song& song, const model::Generator& generator,
+                         te::Edit& edit, te::AudioTrack& track)
+    {
+        std::vector<model::AudioClip> placements;
+
+        for (const auto& clip : song.getPlaylist().getAudioClips())
+            if (clip.getGeneratorId() == generator.getId() && clip.getFile().existsAsFile())
+            {
+                // Without an id there is nothing to match a live clip by, so
+                // this one would be torn down and rebuilt on every resync --
+                // worse than not playing. Song::ensureAudioClipIds gives every
+                // loaded placement one; this covers a song built in memory.
+                jassert (clip.getId().isNotEmpty());
+
+                if (clip.getId().isNotEmpty())
+                    placements.push_back (clip);
+            }
+
+        // Copy: removal mutates the list we would be walking. Anything without
+        // a placement goes, which also clears the MIDI clips left behind by a
+        // generator that was an instrument until a moment ago.
+        for (auto clip : juce::Array<te::Clip*> (track.getClips()))
+        {
+            const auto id = getAudioClipId (*clip);
+            const auto stillWanted = id.isNotEmpty()
+                                      && std::any_of (placements.begin(), placements.end(),
+                                                      [&] (const model::AudioClip& p) { return p.getId() == id; });
+
+            if (! stillWanted)
+                clip->removeFromParent();
+        }
+
+        for (const auto& placement : placements)
+        {
+            const auto position = toClipPosition (edit, placement);
+            te::WaveAudioClip* existing = nullptr;
+
+            for (auto clip : track.getClips())
+                if (getAudioClipId (*clip) == placement.getId())
+                    if (auto wave = dynamic_cast<te::WaveAudioClip*> (clip))
+                    {
+                        existing = wave;
+                        break;
+                    }
+
+            if (existing == nullptr)
+            {
+                // insertWaveClip reads the file to work out what it is looking
+                // at, so this is the one part of a sync that touches the disk.
+                auto wave = track.insertWaveClip (placement.getName(), placement.getFile(),
+                                                  position, false);
+                if (wave == nullptr)
+                    continue;
+
+                wave->state.setProperty (audioClipIdProperty, placement.getId(), nullptr);
+                continue;
+            }
+
+            if (existing->getSourceFileReference().getFile() != placement.getFile())
+                existing->getSourceFileReference().setToDirectFileReference (placement.getFile(), false);
+
+            if (! positionsMatch (existing->getPosition(), position))
+                existing->setPosition (position);
+
+            if (existing->getName() != placement.getName())
+                existing->setName (placement.getName());
+        }
+    }
+
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track)
     {
@@ -420,7 +541,11 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
         ensureInstrument (edit, track, generator);
         syncEffects (edit, track, generator);
         applyMixerState (generator, track);
-        rebuildClips (song, generator, edit, track);
+
+        if (generator.isAudio())
+            syncAudioClips (song, generator, edit, track);
+        else
+            rebuildClips (song, generator, edit, track);
     }
 
 }

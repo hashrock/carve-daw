@@ -1,5 +1,7 @@
 #include "SongModel.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 namespace carve::model
 {
 
@@ -92,9 +94,9 @@ void Pattern::removeNote (const Note& note, juce::UndoManager* um)
 
 
 //==============================================================================
-// SamplerSound
+// FileRef
 
-juce::File SamplerSound::getFile() const
+juce::File FileRef::getFile (const juce::ValueTree& state)
 {
     const auto path = state[ids::file].toString();
 
@@ -104,7 +106,7 @@ juce::File SamplerSound::getFile() const
     return juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
 }
 
-void SamplerSound::setFile (const juce::File& file, juce::UndoManager* um)
+void FileRef::setFile (juce::ValueTree state, const juce::File& file, juce::UndoManager* um)
 {
     state.setProperty (ids::file, file.getFullPathName(), um);
 
@@ -112,6 +114,48 @@ void SamplerSound::setFile (const juce::File& file, juce::UndoManager* um)
     // against whichever .carve the song ends up in.
     state.removeProperty (ids::relPath, um);
 }
+
+void FileRef::resolve (juce::ValueTree state, const juce::File& songDirectory)
+{
+    const auto relative = state[ids::relPath].toString();
+
+    if (relative.isEmpty())
+        return;
+
+    if (const auto resolved = songDirectory.getChildFile (relative); resolved.existsAsFile())
+        state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
+}
+
+void FileRef::refresh (juce::ValueTree state, const juce::File& songDirectory)
+{
+    const auto file = getFile (state);
+
+    if (file == juce::File())
+        return;
+
+    state.setProperty (ids::relPath, file.getRelativePathFrom (songDirectory), nullptr);
+}
+
+double readAudioFileLengthSeconds (const juce::File& file)
+{
+    if (! file.existsAsFile())
+        return 0.0;
+
+    // Built here rather than kept around: this runs once per file the user
+    // drops, and a static one would be a shutdown-ordering problem for no gain.
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+
+    if (reader == nullptr || reader->sampleRate <= 0.0)
+        return 0.0;
+
+    return (double) reader->lengthInSamples / reader->sampleRate;
+}
+
+//==============================================================================
+// SamplerSound
 
 void SamplerSound::setKeyRange (int lowest, int highest, juce::UndoManager* um)
 {
@@ -380,6 +424,31 @@ void Playlist::removeClip (const PlaylistClip& clip, juce::UndoManager* um)
     state.removeChild (clip.state, um);
 }
 
+std::vector<AudioClip> Playlist::getAudioClips() const
+{
+    return collectChildren<AudioClip> (state, ids::AUDIOCLIP);
+}
+
+AudioClip Playlist::addAudioClip (const Generator& generator, const juce::File& file,
+                                  double startBeats, double lengthBeats, juce::UndoManager* um)
+{
+    juce::ValueTree clip (ids::AUDIOCLIP);
+    clip.setProperty (ids::id, newId(), nullptr);
+    clip.setProperty (ids::generatorId, generator.getId(), nullptr);
+    clip.setProperty (ids::start, std::max (0.0, startBeats), nullptr);
+    clip.setProperty (ids::length, std::max (AudioClip::minLengthBeats, lengthBeats), nullptr);
+    state.appendChild (clip, um);
+
+    AudioClip wrapper (clip);
+    wrapper.setFile (file, um);
+    return wrapper;
+}
+
+void Playlist::removeAudioClip (const AudioClip& clip, juce::UndoManager* um)
+{
+    state.removeChild (clip.state, um);
+}
+
 //==============================================================================
 // Song
 
@@ -398,7 +467,10 @@ std::optional<Song> Song::fromXml (const juce::String& xml)
     auto tree = juce::ValueTree::fromXml (xml);
     if (! tree.isValid() || ! tree.hasType (ids::SONG))
         return std::nullopt;
-    return Song (tree);
+
+    Song song (tree);
+    song.ensureAudioClipIds();
+    return song;
 }
 
 std::optional<Song> Song::loadFromFile (const juce::File& file)
@@ -411,7 +483,7 @@ std::optional<Song> Song::loadFromFile (const juce::File& file)
     // Not in fromXml: this is the only place that knows where the song lives,
     // which is exactly what a stored relative path is relative to.
     if (song)
-        song->resolveSamplePaths (file);
+        song->resolveMediaPaths (file);
 
     return song;
 }
@@ -423,48 +495,44 @@ juce::String Song::toXmlString() const
 
 bool Song::saveToFile (const juce::File& file) const
 {
-    refreshSamplePaths (file);
+    refreshMediaPaths (file);
     return file.replaceWithText (toXmlString());
 }
 
 // Both of these write to the tree from a const method, the way getPlaylist
 // already does: the wrapper is a handle onto shared state, and neither is an
 // edit the user should be able to undo.
-void Song::resolveSamplePaths (const juce::File& songFile) const
+void Song::ensureAudioClipIds() const
 {
-    const auto directory = songFile.getParentDirectory();
-
-    for (const auto& generator : getGenerators())
-    {
-        for (auto sound : generator.getSounds())
-        {
-            const auto relative = sound.state[ids::relPath].toString();
-
-            if (relative.isEmpty())
-                continue;
-
-            if (const auto resolved = directory.getChildFile (relative); resolved.existsAsFile())
-                sound.state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
-        }
-    }
+    // By value: the wrapper is a handle onto shared state, and writing needs a
+    // non-const one -- the same shape resolveMediaPaths uses below.
+    for (auto clip : getPlaylist().getAudioClips())
+        if (clip.getId().isEmpty())
+            clip.state.setProperty (ids::id, newId(), nullptr);
 }
 
-void Song::refreshSamplePaths (const juce::File& songFile) const
+void Song::resolveMediaPaths (const juce::File& songFile) const
 {
     const auto directory = songFile.getParentDirectory();
 
     for (const auto& generator : getGenerators())
-    {
-        for (auto sound : generator.getSounds())
-        {
-            const auto file = sound.getFile();
+        for (const auto& sound : generator.getSounds())
+            FileRef::resolve (sound.state, directory);
 
-            if (file == juce::File())
-                continue;
+    for (const auto& clip : getPlaylist().getAudioClips())
+        FileRef::resolve (clip.state, directory);
+}
 
-            sound.state.setProperty (ids::relPath, file.getRelativePathFrom (directory), nullptr);
-        }
-    }
+void Song::refreshMediaPaths (const juce::File& songFile) const
+{
+    const auto directory = songFile.getParentDirectory();
+
+    for (const auto& generator : getGenerators())
+        for (const auto& sound : generator.getSounds())
+            FileRef::refresh (sound.state, directory);
+
+    for (const auto& clip : getPlaylist().getAudioClips())
+        FileRef::refresh (clip.state, directory);
 }
 
 void Song::setLoopRange (double startBeats, double endBeats, juce::UndoManager* um)
@@ -513,7 +581,13 @@ Generator Song::addGenerator (const juce::String& name, const juce::String& type
     generator.setProperty (ids::id, newId(), nullptr);
     generator.setProperty (ids::name, name, nullptr);
     generator.setProperty (ids::type, type, nullptr);
-    generator.appendChild (juce::ValueTree (ids::PATTERNS), nullptr);
+
+    // An audio generator plays files off the playlist, so it never has
+    // patterns; giving it an empty PATTERNS node would only invite a view to
+    // offer a pattern grid for a row that can't play one.
+    if (type != Generator::audioType)
+        generator.appendChild (juce::ValueTree (ids::PATTERNS), nullptr);
+
     getOrCreateChild (state, ids::GENERATORS).appendChild (generator, um);
     return Generator (generator);
 }
@@ -521,6 +595,22 @@ Generator Song::addGenerator (const juce::String& name, const juce::String& type
 Playlist Song::getPlaylist() const
 {
     return Playlist (getOrCreateChild (state, ids::PLAYLIST));
+}
+
+double Song::getLengthBeats() const
+{
+    double length = 0.0;
+    auto playlist = getPlaylist();
+
+    for (const auto& clip : playlist.getClips())
+        if (auto generator = findGenerator (clip.getGeneratorId()))
+            if (auto pattern = generator->findPattern (clip.getPatternId()))
+                length = std::max (length, clip.getStart() + clip.getLength (pattern->getLengthBeats()));
+
+    for (const auto& clip : playlist.getAudioClips())
+        length = std::max (length, clip.getStart() + clip.getLength());
+
+    return length;
 }
 
 bool Song::isPatternUsedInPlaylist (const Pattern& pattern) const

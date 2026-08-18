@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 namespace carve::app
 {
 
@@ -35,6 +37,14 @@ namespace
                                                        juce::PathStrokeType::rounded));
         }
         return { image, 8, 8, 2.0f };   // hotspot is in scaled, not pixel, coordinates
+    }
+
+    // What can be dropped on the grid. Deliberately the formats JUCE reads out
+    // of the box, which is also all a wave clip can play: registerBasicFormats
+    // is what both the peak reader and the model's length probe use.
+    bool isAudioFile (const juce::String& path)
+    {
+        return juce::File (path).hasFileExtension ("wav;aiff;aif;flac;ogg;mp3;m4a;caf");
     }
 } // namespace
 
@@ -87,7 +97,14 @@ void PlaylistComponent::setSong (model::Song newSong)
     song.state.addListener (this);
 
     dragMode = DragMode::none;
+    trimClip = {};
     rubberBand = {};
+    fileDropTarget.reset();
+
+    // Keyed by path, so it would still be correct across songs -- but nothing
+    // shrinks it otherwise, and a new song rarely wants the old one's files.
+    peakCache.clear();
+
     clearSelection();
     refresh();
 
@@ -132,10 +149,9 @@ void PlaylistComponent::refresh()
 
 double PlaylistComponent::getContentLengthBeats() const
 {
-    double length = 32.0;
-    for (const auto& clip : song.getPlaylist().getClips())
-        if (const auto clipLength = clipLengthBeats (clip); clipLength > 0.0)
-            length = std::max (length, clip.getStart() + clipLength + 16.0);
+    // Always a few bars past the last placement, so there is empty grid to
+    // paint or drop into without scrolling to the very end first.
+    const auto length = std::max (32.0, song.getLengthBeats() + 16.0);
     return std::ceil (length / 16.0) * 16.0;
 }
 
@@ -218,6 +234,15 @@ void PlaylistComponent::layOutToolStrip()
 
 std::optional<model::Pattern> PlaylistComponent::patternForRow (const model::Generator& generator) const
 {
+    // An audio row plays files, never patterns. It starts with no patterns at
+    // all, but it is one click away from having one -- the slot grid will
+    // happily make one for whichever generator is selected, and a drop selects
+    // the audio generator it just filled. Without this the paint tool would
+    // then lay clips on the row that sit there playing nothing, because
+    // EditSync only ever looks at its audio placements.
+    if (generator.isAudio())
+        return std::nullopt;
+
     // the row's current pattern: the selected one for the selected generator,
     // its first pattern otherwise
     auto pattern = generator.getId() == selectedGeneratorId
@@ -228,30 +253,52 @@ std::optional<model::Pattern> PlaylistComponent::patternForRow (const model::Gen
     return pattern;
 }
 
-double PlaylistComponent::clipLengthBeats (const model::PlaylistClip& clip) const
+std::optional<PlaylistComponent::Placement> PlaylistComponent::placementFor (const juce::ValueTree& state) const
 {
+    if (state.hasType (model::ids::AUDIOCLIP))
+    {
+        const model::AudioClip clip (state);
+        return Placement { state, clip.getStart(), clip.getLength() };
+    }
+
+    if (! state.hasType (model::ids::CLIP))
+        return std::nullopt;
+
+    const model::PlaylistClip clip (state);
+
     if (auto generator = song.findGenerator (clip.getGeneratorId()))
         if (auto pattern = generator->findPattern (clip.getPatternId()))
-            return clip.getLength (pattern->getLengthBeats());
-    return 0.0;
+            if (const auto length = clip.getLength (pattern->getLengthBeats()); length > 0.0)
+                return Placement { state, clip.getStart(), length };
+
+    return std::nullopt;
 }
 
-std::optional<model::PlaylistClip> PlaylistComponent::clipAt (const model::Generator& generator,
-                                                              double beat) const
+std::vector<PlaylistComponent::Placement> PlaylistComponent::placementsFor (const model::Generator& generator) const
 {
-    auto playlist = song.getPlaylist();
+    // Both node types name their generator the same way, which is the whole
+    // reason a row can be walked without caring which kind it holds.
+    const auto generatorId = generator.getId();
+    std::vector<Placement> result;
+
+    for (const auto& child : song.getPlaylist().state)
+        if (child[model::ids::generatorId].toString() == generatorId)
+            if (auto placement = placementFor (child))
+                result.push_back (*placement);
+
+    return result;
+}
+
+std::optional<PlaylistComponent::Placement> PlaylistComponent::placementAt (const model::Generator& generator,
+                                                                           double beat) const
+{
+    const auto placements = placementsFor (generator);
 
     // iterate in reverse so the most recently added clip wins on overlap
-    for (int i = playlist.getNumClips(); --i >= 0;)
-    {
-        auto clip = playlist.getClip (i);
-        if (clip.getGeneratorId() != generator.getId())
-            continue;
-        if (auto pattern = generator.findPattern (clip.getPatternId()))
-            if (beat >= clip.getStart()
-                    && beat < clip.getStart() + clip.getLength (pattern->getLengthBeats()))
-                return clip;
-    }
+    for (auto i = placements.rbegin(); i != placements.rend(); ++i)
+        if (beat >= i->start && beat < i->getEnd())
+            return *i;
+
     return std::nullopt;
 }
 
@@ -263,10 +310,10 @@ juce::Rectangle<float> PlaylistComponent::slotBounds (int row, double startBeats
 }
 
 std::optional<juce::Rectangle<float>> PlaylistComponent::boundsForClip (int row,
-                                                                       const model::PlaylistClip& clip) const
+                                                                       const juce::ValueTree& state) const
 {
-    if (const auto length = clipLengthBeats (clip); length > 0.0)
-        return slotBounds (row, clip.getStart(), length);
+    if (auto placement = placementFor (state))
+        return slotBounds (row, placement->start, placement->length);
     return std::nullopt;
 }
 
@@ -281,26 +328,30 @@ juce::Rectangle<float> PlaylistComponent::patternMenuBounds (juce::Rectangle<flo
              menuButtonWidth, clipRect.getHeight() * 0.5f };
 }
 
+juce::Rectangle<float> PlaylistComponent::trimHandleBounds (juce::Rectangle<float> clipRect) const
+{
+    // Below this the grip would be most of the clip, and there would be no way
+    // left to grab it to move it.
+    if (clipRect.getWidth() < 24.0f)
+        return {};
+
+    return clipRect.removeFromRight (trimHandleWidth);
+}
+
 bool PlaylistComponent::isRangeFree (const model::Generator& generator, double startBeats,
                                      double lengthBeats, bool ignoreSelectedClips,
                                      const juce::ValueTree& alsoIgnore) const
 {
-    for (const auto& clip : song.getPlaylist().getClips())
+    for (const auto& placement : placementsFor (generator))
     {
-        if (clip.getGeneratorId() != generator.getId())
+        if (ignoreSelectedClips && isSelected (placement.state))
             continue;
-        if (ignoreSelectedClips && isSelected (clip.state))
-            continue;
-        if (alsoIgnore.isValid() && clip.state == alsoIgnore)
+        if (alsoIgnore.isValid() && placement.state == alsoIgnore)
             continue;
 
-        if (auto pattern = generator.findPattern (clip.getPatternId()))
-        {
-            const auto clipEnd = clip.getStart() + clip.getLength (pattern->getLengthBeats());
-            if (startBeats < clipEnd - beatTolerance
-                    && clip.getStart() < startBeats + lengthBeats - beatTolerance)
-                return false;
-        }
+        if (startBeats < placement.getEnd() - beatTolerance
+                && placement.start < startBeats + lengthBeats - beatTolerance)
+            return false;
     }
     return true;
 }
@@ -313,22 +364,22 @@ bool PlaylistComponent::isSelected (const juce::ValueTree& clip) const
     return std::find (selectedClips.begin(), selectedClips.end(), clip) != selectedClips.end();
 }
 
-void PlaylistComponent::selectClip (const model::PlaylistClip& clip, bool extend)
+void PlaylistComponent::selectClip (const juce::ValueTree& clip, bool extend)
 {
     if (! extend)
     {
-        if (isSelected (clip.state))
+        if (isSelected (clip))
             return;   // keep a multi-selection intact when re-clicking part of it
         selectedClips.clear();
     }
-    else if (isSelected (clip.state))
+    else if (isSelected (clip))
     {
-        std::erase (selectedClips, clip.state);
+        std::erase (selectedClips, clip);
         selectionChanged();
         return;
     }
 
-    selectedClips.push_back (clip.state);
+    selectedClips.push_back (clip);
     selectionChanged();
 }
 
@@ -362,10 +413,14 @@ void PlaylistComponent::selectionChanged()
 
     if (onClipSelectionChanged)
     {
+        // Pattern clips only: what the host puts on the other end of this is a
+        // panel of pattern-clip properties, and an audio placement has none of
+        // them (its length is trimmed on the grid, and transposing it would
+        // mean pitch-shifting). Selecting one still moves, copies and deletes.
         std::vector<model::PlaylistClip> clips;
-        clips.reserve (selectedClips.size());
         for (const auto& state : selectedClips)
-            clips.emplace_back (state);
+            if (state.hasType (model::ids::CLIP))
+                clips.emplace_back (state);
 
         onClipSelectionChanged (clips);
     }
@@ -404,6 +459,8 @@ void PlaylistComponent::updateShortcutHelp()
         entries.push_back ({ "Delete", "remove" });
     }
 
+    entries.push_back ({ "drop audio", "place on a track" });
+
     entries.push_back ({ "Cmd+click", "extend selection" });
     entries.push_back ({ "double click", "edit pattern" });
 
@@ -423,6 +480,105 @@ void PlaylistComponent::updateShortcutHelp()
 
 //==============================================================================
 // Painting
+
+const PlaylistComponent::WaveformPeaks& PlaylistComponent::peaksFor (const juce::File& file)
+{
+    const auto key = file.getFullPathName();
+
+    if (const auto existing = peakCache.find (key); existing != peakCache.end())
+        return existing->second;
+
+    // Inserted before the read, and left empty if it fails: a file that has
+    // gone missing must not be re-opened on every repaint.
+    auto& peaks = peakCache[key];
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+        return peaks;
+
+    peaks.lengthSeconds = (double) reader->lengthInSamples / reader->sampleRate;
+    peaks.minima.resize ((size_t) waveformBuckets);
+    peaks.maxima.resize ((size_t) waveformBuckets);
+
+    // A fixed number of buckets over the whole file, rather than one per pixel:
+    // the same peaks then serve every placement of the file at every zoom, and
+    // the file is read exactly once.
+    for (int bucket = 0; bucket < waveformBuckets; ++bucket)
+    {
+        const auto from = reader->lengthInSamples * bucket / waveformBuckets;
+        const auto to = reader->lengthInSamples * (bucket + 1) / waveformBuckets;
+
+        juce::Range<float> range;
+        reader->readMaxLevels (from, std::max ((juce::int64) 1, to - from), &range, 1);
+
+        peaks.minima[(size_t) bucket] = range.getStart();
+        peaks.maxima[(size_t) bucket] = range.getEnd();
+    }
+
+    return peaks;
+}
+
+void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioClip& clip,
+                                        juce::Rectangle<float> r, juce::Colour colour, bool selected)
+{
+    g.setColour (selected ? colour.brighter (0.4f) : colour);
+    g.fillRoundedRectangle (r, 3.0f);
+
+    const auto& peaks = peaksFor (clip.getFile());
+
+    if (! peaks.minima.empty() && peaks.lengthSeconds > 0.0 && r.getWidth() >= 2.0f)
+    {
+        // Which slice of the source this placement shows. Past the end of the
+        // file there is nothing to draw and the clip plays silence, so the
+        // waveform simply stops -- which is also how an over-long clip reads.
+        const auto fromSeconds = song.secondsFromBeats (clip.getOffset());
+        const auto toSeconds = fromSeconds + song.secondsFromBeats (clip.getLength());
+        const auto buckets = (double) peaks.minima.size();
+        const auto centreY = r.getCentreY();
+        const auto halfHeight = r.getHeight() * 0.5f - 3.0f;
+        const auto width = (int) r.getWidth();
+
+        juce::Graphics::ScopedSaveState saved (g);
+        g.reduceClipRegion (r.toNearestInt());
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+
+        for (int x = 0; x < width; ++x)
+        {
+            const auto seconds = juce::jmap ((double) x, 0.0, (double) width, fromSeconds, toSeconds);
+            const auto bucket = (int) (seconds / peaks.lengthSeconds * buckets);
+
+            if (bucket < 0 || bucket >= (int) peaks.minima.size())
+                continue;
+
+            const auto top = centreY - peaks.maxima[(size_t) bucket] * halfHeight;
+            const auto bottom = centreY - peaks.minima[(size_t) bucket] * halfHeight;
+            g.fillRect (r.getX() + (float) x, top, 1.0f, std::max (1.0f, bottom - top));
+        }
+    }
+
+    g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.5f));
+    g.drawRoundedRectangle (r, 3.0f, selected ? 1.6f : 1.0f);
+
+    // The grip that trims the placement, drawn so it is findable without
+    // hunting for the edge.
+    const auto grip = trimHandleBounds (r);
+
+    if (! grip.isEmpty())
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRect (grip.reduced (1.0f, 4.0f));
+    }
+
+    g.setColour (juce::Colours::black.withAlpha (0.75f));
+    g.setFont (11.0f);
+    g.drawText (clip.getName(),
+                r.withTrimmedRight (trimHandleWidth).reduced (4.0f, 0.0f).toNearestInt(),
+                juce::Justification::centredLeft);
+}
 
 void PlaylistComponent::paintRuler (juce::Graphics& g)
 {
@@ -544,18 +700,26 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
         // clips
         const auto rowColour = juce::Colour::fromHSV (0.08f + 0.13f * (float) row, 0.55f, 0.75f, 1.0f);
-        for (const auto& clip : song.getPlaylist().getClips())
+        for (const auto& placement : placementsFor (generator))
         {
-            if (clip.getGeneratorId() != generator.getId())
+            const auto r = slotBounds (row, placement.start, placement.length);
+            const bool selected = isSelected (placement.state);
+
+            // An audio placement is a waveform with a trim grip, not a named
+            // block with a pattern chevron, so it is drawn on its own.
+            if (placement.isAudio())
+            {
+                paintAudioClip (g, model::AudioClip (placement.state), r, rowColour, selected);
                 continue;
+            }
+
+            const model::PlaylistClip clip (placement.state);
             auto pattern = generator.findPattern (clip.getPatternId());
             if (! pattern)
                 continue;
 
             const auto patternLength = pattern->getLengthBeats();
-            const auto clipLength = clip.getLength (patternLength);
-            const auto r = slotBounds (row, clip.getStart(), clipLength);
-            const bool selected = isSelected (clip.state);
+            const auto clipLength = placement.length;
 
             g.setColour (selected ? rowColour.brighter (0.4f) : rowColour);
             g.fillRoundedRectangle (r, 3.0f);
@@ -620,6 +784,25 @@ void PlaylistComponent::paint (juce::Graphics& g)
             }
     }
 
+    // Where a file drag would land. An audio row takes the files outright;
+    // anywhere else says so, because the drop makes a generator first.
+    if (fileDropTarget)
+    {
+        const auto r = slotBounds (fileDropTarget->ghostRow, fileDropTarget->startBeats, snapBeats);
+
+        g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.20f));
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (juce::Colour (0xffe08a3c));
+        g.drawRoundedRectangle (r, 3.0f, 1.4f);
+
+        if (fileDropTarget->row < 0)
+        {
+            g.setFont (11.0f);
+            g.drawText ("New audio track", r.reduced (4.0f, 0.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+        }
+    }
+
     // playhead
     g.setColour (juce::Colours::orangered);
     g.drawVerticalLine ((int) beatToX (playheadBeats), (float) headerHeight, (float) getHeight());
@@ -682,17 +865,57 @@ bool PlaylistComponent::paintClip (int row, double beat)
 bool PlaylistComponent::eraseClip (int row, double beat)
 {
     auto generator = song.getGenerator (row);
-    auto clip = clipAt (generator, beat);
-    if (! clip)
+    auto placement = placementAt (generator, beat);
+    if (! placement)
         return false;
 
-    song.getPlaylist().removeClip (*clip, &undoManager);
+    removePlacement (placement->state);
     return true;
+}
+
+void PlaylistComponent::removePlacement (const juce::ValueTree& state)
+{
+    auto playlist = song.getPlaylist();
+
+    if (state.hasType (model::ids::AUDIOCLIP))
+        playlist.removeAudioClip (model::AudioClip (state), &undoManager);
+    else
+        playlist.removeClip (model::PlaylistClip (state), &undoManager);
+}
+
+void PlaylistComponent::setPlacementStart (const juce::ValueTree& state, double startBeats)
+{
+    if (state.hasType (model::ids::AUDIOCLIP))
+        model::AudioClip (state).setStart (startBeats, &undoManager);
+    else
+        model::PlaylistClip (state).setStart (startBeats, &undoManager);
+}
+
+void PlaylistComponent::trimSelectionTo (double targetEnd)
+{
+    if (! trimClip.isValid())
+        return;
+
+    model::AudioClip clip (trimClip);
+    const auto length = std::max (model::AudioClip::minLengthBeats, targetEnd - clip.getStart());
+
+    if (std::abs (clip.getStart() + length - trimLastEnd) < beatTolerance)
+        return;   // still inside the beat we last wrote: no model write, no resync
+
+    auto generator = song.findGenerator (clip.getGeneratorId());
+
+    // Growing a clip over its neighbour would hide it, so refuse rather than
+    // overlap -- the same rule painting follows.
+    if (! generator || ! isRangeFree (*generator, clip.getStart(), length, false, trimClip))
+        return;
+
+    clip.setLength (length, &undoManager);
+    trimLastEnd = clip.getStart() + length;
 }
 
 void PlaylistComponent::dragSelectionTo (double targetStart)
 {
-    if (selectedClips.size() != dragOriginStarts.size()
+    if (selectedClips.empty() || selectedClips.size() != dragOriginStarts.size()
             || std::abs (targetStart - dragLastStart) < beatTolerance)
         return;   // nothing to write: a drag inside the same bar must not resync the Edit
 
@@ -708,20 +931,18 @@ void PlaylistComponent::dragSelectionTo (double targetStart)
     // whole gesture stays where it is rather than half-moving the selection.
     for (size_t i = 0; i < clips.size(); ++i)
     {
-        model::PlaylistClip clip (clips[i]);
-        auto generator = song.findGenerator (clip.getGeneratorId());
-        if (! generator)
+        auto placement = placementFor (clips[i]);
+        auto generator = song.findGenerator (clips[i][model::ids::generatorId].toString());
+
+        if (! placement || ! generator)
             return;
-        auto pattern = generator->findPattern (clip.getPatternId());
-        if (! pattern)
-            return;
-        if (! isRangeFree (*generator, dragOriginStarts[i] + delta,
-                           clip.getLength (pattern->getLengthBeats()), true))
+
+        if (! isRangeFree (*generator, dragOriginStarts[i] + delta, placement->length, true))
             return;
     }
 
     for (size_t i = 0; i < clips.size(); ++i)
-        model::PlaylistClip (clips[i]).setStart (dragOriginStarts[i] + delta, &undoManager);
+        setPlacementStart (clips[i], dragOriginStarts[i] + delta);
 
     dragLastStart = dragAnchorOriginStart + delta;
 }
@@ -740,11 +961,10 @@ void PlaylistComponent::duplicateSelection()
     double spanStart = std::numeric_limits<double>::max(), spanEnd = 0.0;
     for (const auto& state : clips)
     {
-        model::PlaylistClip clip (state);
-        if (const auto length = clipLengthBeats (clip); length > 0.0)
+        if (auto placement = placementFor (state))
         {
-            spanStart = std::min (spanStart, clip.getStart());
-            spanEnd = std::max (spanEnd, clip.getStart() + length);
+            spanStart = std::min (spanStart, placement->start);
+            spanEnd = std::max (spanEnd, placement->getEnd());
         }
     }
     if (spanEnd <= spanStart)
@@ -754,23 +974,43 @@ void PlaylistComponent::duplicateSelection()
 
     undoManager.beginNewTransaction();
 
+    auto playlist = song.getPlaylist();
     std::vector<juce::ValueTree> copies;
+
     for (const auto& state : clips)
     {
-        model::PlaylistClip clip (state);
-        auto generator = song.findGenerator (clip.getGeneratorId());
-        if (! generator)
+        auto placement = placementFor (state);
+        auto generator = song.findGenerator (state[model::ids::generatorId].toString());
+
+        if (! placement || ! generator)
             continue;
+
+        const auto length = placement->length;
+        const auto start = placement->start + offset;
+
+        if (! isRangeFree (*generator, start, length))
+            continue;
+
+        if (placement->isAudio())
+        {
+            // The same slice of the same file: length and offset are the whole
+            // of what an audio placement says beyond where it sits.
+            const model::AudioClip source (state);
+            auto copy = playlist.addAudioClip (*generator, source.getFile(), start, length, &undoManager);
+
+            if (source.getOffset() > 0.0)
+                copy.setOffset (source.getOffset(), &undoManager);
+
+            copies.push_back (copy.state);
+            continue;
+        }
+
+        model::PlaylistClip clip (state);
         auto pattern = generator->findPattern (clip.getPatternId());
         if (! pattern)
             continue;
 
-        const auto length = clip.getLength (pattern->getLengthBeats());
-        const auto start = clip.getStart() + offset;
-        if (! isRangeFree (*generator, start, length))
-            continue;
-
-        auto copy = song.getPlaylist().addClip (*generator, *pattern, start, &undoManager);
+        auto copy = playlist.addClip (*generator, *pattern, start, &undoManager);
 
         // A copy has to play the same thing for the same time: a new clip is
         // pattern-length and untransposed, so carry both over when they differ.
@@ -800,9 +1040,8 @@ void PlaylistComponent::deleteSelection()
     const auto clips = selectedClips;
 
     undoManager.beginNewTransaction();
-    auto playlist = song.getPlaylist();
     for (const auto& state : clips)
-        playlist.removeClip (model::PlaylistClip (state), &undoManager);
+        removePlacement (state);
 
     clearSelection();
 }
@@ -895,19 +1134,13 @@ void PlaylistComponent::updateRubberBand (juce::Point<float> position)
 
     for (int row = 0; row < song.getNumGenerators(); ++row)
     {
-        auto generator = song.getGenerator (row);
-
-        for (const auto& clip : song.getPlaylist().getClips())
+        for (const auto& placement : placementsFor (song.getGenerator (row)))
         {
-            if (clip.getGeneratorId() != generator.getId())
+            if (! slotBounds (row, placement.start, placement.length).intersects (rubberBand))
                 continue;
 
-            const auto bounds = boundsForClip (row, clip);
-            if (! bounds || ! bounds->intersects (rubberBand))
-                continue;
-
-            if (std::find (newSelection.begin(), newSelection.end(), clip.state) == newSelection.end())
-                newSelection.push_back (clip.state);
+            if (std::find (newSelection.begin(), newSelection.end(), placement.state) == newSelection.end())
+                newSelection.push_back (placement.state);
         }
     }
 
@@ -934,17 +1167,25 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
 
     auto generator = song.getGenerator (row);
     const auto beat = xToBeat (position.x);
-    const auto clip = clipAt (generator, beat);
+    const auto placement = placementAt (generator, beat);
 
     // Right button and alt erase whichever tool is active.
     if (mods.isRightButtonDown() || mods.isAltDown())
-        return clip ? eraseCursor : juce::MouseCursor::NormalCursor;
+        return placement ? eraseCursor : juce::MouseCursor::NormalCursor;
 
-    if (clip)
+    if (placement)
     {
-        if (const auto bounds = boundsForClip (row, *clip))
-            if (patternMenuBounds (*bounds).contains (position))
-                return juce::MouseCursor::PointingHandCursor;
+        const auto bounds = slotBounds (row, placement->start, placement->length);
+
+        if (placement->isAudio())
+        {
+            if (trimHandleBounds (bounds).contains (position))
+                return juce::MouseCursor::LeftRightResizeCursor;
+        }
+        else if (patternMenuBounds (bounds).contains (position))
+        {
+            return juce::MouseCursor::PointingHandCursor;
+        }
 
         return juce::MouseCursor::DraggingHandCursor;   // click selects, drag moves
     }
@@ -1057,29 +1298,44 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (auto clip = clipAt (generator, clickBeat))
+    if (auto placement = placementAt (generator, clickBeat))
     {
-        const auto bounds = boundsForClip (row, *clip);
+        const auto bounds = slotBounds (row, placement->start, placement->length);
+        const auto extend = e.mods.isCommandDown() || e.mods.isShiftDown();
 
+        if (placement->isAudio())
+        {
+            // The grip on the right edge trims the placement. Select it too,
+            // so the trim reads as happening to the clip it highlights.
+            if (trimHandleBounds (bounds).contains (e.position))
+            {
+                selectClip (placement->state, extend);
+                dragMode = DragMode::trim;
+                trimClip = placement->state;
+                trimLastEnd = placement->getEnd();
+                return;
+            }
+        }
         // The chevron swaps which pattern the clip plays: it must not also
         // select the clip or start a move.
-        if (bounds && patternMenuBounds (*bounds).contains (e.position))
+        else if (patternMenuBounds (bounds).contains (e.position))
         {
-            showPatternMenu (*clip, patternMenuBounds (*bounds));
+            showPatternMenu (model::PlaylistClip (placement->state), patternMenuBounds (bounds));
             return;
         }
 
-        selectClip (*clip, e.mods.isCommandDown() || e.mods.isShiftDown());
+        selectClip (placement->state, extend);
 
         // Drag from here moves the selection. Snapshot the starts now so the
         // move is always relative to where the gesture began.
         dragMode = DragMode::move;
-        dragGrabOffsetBeats = clickBeat - clip->getStart();
-        dragAnchorOriginStart = clip->getStart();
-        dragLastStart = clip->getStart();
+        dragGrabOffsetBeats = clickBeat - placement->start;
+        dragAnchorOriginStart = placement->start;
+        dragLastStart = placement->start;
         dragOriginStarts.clear();
         for (const auto& state : selectedClips)
-            dragOriginStarts.push_back (model::PlaylistClip (state).getStart());
+            if (auto selected = placementFor (state))
+                dragOriginStarts.push_back (selected->start);
         return;
     }
 
@@ -1131,6 +1387,12 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             dragSelectionTo (snapToBar (beat - dragGrabOffsetBeats));
             break;
 
+        case DragMode::trim:
+            // Beats, not bars: a dropped file is almost never a whole number of
+            // bars long, so bar-snapping a trim would only ever be in the way.
+            trimSelectionTo (std::max (0.0, std::round (beat)));
+            break;
+
         case DragMode::loopRange:
             dragLoopTo (xToBeat (e.position.x));
             break;
@@ -1153,6 +1415,7 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 
     dragMode = DragMode::none;
     dragOriginStarts.clear();
+    trimClip = {};
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateHover (e.position);
@@ -1184,9 +1447,15 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
         return;
 
     auto generator = song.getGenerator (row);
-    if (auto clip = clipAt (generator, xToBeat (e.position.x)))
-        if (onEditPattern)
-            onEditPattern (clip->getGeneratorId(), clip->getPatternId());
+
+    // Only a pattern clip has an editor to open; an audio placement is its
+    // file, and there is nothing behind it to show.
+    if (auto placement = placementAt (generator, xToBeat (e.position.x)))
+        if (! placement->isAudio() && onEditPattern)
+        {
+            const model::PlaylistClip clip (placement->state);
+            onEditPattern (clip.getGeneratorId(), clip.getPatternId());
+        }
 }
 
 bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
@@ -1224,6 +1493,133 @@ bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
     // MainComponent owns Space and ⌘Z / ⇧⌘Z globally: let everything else
     // bubble up to it.
     return false;
+}
+
+//==============================================================================
+// Dropping audio files
+
+bool PlaylistComponent::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& path : files)
+        if (isAudioFile (path))
+            return true;
+
+    return false;
+}
+
+std::optional<PlaylistComponent::FileDropTarget> PlaylistComponent::fileDropTargetFor (juce::Point<float> position) const
+{
+    if (position.x < (float) labelWidth || headerBounds().contains (position))
+        return std::nullopt;
+
+    const auto numRows = song.getNumGenerators();
+    const auto row = yToRow (position.y);
+
+    FileDropTarget target;
+    target.startBeats = snapToBar (xToBeat (position.x));
+
+    // Only an audio generator's row can hold files; a drop anywhere else makes
+    // one. The preview still follows the pointer, so the drop looks like it
+    // lands where it was aimed.
+    if (row >= 0 && row < numRows && song.getGenerator (row).isAudio())
+        target.row = row;
+
+    target.ghostRow = target.row >= 0 ? target.row
+                                      : juce::jlimit (0, std::max (0, numRows - 1), row);
+    return target;
+}
+
+void PlaylistComponent::fileDragEnter (const juce::StringArray& files, int x, int y)
+{
+    fileDragMove (files, x, y);
+}
+
+void PlaylistComponent::fileDragMove (const juce::StringArray&, int x, int y)
+{
+    const auto target = fileDropTargetFor ({ (float) x, (float) y });
+
+    if (target.has_value() != fileDropTarget.has_value()
+         || (target && (target->row != fileDropTarget->row
+                         || target->ghostRow != fileDropTarget->ghostRow
+                         || std::abs (target->startBeats - fileDropTarget->startBeats) > beatTolerance)))
+    {
+        fileDropTarget = target;
+        repaint();   // only on crossing into another slot, not on every move
+    }
+}
+
+void PlaylistComponent::fileDragExit (const juce::StringArray&)
+{
+    fileDropTarget.reset();
+    repaint();
+}
+
+void PlaylistComponent::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    const auto target = fileDropTargetFor ({ (float) x, (float) y });
+
+    fileDropTarget.reset();
+    repaint();
+
+    if (! target)
+        return;
+
+    std::vector<juce::File> audioFiles;
+    for (const auto& path : files)
+        if (isAudioFile (path))
+            audioFiles.emplace_back (path);
+
+    if (audioFiles.empty())
+        return;
+
+    // One transaction for the whole drop, generator and all, so a mistaken
+    // drop is one undo away.
+    undoManager.beginNewTransaction();
+
+    // Held back until a file actually turns out to be readable, so a drop of
+    // nothing but unreadable files doesn't leave an empty track behind.
+    std::optional<model::Generator> generator;
+
+    if (target->row >= 0)
+        generator = song.getGenerator (target->row);
+
+    auto playlist = song.getPlaylist();
+    auto start = target->startBeats;
+    std::vector<juce::ValueTree> placed;
+
+    for (const auto& file : audioFiles)
+    {
+        const auto length = song.beatsFromSeconds (model::readAudioFileLengthSeconds (file));
+
+        if (length <= 0.0)
+            continue;   // nothing here we can read, so nothing to place
+
+        if (! generator)
+            generator = song.addGenerator (file.getFileNameWithoutExtension(),
+                                           model::Generator::audioType, &undoManager);
+
+        // Never stack, the same rule painting follows: slide past whatever the
+        // row already holds rather than burying it.
+        while (! isRangeFree (*generator, start, length))
+            start += snapBeats;
+
+        placed.push_back (playlist.addAudioClip (*generator, file, start, length, &undoManager).state);
+
+        // Several files dropped at once lay out end to end, rounded up to the
+        // bar so the next one still lands on the grid.
+        start += std::ceil (length / snapBeats) * snapBeats;
+    }
+
+    // Select what was placed: it is what the user will want to move or trim,
+    // and it makes clear which row took the files.
+    if (! placed.empty())
+    {
+        selectedClips = std::move (placed);
+        selectionChanged();
+    }
+
+    if (generator && onSelectGenerator)
+        onSelectGenerator (generator->getId());
 }
 
 } // namespace carve::app
