@@ -36,6 +36,19 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
 {
     bool shouldOpenAudioInputByDefault() override  { return false; }
 
+    // The offline renderer runs the node graph on (this - 1) worker threads,
+    // and parallel execution sums in whatever order blocks finish -- float
+    // addition is not associative, so two renders of the same song differ in
+    // the low bits. The CLI renders single-threaded so its output is
+    // bit-reproducible and regression-testable; the GUI keeps its threads,
+    // because live playback shares this number.
+    int getNumberOfCPUsToUseForAudio() override
+    {
+        return singleThreadedAudio ? 1 : te::EngineBehaviour::getNumberOfCPUsToUseForAudio();
+    }
+
+    bool singleThreadedAudio = false;
+
     // Scan plugins in a child process. A scan loads arbitrary third-party code
     // and plenty of plugins crash on load or on destruction; in-process that
     // takes the whole app down mid-scan. The engine restarts the child, gives
@@ -48,8 +61,10 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
     // so it leaves this off and scans in-process.
     bool canScanPluginsOutOfProcess() override  { return scanOutOfProcess; }
 
-    explicit PlaybackOnlyEngineBehaviour (bool scanOutOfProcessToUse = false)
-        : scanOutOfProcess (scanOutOfProcessToUse) {}
+    explicit PlaybackOnlyEngineBehaviour (bool scanOutOfProcessToUse = false,
+                                          bool singleThreadedAudioToUse = false)
+        : singleThreadedAudio (singleThreadedAudioToUse),
+          scanOutOfProcess (scanOutOfProcessToUse) {}
 
     const bool scanOutOfProcess;
 };
@@ -82,13 +97,14 @@ inline void migrateSettingsFromFormerName()
 }
 
 inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour> uiBehaviour = nullptr,
-                                                 bool scanPluginsOutOfProcess = false)
+                                                 bool scanPluginsOutOfProcess = false,
+                                                 bool singleThreadedAudio = false)
 {
     migrateSettingsFromFormerName();
 
     auto engine = std::make_unique<te::Engine> (
         applicationName, std::move (uiBehaviour),
-        std::make_unique<PlaybackOnlyEngineBehaviour> (scanPluginsOutOfProcess));
+        std::make_unique<PlaybackOnlyEngineBehaviour> (scanPluginsOutOfProcess, singleThreadedAudio));
 
     // Our own effects, registered like tracktion's own internal ones so they
     // are created from a song by type name and need no plugin scan.

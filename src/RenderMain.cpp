@@ -154,7 +154,8 @@ int main (int argc, char* argv[])
         return args.isEmpty() ? 0 : 1;
     }
 
-    auto enginePtr = carve::createEngine (std::make_unique<carve::HeadlessUIBehaviour>());
+    auto enginePtr = carve::createEngine (std::make_unique<carve::HeadlessUIBehaviour>(),
+                                          false, /*singleThreadedAudio*/ true);
     auto& engine = *enginePtr;
 
     if (args[0] == "--scan")

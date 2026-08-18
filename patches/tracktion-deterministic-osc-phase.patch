@@ -1,0 +1,31 @@
+Seed the oscillator phase RNGs, so renders are reproducible
+
+Oscillator::start() randomises each note's initial phase from a static
+juce::Random, and juce::Random's default constructor seeds from the clock --
+so no two renders of the same song are bit-identical, which rules out
+regression-testing the renderer.
+
+The random phase itself is the right behaviour (unison voices starting in
+phase collapse into one louder voice), so only the seed becomes fixed: the
+phases still spread, in the same way every run.
+
+--- a/modules/tracktion_engine/utilities/tracktion_Oscillators.cpp
++++ b/modules/tracktion_engine/utilities/tracktion_Oscillators.cpp
+@@ -61,7 +61,7 @@
+ //==============================================================================
+ void Oscillator::start()
+ {
+-    static juce::Random r;
++    static juce::Random r (1);   // fixed seed: reproducible renders (carve)
+     phase = r.nextFloat();
+ }
+ 
+@@ -204,7 +204,7 @@
+ 
+ void MultiVoiceOscillator::start()
+ {
+-    static juce::Random r;
++    static juce::Random r (2);   // fixed seed: reproducible renders (carve)
+ 
+     for (int i = 0; i < oscillators.size(); i += 2)
+     {
