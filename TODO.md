@@ -39,11 +39,7 @@
 - [x] テンポ変更 (途中変更に対応)
 - [x] クオンタイズ / スウィング (スナップはあるが後からの補正手段が無い)
 - [x] MIDI ファイルの読み書き
-- [ ] センド / リターン (tracktion の AuxSend/AuxReturn。リバーブ 1 つを共有)
-      着手前に必要: syncSongToEdit が edit.ensureNumberOfAudioTracks(generators)
-      で末尾の余剰トラックを消すため、AuxReturn を載せたリターントラックは
-      次の再同期で破棄される。モデルに RETURN {id, name, busNumber} のリストを
-      持たせ、EditSync がそれを「消さないトラック」として実体化する必要がある
+- [x] センド / リターン
 
 全体
 
@@ -83,10 +79,6 @@ Mixer
 
 Side chain
 
-- [ ] コンプのサイドチェイン入力に別トラックを送る
-      tracktion 側は用意されている: CompressorPlugin は 3 本目の入力ピン
-      "Sidechain Trigger" と useSidechainTrigger を持ち、配線は
-      RackType::createInstanceForSideChain (Track&, channelMask, pluginID, pinIndex)
-      が行う。ただしコンプを Rack に包み、送り元トラックにも RackInstance を
-      挿す形になるため、「ジェネレータごとに直列インサート 1 本」という
-      現在のモデルに Rack を持ち込む必要がある。着手時はまずそこの設計から
+- [x] コンプのサイドチェイン入力に別トラックを送る
+      (Rack 不要だった: graph エンジンが Plugin::sidechainSourceID を
+      ネイティブサポートしており、EFFECT の sidechainSource プロパティ 1 個で済んだ)

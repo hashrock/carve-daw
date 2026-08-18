@@ -53,6 +53,7 @@ public:
 private:
     class ChannelStrip;
     class MasterStrip;
+    class ReturnStrip;
 
     // Wider than a bare fader strip needs to be: the insert slots have to
     // show enough of an effect's name to tell two of them apart.
@@ -60,7 +61,7 @@ private:
     static constexpr int minHeight = 300;
 
     // The gap that sets the master apart from the generators it sums.
-    static constexpr int masterGap = 10;
+    static constexpr int masterGap = 68;   // wide enough for the add-return button
 
     // An open editor window, keyed by effect id. The Plugin::Ptr is a strong
     // reference on purpose: removing the effect drops the track's own
@@ -99,6 +100,7 @@ private:
                                   const juce::String& effectId) const;
 
     void openEffectEditor (const juce::String& generatorId, const juce::String& effectId);
+    te::Plugin* findReturnEffectPlugin (const juce::String& returnId, const juce::String& effectId);
     void closeEffectWindow (const juce::String& effectId);
 
     // Drops any window whose plugin the model or EditSync has replaced or
@@ -111,6 +113,8 @@ private:
 
     std::vector<std::unique_ptr<ChannelStrip>> strips;
     std::unique_ptr<MasterStrip> masterStrip;
+    std::vector<std::unique_ptr<ReturnStrip>> returnStrips;
+    juce::TextButton addReturnButton { "+ Return" };
     std::map<juce::String, OpenEffectWindow> effectWindows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)

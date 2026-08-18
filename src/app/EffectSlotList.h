@@ -46,6 +46,9 @@ EffectChain makeGeneratorEffectChain (model::Generator, juce::UndoManager&);
 // song like everything else.
 EffectChain makeMasterEffectChain (model::MasterBus, juce::UndoManager&);
 
+// A return bus's chain -- the same shape again.
+EffectChain makeReturnEffectChain (model::Return, juce::UndoManager&);
+
 // The insert-effect slots of one mixer channel strip: the chain in signal
 // order, plus a row at the bottom that adds to the end of it.
 //

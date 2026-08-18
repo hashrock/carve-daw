@@ -234,6 +234,9 @@ public:
     juce::ValueTree state;
 };
 
+class Send;
+class Return;
+
 class Generator
 {
 public:
@@ -310,6 +313,14 @@ public:
     // whatever it had. This is what the panel's file chooser and file drops
     // do: the tree can hold a multi-sample kit, but nothing edits one yet.
     SamplerSound setSingleSound (const juce::File&, juce::UndoManager*);
+
+    // Sends into return busses. findSend answers by return id; setSendGain
+    // materialises the SEND node on first use, so an untouched send stays out
+    // of the file.
+    std::vector<Send> getSends() const;
+    std::optional<Send> findSend (const juce::String& returnId) const;
+    Send setSendGain (const juce::String& returnId, float gainDb, juce::UndoManager*);
+    void removeSend (const juce::String& returnId, juce::UndoManager*);
 
     // Insert effects, in signal order, sitting between the instrument and the
     // track fader.
@@ -544,6 +555,50 @@ public:
     juce::ValueTree state;
 };
 
+// One generator's send into a return bus. At most one per (generator, return);
+// identity is the returnId.
+class Send
+{
+public:
+    explicit Send (juce::ValueTree v) : state (std::move (v)) {}
+
+    static constexpr float defaultGainDb = -12.0f;
+
+    juce::String getReturnId() const  { return state[ids::returnId]; }
+    float getGainDb() const           { return state.getProperty (ids::gainDb, defaultGainDb); }
+
+    void setGainDb (float db, juce::UndoManager* um)  { state.setProperty (ids::gainDb, juce::jlimit (-60.0f, 12.0f, db), um); }
+
+    juce::ValueTree state;
+};
+
+// A shared effect bus: generators send into it by bus number, and the return
+// track carries the shared effects. The bus number is allocated once and
+// saved, so the send/return pairing survives a reload.
+class Return
+{
+public:
+    explicit Return (juce::ValueTree v) : state (std::move (v)) {}
+
+    juce::String getId() const    { return state[ids::id]; }
+    juce::String getName() const  { return state[ids::name]; }
+    int getBusNumber() const      { return state[ids::busNumber]; }
+    float getVolumeDb() const     { return state.getProperty (ids::volumeDb, 0.0f); }
+    bool isMuted() const          { return state.getProperty (ids::mute, false); }
+
+    void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
+    void setVolumeDb (float db, juce::UndoManager* um)           { state.setProperty (ids::volumeDb, db, um); }
+    void setMuted (bool m, juce::UndoManager* um)                { state.setProperty (ids::mute, m, um); }
+
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 // The mix bus. It carries the same EFFECT nodes a generator does, so one
 // effect implementation and one EditSync reconciliation cover both -- the only
 // difference is which plugin list they end up in.
@@ -632,6 +687,11 @@ public:
     // Materialised on first use, like the playlist, so songs written before the
     // master bus existed gain nothing until something touches it.
     MasterBus getMasterBus() const;
+
+    std::vector<Return> getReturns() const;
+    std::optional<Return> findReturn (const juce::String& returnId) const;
+    Return addReturn (const juce::String& name, juce::UndoManager*);
+    void removeReturn (const Return&, juce::UndoManager*);
 
     // Where the last placement on the playlist ends, counting both pattern and
     // audio clips. This is what "the whole song" means to the transport, so it

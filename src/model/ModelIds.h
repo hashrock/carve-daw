@@ -5,6 +5,10 @@
 // ValueTree schema:
 //
 // SONG {name, tempo, loopStart, loopEnd}
+// ├─ RETURNS                                shared effect busses. A generator
+// │  └─ RETURN {id, name, busNumber,        sends into a bus by number; the
+// │             volumeDb, mute}             return track carries the shared
+// │     └─ EFFECTS / EFFECT {...}           effects (reverb etc.)
 // ├─ MASTER {volumeDb}                      the mix bus: its fader and the
 // │  └─ EFFECTS                            effects across the whole mix. Same
 // │     └─ EFFECT {...}                    EFFECT nodes a generator carries.
@@ -28,6 +32,8 @@
 // │     │        exists, so a song moved with its samples plays elsewhere.
 // │     │        Everything but the paths is optional; see SamplerSound for
 // │     │        the defaults (whole keyboard, root C3, unity gain).
+// │     ├─ SENDS
+// │     │  └─ SEND {returnId, gainDb}       at most one per return
 // │     ├─ EFFECTS
 // │     │  └─ EFFECT {id, type, desc, state, enabled, sidechainSource}
 // │     │        sidechainSource: id of the generator whose audio feeds the
@@ -80,6 +86,10 @@ CARVE_DECLARE_ID (EFFECT)
 CARVE_DECLARE_ID (PLAYLIST)
 CARVE_DECLARE_ID (CLIP)
 CARVE_DECLARE_ID (AUDIOCLIP)
+CARVE_DECLARE_ID (RETURNS)
+CARVE_DECLARE_ID (RETURN)
+CARVE_DECLARE_ID (SENDS)
+CARVE_DECLARE_ID (SEND)
 CARVE_DECLARE_ID (MASTER)
 CARVE_DECLARE_ID (TEMPOS)
 CARVE_DECLARE_ID (TEMPO)
@@ -107,6 +117,9 @@ CARVE_DECLARE_ID (state)
 CARVE_DECLARE_ID (transpose)
 CARVE_DECLARE_ID (enabled)
 CARVE_DECLARE_ID (sidechainSource)
+CARVE_DECLARE_ID (returnId)
+CARVE_DECLARE_ID (busNumber)
+CARVE_DECLARE_ID (gainDb)
 CARVE_DECLARE_ID (loopStart)
 CARVE_DECLARE_ID (loopEnd)
 CARVE_DECLARE_ID (volumeDb)
@@ -118,7 +131,6 @@ CARVE_DECLARE_ID (relPath)
 CARVE_DECLARE_ID (rootNote)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
-CARVE_DECLARE_ID (gainDb)
 CARVE_DECLARE_ID (offset)
 
 #undef CARVE_DECLARE_ID

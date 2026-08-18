@@ -36,4 +36,17 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
     return nullptr;
 }
 
+// Stamped onto a return bus's track so track management can tell it from a
+// generator track. Matching by stamp rather than by position is what lets the
+// generator sync paths never touch a return track: an index shift must never
+// point the generator machinery at a track full of shared reverb.
+inline const juce::Identifier returnIdProperty ("carveReturnId");
+
+inline juce::String getReturnTrackId (const te::Track& track)
+{
+    return track.state.getProperty (returnIdProperty).toString();
+}
+
+inline bool isReturnTrack (const te::Track& track)  { return getReturnTrackId (track).isNotEmpty(); }
+
 } // namespace carve::sync

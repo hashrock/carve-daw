@@ -121,10 +121,50 @@ private:
 class MixerComponent::ChannelStrip : public juce::Component
 {
 public:
-    ChannelStrip (model::Generator generatorToShow, te::Engine& engine, juce::UndoManager& um)
+    ChannelStrip (model::Generator generatorToShow, te::Engine& engine, juce::UndoManager& um,
+                  const std::vector<model::Return>& returns)
         : generator (generatorToShow), undoManager (um),
           effectSlots (makeGeneratorEffectChain (generatorToShow, um), engine)
     {
+        // One small send knob per return bus. All the way down reads as "off"
+        // and removes the SEND node, so an untouched send stays out of the
+        // file.
+        for (const auto& ret : returns)
+        {
+            auto row = std::make_unique<SendRow>();
+            row->returnId = ret.getId();
+
+            row->label.setText (ret.getName(), juce::dontSendNotification);
+            row->label.setFont (juce::FontOptions (9.0f));
+            row->label.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+            row->label.setInterceptsMouseClicks (false, false);
+
+            auto& slider = row->slider;
+            slider.setSliderStyle (juce::Slider::LinearHorizontal);
+            slider.setRange (sendOffDb, 6.0);
+            slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            slider.setDoubleClickReturnValue (true, sendOffDb);
+
+            const auto returnId = ret.getId();
+            slider.onDragStart = [this] { undoManager.beginNewTransaction(); };
+            slider.onValueChange = [this, returnId, sliderPtr = &slider]
+            {
+                if (isRefreshing)
+                    return;
+
+                const auto db = (float) sliderPtr->getValue();
+
+                if (db <= sendOffDb + 0.5)
+                    generator.removeSend (returnId, &undoManager);
+                else
+                    generator.setSendGain (returnId, db, &undoManager);
+            };
+
+            addAndMakeVisible (row->label);
+            addAndMakeVisible (slider);
+            sendRows.push_back (std::move (row));
+        }
+
         nameLabel.setJustificationType (juce::Justification::centred);
         nameLabel.setFont (juce::FontOptions (12.0f));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
@@ -216,6 +256,15 @@ public:
         muteButton.setToggleState (generator.isMuted(), juce::dontSendNotification);
         soloButton.setToggleState (generator.isSoloed(), juce::dontSendNotification);
 
+        for (auto& row : sendRows)
+        {
+            const auto send = generator.findSend (row->returnId);
+
+            if (! row->slider.isMouseButtonDown())
+                row->slider.setValue (send ? send->getGainDb() : sendOffDb,
+                                      juce::dontSendNotification);
+        }
+
         dbLabel.setText (formatDb (generator.getVolumeDb()) + " dB", juce::dontSendNotification);
     }
 
@@ -248,6 +297,13 @@ public:
         muteButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 2));
         buttons.removeFromLeft (4);
         soloButton.setBounds (buttons);
+
+        for (auto it = sendRows.rbegin(); it != sendRows.rend(); ++it)
+        {
+            auto row = area.removeFromBottom (14);
+            (*it)->label.setBounds (row.removeFromLeft (34));
+            (*it)->slider.setBounds (row);
+        }
 
         dbLabel.setBounds (area.removeFromBottom (16));
         area.removeFromBottom (4);
@@ -287,6 +343,17 @@ private:
     juce::Label nameLabel, dbLabel;
     juce::Slider volumeSlider, panSlider;
     juce::TextButton muteButton { "M" }, soloButton { "S" };
+
+    static constexpr double sendOffDb = -60.0;
+
+    struct SendRow
+    {
+        juce::String returnId;
+        juce::Label label;
+        juce::Slider slider;
+    };
+
+    std::vector<std::unique_ptr<SendRow>> sendRows;
     juce::Viewport effectViewport;
     EffectSlotList effectSlots;
     LevelMeterView meter;
@@ -319,10 +386,12 @@ class MixerComponent::MasterStrip : public juce::Component,
                                     private juce::ValueTree::Listener
 {
 public:
-    MasterStrip (te::Edit& editToShow, model::MasterBus bus, juce::UndoManager& undoManager)
+    MasterStrip (te::Edit& editToShow, model::MasterBus busToShow, juce::UndoManager& um)
         : edit (editToShow),
+          bus (std::move (busToShow)),
+          undoManager (um),
           masterPluginsState (bus.state),
-          effectSlots (makeMasterEffectChain (bus, undoManager), editToShow.engine)
+          effectSlots (makeMasterEffectChain (bus, um), editToShow.engine)
     {
         masterPluginsState.addListener (this);
 
@@ -330,13 +399,6 @@ public:
         nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffe0a24f));
         nameLabel.setText ("MASTER", juce::dontSendNotification);
-
-        // No undo and no song file behind it, so this says so rather than
-        // letting a limiter quietly disappear on the next load.
-        noticeLabel.setJustificationType (juce::Justification::centred);
-        noticeLabel.setFont (juce::FontOptions (9.0f));
-        noticeLabel.setColour (juce::Label::textColourId, juce::Colour (0xff86868e));
-        noticeLabel.setText ("not saved", juce::dontSendNotification);
 
         dbLabel.setJustificationType (juce::Justification::centred);
         dbLabel.setFont (juce::FontOptions (11.0f));
@@ -346,13 +408,16 @@ public:
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         volumeSlider.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (0.0f));
+        volumeSlider.onDragStart = [this] { undoManager.beginNewTransaction(); };
         volumeSlider.onValueChange = [this]
         {
             if (isRefreshing)
                 return;
 
-            if (auto plugin = edit.getMasterVolumePlugin())
-                plugin->setSliderPos ((float) volumeSlider.getValue());
+            // Through the model, like every other fader, so it saves and
+            // undoes; EditSync pushes it into the Edit's master volume.
+            bus.setVolumeDb (te::volumeFaderPositionToDB ((float) volumeSlider.getValue()),
+                             &undoManager);
         };
 
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
@@ -361,7 +426,7 @@ public:
         effectViewport.setScrollBarThickness (6);
 
         for (auto* c : std::initializer_list<juce::Component*> {
-                 &nameLabel, &noticeLabel, &effectViewport, &meter, &volumeSlider, &dbLabel })
+                 &nameLabel, &effectViewport, &meter, &volumeSlider, &dbLabel })
             addAndMakeVisible (c);
 
         refresh();
@@ -379,16 +444,13 @@ public:
     // is on it.
     void refresh()
     {
-        auto plugin = edit.getMasterVolumePlugin();
-        const auto position = plugin != nullptr ? plugin->getSliderPos() : 0.0f;
-
+        const auto db = bus.getVolumeDb();
         const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
 
         if (! volumeSlider.isMouseButtonDown())
-            volumeSlider.setValue (position, juce::dontSendNotification);
+            volumeSlider.setValue (te::decibelsToVolumeFaderPosition (db), juce::dontSendNotification);
 
-        dbLabel.setText (formatDb (te::volumeFaderPositionToDB (position)) + " dB",
-                         juce::dontSendNotification);
+        dbLabel.setText (formatDb (db) + " dB", juce::dontSendNotification);
     }
 
     // The level at the end of the graph, which only exists while there is a
@@ -415,7 +477,6 @@ public:
 
         // Where a channel strip has its pan slider. Kept as a gap of the same
         // height so the master fader lines up with the others.
-        noticeLabel.setBounds (area.removeFromTop (18));
         area.removeFromTop (4);
 
         // ...and the same again for the mute/solo row.
@@ -466,9 +527,11 @@ private:
     }
 
     te::Edit& edit;
+    model::MasterBus bus;
+    juce::UndoManager& undoManager;
     juce::ValueTree masterPluginsState;
 
-    juce::Label nameLabel, noticeLabel, dbLabel;
+    juce::Label nameLabel, dbLabel;
     juce::Slider volumeSlider;
     juce::Viewport effectViewport;
     EffectSlotList effectSlots;
@@ -477,6 +540,143 @@ private:
     bool isRefreshing = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterStrip)
+};
+
+//==============================================================================
+// One return bus: its shared effects, its fader, and mute. Meterless -- the
+// return's level is audible in the master meter, and a per-return meter would
+// need a meter plugin on a track the model deliberately keeps minimal.
+class MixerComponent::ReturnStrip : public juce::Component
+{
+public:
+    ReturnStrip (te::Engine& engine, model::Return returnToShow, juce::UndoManager& um)
+        : ret (std::move (returnToShow)),
+          undoManager (um),
+          effectSlots (makeReturnEffectChain (ret, um), engine)
+    {
+        nameLabel.setJustificationType (juce::Justification::centred);
+        nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xff6fb7c9));
+        nameLabel.setEditable (false, true, false);
+        nameLabel.onTextChange = [this]
+        {
+            if (nameLabel.getText().isNotEmpty())
+            {
+                undoManager.beginNewTransaction();
+                ret.setName (nameLabel.getText(), &undoManager);
+            }
+        };
+
+        dbLabel.setJustificationType (juce::Justification::centred);
+        dbLabel.setFont (juce::FontOptions (11.0f));
+        dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
+
+        volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        volumeSlider.setRange (0.0, 1.0);
+        volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        volumeSlider.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (0.0f));
+        volumeSlider.onDragStart = [this] { undoManager.beginNewTransaction(); };
+        volumeSlider.onValueChange = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            ret.setVolumeDb (te::volumeFaderPositionToDB ((float) volumeSlider.getValue()),
+                             &undoManager);
+        };
+
+        muteButton.setClickingTogglesState (true);
+        muteButton.onClick = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            undoManager.beginNewTransaction();
+            ret.setMuted (muteButton.getToggleState(), &undoManager);
+        };
+
+        removeButton.onClick = [this] { if (onRemove) onRemove(); };
+
+        effectSlots.onPreferredHeightChanged = [this] { resized(); };
+        effectViewport.setViewedComponent (&effectSlots, false);
+        effectViewport.setScrollBarsShown (true, false);
+        effectViewport.setScrollBarThickness (6);
+
+        for (auto* c : std::initializer_list<juce::Component*> {
+                 &nameLabel, &effectViewport, &volumeSlider, &dbLabel,
+                 &muteButton, &removeButton })
+            addAndMakeVisible (c);
+
+        refresh();
+    }
+
+    juce::String getReturnId() const  { return ret.getId(); }
+    EffectSlotList& getEffectSlots()  { return effectSlots; }
+
+    std::function<void()> onRemove;
+
+    void refresh()
+    {
+        const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
+
+        nameLabel.setText (ret.getName(), juce::dontSendNotification);
+
+        if (! volumeSlider.isMouseButtonDown())
+            volumeSlider.setValue (te::decibelsToVolumeFaderPosition (ret.getVolumeDb()),
+                                   juce::dontSendNotification);
+
+        dbLabel.setText (formatDb (ret.getVolumeDb()) + " dB", juce::dontSendNotification);
+        muteButton.setToggleState (ret.isMuted(), juce::dontSendNotification);
+        effectSlots.refreshFromChain();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff26262c));
+        g.setColour (juce::Colour (0xff3a3a40));
+        g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (4, 4);
+        nameLabel.setBounds (area.removeFromTop (18));
+        area.removeFromTop (2);
+
+        auto buttons = area.removeFromBottom (22);
+        muteButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 2));
+        buttons.removeFromLeft (4);
+        removeButton.setBounds (buttons);
+
+        dbLabel.setBounds (area.removeFromBottom (16));
+        area.removeFromBottom (4);
+
+        const auto slotHeight = juce::jmin (area.getHeight() - 110,
+                                            effectSlots.getPreferredHeight());
+        if (slotHeight > 0)
+        {
+            auto slotArea = area.removeFromTop (slotHeight);
+            effectViewport.setBounds (slotArea);
+            effectSlots.setSize (slotArea.getWidth() - (effectSlots.getPreferredHeight() > slotHeight ? 6 : 0),
+                                 effectSlots.getPreferredHeight());
+            area.removeFromTop (4);
+        }
+
+        volumeSlider.setBounds (area);
+    }
+
+private:
+    model::Return ret;
+    juce::UndoManager& undoManager;
+
+    juce::Label nameLabel, dbLabel;
+    juce::Slider volumeSlider;
+    juce::TextButton muteButton { "M" }, removeButton { "X" };
+    juce::Viewport effectViewport;
+    EffectSlotList effectSlots;
+    bool isRefreshing = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReturnStrip)
 };
 
 //==============================================================================
@@ -498,6 +698,14 @@ MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     };
 
     addAndMakeVisible (*masterStrip);
+
+    addReturnButton.onClick = [this]
+    {
+        undoManager.beginNewTransaction();
+        song.addReturn ("Return " + juce::String ((int) song.getReturns().size() + 1),
+                        &undoManager);
+    };
+    addAndMakeVisible (addReturnButton);
 
     song.state.addListener (this);
     rebuildStrips();
@@ -525,6 +733,36 @@ void MixerComponent::valueTreePropertyChanged (juce::ValueTree& tree, const juce
     if (tree.hasType (model::ids::EFFECT))
     {
         effectListChanged (tree.getParent());
+        return;
+    }
+
+    // A send level or return property arrives continuously while dragged;
+    // update the affected strips in place, never rebuild mid-drag.
+    if (tree.hasType (model::ids::SEND))
+    {
+        const auto generatorId = tree.getParent().getParent()[model::ids::id].toString();
+
+        for (auto& strip : strips)
+            if (strip->getGeneratorId() == generatorId)
+                strip->refresh();
+
+        return;
+    }
+
+    if (tree.hasType (model::ids::RETURN))
+    {
+        const auto returnId = tree[model::ids::id].toString();
+
+        for (auto& strip : returnStrips)
+            if (strip->getReturnId() == returnId)
+                strip->refresh();
+
+        // The send rows carry the return's name, and it is baked in at strip
+        // construction. A rename is a discrete edit, never a drag, so a
+        // rebuild is safe here.
+        if (property == model::ids::name)
+            triggerAsyncUpdate();
+
         return;
     }
 
@@ -563,8 +801,9 @@ void MixerComponent::valueTreeChildOrderChanged (juce::ValueTree& parent, int, i
 void MixerComponent::generatorListChanged (const juce::ValueTree& parent)
 {
     // The listener sees the whole song tree, so ignore the note and clip
-    // traffic that pattern editing generates.
-    if (parent.hasType (model::ids::GENERATORS))
+    // traffic that pattern editing generates. RETURNS changes rebuild too:
+    // every generator strip carries one send row per return.
+    if (parent.hasType (model::ids::GENERATORS) || parent.hasType (model::ids::RETURNS))
         triggerAsyncUpdate();
 }
 
@@ -589,7 +828,8 @@ void MixerComponent::rebuildStrips()
 
     for (const auto& generator : song.getGenerators())
     {
-        auto strip = std::make_unique<ChannelStrip> (generator, edit.engine, undoManager);
+        auto strip = std::make_unique<ChannelStrip> (generator, edit.engine, undoManager,
+                                                     song.getReturns());
 
         // The slot list knows nothing about tracks, so the mixer -- which
         // does -- hands it the things that need one.
@@ -609,10 +849,42 @@ void MixerComponent::rebuildStrips()
         strips.push_back (std::move (strip));
     }
 
+    returnStrips.clear();
+
+    for (const auto& ret : song.getReturns())
+    {
+        auto strip = std::make_unique<ReturnStrip> (edit.engine, ret, undoManager);
+        const auto returnId = ret.getId();
+
+        auto& slots = strip->getEffectSlots();
+        slots.onOpenEffectEditor = [this, returnId] (const juce::String& effectId)
+        {
+            openEffectEditor (returnId, effectId);
+        };
+        slots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
+        {
+            closeEffectWindow (effectId);
+        };
+
+        strip->onRemove = [this, returnId]
+        {
+            if (auto ret2 = song.findReturn (returnId))
+            {
+                undoManager.beginNewTransaction();
+                song.removeReturn (*ret2, &undoManager);
+            }
+        };
+
+        addAndMakeVisible (*strip);
+        returnStrips.push_back (std::move (strip));
+    }
+
     const auto previousWidth = getWidth();
 
-    // The master strip is always there, and always last.
-    setSize ((int) strips.size() * stripWidth + masterGap + stripWidth,
+    // Generator strips, then return strips, then the add button's column,
+    // then the master -- always last.
+    setSize (((int) strips.size() + (int) returnStrips.size()) * stripWidth
+                 + masterGap + stripWidth,
              juce::jmax (minHeight, getHeight()));
     resized();
 
@@ -658,6 +930,18 @@ te::Plugin* MixerComponent::findEffectPlugin (const juce::String& generatorId,
     return nullptr;
 }
 
+te::Plugin* MixerComponent::findReturnEffectPlugin (const juce::String& returnId,
+                                                    const juce::String& effectId)
+{
+    for (auto track : te::getAudioTracks (edit))
+        if (sync::getReturnTrackId (*track) == returnId)
+            for (auto plugin : track->pluginList.getPlugins())
+                if (plugin->state.getProperty (effectIdProperty).toString() == effectId)
+                    return plugin;
+
+    return nullptr;
+}
+
 void MixerComponent::openEffectEditor (const juce::String& generatorId, const juce::String& effectId)
 {
     if (auto existing = effectWindows.find (effectId); existing != effectWindows.end())
@@ -666,7 +950,11 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const ju
         return;
     }
 
+    // "generatorId" may name a return bus instead; both resolve to a track.
     auto* plugin = findEffectPlugin (generatorId, effectId);
+
+    if (plugin == nullptr)
+        plugin = findReturnEffectPlugin (generatorId, effectId);
 
     if (plugin == nullptr)
         return;   // EditSync has not built this one yet
@@ -791,6 +1079,16 @@ void MixerComponent::resized()
 {
     for (size_t i = 0; i < strips.size(); ++i)
         strips[i]->setBounds ((int) i * stripWidth, 0, stripWidth, getHeight());
+
+    const auto returnsLeft = (int) strips.size() * stripWidth;
+
+    for (size_t i = 0; i < returnStrips.size(); ++i)
+        returnStrips[i]->setBounds (returnsLeft + (int) i * stripWidth, 0, stripWidth, getHeight());
+
+    // The add button lives in the gap that already separates the busses from
+    // the master.
+    addReturnButton.setBounds (returnsLeft + (int) returnStrips.size() * stripWidth + 2, 4,
+                               masterGap - 6, 22);
 
     masterStrip->setBounds (getWidth() - stripWidth, 0, stripWidth, getHeight());
 }

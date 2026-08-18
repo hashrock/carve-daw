@@ -63,6 +63,15 @@ private:
             return;
         }
 
+        // Send knobs and return faders arrive continuously while dragged, and
+        // only ever touch plugin parameters -- same cheap path as the mixer.
+        if (tree.hasType (model::ids::SEND)
+             || (tree.hasType (model::ids::RETURN) && property != model::ids::busNumber))
+        {
+            applySendsAndReturnsOnly();
+            return;
+        }
+
         if (tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
             applyMixerStateOnly();
         else
@@ -78,6 +87,7 @@ private:
 
     void applyMixerStateOnly();
     void applyTempoOnly();
+    void applySendsAndReturnsOnly();
 
     model::Song song;
     te::Edit& edit;

@@ -743,6 +743,135 @@ MasterBus Song::getMasterBus() const
     return MasterBus (getOrCreateChild (state, ids::MASTER));
 }
 
+
+//==============================================================================
+// Sends and returns
+
+std::vector<Send> Generator::getSends() const
+{
+    return collectChildren<Send> (state.getChildWithName (ids::SENDS), ids::SEND);
+}
+
+std::optional<Send> Generator::findSend (const juce::String& returnId) const
+{
+    auto found = state.getChildWithName (ids::SENDS)
+                      .getChildWithProperty (ids::returnId, returnId);
+    return found.isValid() ? std::optional<Send> (Send (found)) : std::nullopt;
+}
+
+Send Generator::setSendGain (const juce::String& returnId, float gainDb, juce::UndoManager* um)
+{
+    if (auto existing = findSend (returnId))
+    {
+        existing->setGainDb (gainDb, um);
+        return *existing;
+    }
+
+    juce::ValueTree send (ids::SEND);
+    send.setProperty (ids::returnId, returnId, nullptr);
+    getOrCreateChild (state, ids::SENDS).appendChild (send, um);
+
+    Send wrapper (send);
+    wrapper.setGainDb (gainDb, um);
+    return wrapper;
+}
+
+void Generator::removeSend (const juce::String& returnId, juce::UndoManager* um)
+{
+    if (auto existing = findSend (returnId))
+        state.getChildWithName (ids::SENDS).removeChild (existing->state, um);
+}
+
+// The effect list is the generator's / master's, verbatim -- one node type,
+// one EditSync reconciliation.
+
+std::vector<Effect> Return::getEffects() const
+{
+    return collectChildren<Effect> (state.getChildWithName (ids::EFFECTS), ids::EFFECT);
+}
+
+std::optional<Effect> Return::findEffect (const juce::String& effectId) const
+{
+    auto found = state.getChildWithName (ids::EFFECTS).getChildWithProperty (ids::id, effectId);
+    return found.isValid() ? std::optional<Effect> (Effect (found)) : std::nullopt;
+}
+
+Effect Return::addEffect (const juce::String& type,
+                          const juce::PluginDescription* description,
+                          juce::UndoManager* um)
+{
+    juce::ValueTree effect (ids::EFFECT);
+    effect.setProperty (ids::id, newId(), nullptr);
+    effect.setProperty (ids::type, type, nullptr);
+
+    getOrCreateChild (state, ids::EFFECTS).appendChild (effect, um);
+
+    Effect wrapper (effect);
+    if (description != nullptr)
+        wrapper.setPlugin (*description, um);
+
+    return wrapper;
+}
+
+void Return::removeEffect (const Effect& effect, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::EFFECTS).removeChild (effect.state, um);
+}
+
+void Return::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* um)
+{
+    auto effects = state.getChildWithName (ids::EFFECTS);
+    const auto from = effects.indexOf (effect.state);
+
+    if (from < 0)
+        return;
+
+    effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
+}
+
+std::vector<Return> Song::getReturns() const
+{
+    return collectChildren<Return> (state.getChildWithName (ids::RETURNS), ids::RETURN);
+}
+
+std::optional<Return> Song::findReturn (const juce::String& returnId) const
+{
+    auto found = state.getChildWithName (ids::RETURNS).getChildWithProperty (ids::id, returnId);
+    return found.isValid() ? std::optional<Return> (Return (found)) : std::nullopt;
+}
+
+Return Song::addReturn (const juce::String& name, juce::UndoManager* um)
+{
+    // The lowest unused positive bus number, persisted: AuxSend and AuxReturn
+    // find each other by it, so it must not shuffle between loads.
+    int bus = 1;
+
+    for (bool taken = true; taken; )
+    {
+        taken = false;
+
+        for (const auto& existing : getReturns())
+            if (existing.getBusNumber() == bus)
+            {
+                taken = true;
+                ++bus;
+                break;
+            }
+    }
+
+    juce::ValueTree ret (ids::RETURN);
+    ret.setProperty (ids::id, newId(), nullptr);
+    ret.setProperty (ids::name, name, nullptr);
+    ret.setProperty (ids::busNumber, bus, nullptr);
+    getOrCreateChild (state, ids::RETURNS).appendChild (ret, um);
+    return Return (ret);
+}
+
+void Song::removeReturn (const Return& ret, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::RETURNS).removeChild (ret.state, um);
+}
+
 //==============================================================================
 // Tempo and time signature
 

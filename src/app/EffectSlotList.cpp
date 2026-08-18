@@ -125,57 +125,68 @@ EffectChain makeGeneratorEffectChain (model::Generator generatorToShow, juce::Un
 }
 
 //==============================================================================
-// The master chain is the generator chain with a different owner: same EFFECT
-// nodes, same ids, same undo. Only the node they hang off differs.
-EffectChain makeMasterEffectChain (model::MasterBus busToShow, juce::UndoManager& undoManager)
+// The master and return chains are the generator chain with a different owner:
+// same EFFECT nodes, same ids, same undo. Only the node they hang off differs.
+template <typename Owner>
+static EffectChain makeOwnedEffectChain (Owner ownerToShow, juce::UndoManager& undoManager)
 {
     EffectChain chain;
 
-    chain.getSlots = [bus = busToShow]
+    chain.getSlots = [owner = ownerToShow]
     {
         std::vector<EffectSlot> result;
 
-        for (const auto& effect : bus.getEffects())
+        for (const auto& effect : owner.getEffects())
             result.push_back ({ effect.getId(), getSlotName (effect), effect.isEnabled() });
 
         return result;
     };
 
-    chain.add = [bus = busToShow, &undoManager] (const juce::String& type,
-                                                 const juce::PluginDescription* description) mutable
+    chain.add = [owner = ownerToShow, &undoManager] (const juce::String& type,
+                                                     const juce::PluginDescription* description) mutable
     {
         undoManager.beginNewTransaction();
-        bus.addEffect (type, description, &undoManager);
+        owner.addEffect (type, description, &undoManager);
     };
 
-    chain.setEnabled = [bus = busToShow, &undoManager] (const juce::String& id, bool enabled) mutable
+    chain.setEnabled = [owner = ownerToShow, &undoManager] (const juce::String& id, bool enabled) mutable
     {
-        if (auto effect = bus.findEffect (id))
+        if (auto effect = owner.findEffect (id))
         {
             undoManager.beginNewTransaction();
             effect->setEnabled (enabled, &undoManager);
         }
     };
 
-    chain.remove = [bus = busToShow, &undoManager] (const juce::String& id) mutable
+    chain.remove = [owner = ownerToShow, &undoManager] (const juce::String& id) mutable
     {
-        if (auto effect = bus.findEffect (id))
+        if (auto effect = owner.findEffect (id))
         {
             undoManager.beginNewTransaction();
-            bus.removeEffect (*effect, &undoManager);
+            owner.removeEffect (*effect, &undoManager);
         }
     };
 
-    chain.move = [bus = busToShow, &undoManager] (const juce::String& id, int newIndex) mutable
+    chain.move = [owner = ownerToShow, &undoManager] (const juce::String& id, int newIndex) mutable
     {
-        if (auto effect = bus.findEffect (id))
+        if (auto effect = owner.findEffect (id))
         {
             undoManager.beginNewTransaction();
-            bus.moveEffect (*effect, newIndex, &undoManager);
+            owner.moveEffect (*effect, newIndex, &undoManager);
         }
     };
 
     return chain;
+}
+
+EffectChain makeMasterEffectChain (model::MasterBus busToShow, juce::UndoManager& undoManager)
+{
+    return makeOwnedEffectChain (std::move (busToShow), undoManager);
+}
+
+EffectChain makeReturnEffectChain (model::Return returnToShow, juce::UndoManager& undoManager)
+{
+    return makeOwnedEffectChain (std::move (returnToShow), undoManager);
 }
 
 //==============================================================================

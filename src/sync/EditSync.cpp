@@ -606,6 +606,155 @@ namespace
         }
     }
 
+    // The return tracks' own contents: an AuxReturn at the head, then the
+    // bus's shared effects, then the track fader the mixer state drives.
+    void syncReturns (const model::Song& song, te::Edit& edit)
+    {
+        static const juce::Identifier busNumId ("busNum");
+
+        for (auto track : te::getAudioTracks (edit))
+        {
+            const auto returnTrackId = sync::getReturnTrackId (*track);
+
+            if (returnTrackId.isEmpty())
+                continue;
+
+            auto ret = song.findReturn (returnTrackId);
+            if (! ret)
+                continue;   // deleted; track management removes it next pass
+
+            auto auxReturn = track->pluginList.findFirstPluginOfType<te::AuxReturnPlugin>();
+
+            if (auxReturn == nullptr)
+            {
+                if (auto plugin = edit.getPluginCache().createNewPlugin (te::AuxReturnPlugin::xmlTypeName, {}))
+                {
+                    track->pluginList.insertPlugin (plugin, 0, nullptr);
+                    auxReturn = dynamic_cast<te::AuxReturnPlugin*> (plugin.get());
+                }
+            }
+
+            if (auxReturn != nullptr && auxReturn->busNumber.get() != ret->getBusNumber())
+                auxReturn->state.setProperty (busNumId, ret->getBusNumber(), nullptr);
+
+            if (track->getName() != ret->getName())
+                track->setName (ret->getName());
+
+            syncEffectChain (edit, track->pluginList, track->state, ret->getEffects(),
+                             [&ret] (const juce::String& id) { return ret->findEffect (id).has_value(); },
+                             1);
+
+            if (auto volume = track->getVolumePlugin())
+                if (std::abs (volume->getVolumeDb() - ret->getVolumeDb()) > 0.01f)
+                    volume->setVolumeDb (ret->getVolumeDb());
+
+            if (track->isMuted (false) != ret->isMuted())
+                track->setMute (ret->isMuted());
+
+            // Soloing a generator must not silence the shared reverb it sends
+            // into, or solo would never sound like the mix.
+            if (! track->isSoloIsolate (false))
+                track->setSoloIsolate (true);
+        }
+    }
+
+    // One AuxSendPlugin per (generator track, sent-to bus), post-fader.
+    // Invisible to the rest of the sync: it carries no effect id and is not an
+    // instrument type, so findInstrument and syncEffects both pass it by.
+    void syncSends (const model::Song& song, te::Edit& edit,
+                    te::AudioTrack& track, const model::Generator& generator)
+    {
+        static const juce::Identifier busNumId ("busNum");
+
+        auto busNumberFor = [&song] (const juce::String& returnId) -> int
+        {
+            if (auto ret = song.findReturn (returnId))
+                return ret->getBusNumber();
+
+            return 0;   // dangling send: the return was deleted
+        };
+
+        const auto sends = generator.getSends();
+
+        // Copy: deleting mutates the list. A live send whose bus no model send
+        // wants any more goes.
+        for (auto plugin : te::Plugin::Array (track.pluginList.getPlugins()))
+        {
+            auto send = dynamic_cast<te::AuxSendPlugin*> (plugin);
+            if (send == nullptr)
+                continue;
+
+            const auto wanted = std::any_of (sends.begin(), sends.end(),
+                                             [&] (const model::Send& modelSend)
+                                             {
+                                                 return busNumberFor (modelSend.getReturnId())
+                                                          == send->busNumber.get();
+                                             });
+
+            if (! wanted)
+                send->deleteFromParent();
+        }
+
+        for (const auto& modelSend : sends)
+        {
+            const auto bus = busNumberFor (modelSend.getReturnId());
+            if (bus <= 0)
+                continue;
+
+            te::AuxSendPlugin* live = nullptr;
+
+            for (auto plugin : track.pluginList.getPlugins())
+                if (auto send = dynamic_cast<te::AuxSendPlugin*> (plugin))
+                    if (send->busNumber.get() == bus)
+                        live = send;
+
+            if (live == nullptr)
+            {
+                if (auto plugin = edit.getPluginCache().createNewPlugin (te::AuxSendPlugin::xmlTypeName, {}))
+                {
+                    // At the end of the list: after the fader, so the send
+                    // follows the channel level the way a post-fader send should.
+                    track.pluginList.insertPlugin (plugin, track.pluginList.size(), nullptr);
+                    live = dynamic_cast<te::AuxSendPlugin*> (plugin.get());
+
+                    if (live != nullptr)
+                        live->state.setProperty (busNumId, bus, nullptr);
+                }
+            }
+
+            // The gain round-trips through the fader taper, so compare loosely
+            // -- the same reason applyMixerState does.
+            if (live != nullptr && std::abs (live->getGainDb() - modelSend.getGainDb()) > 0.01f)
+                live->setGainDb (modelSend.getGainDb());
+        }
+    }
+
+    // Copies one live effect plugin's state back into its model node --
+    // external plugins as base64, internal ones as their own tree.
+    void captureEffectState (model::Effect effect, te::Plugin& plugin)
+    {
+        if (auto external = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        {
+            if (auto instance = external->getAudioPluginInstance())
+            {
+                juce::MemoryBlock block;
+                instance->getStateInformation (block);
+                if (! block.isEmpty())
+                    effect.setPluginState (block.toBase64Encoding(), nullptr);
+            }
+
+            return;
+        }
+
+        // sidechainSourceID is an EditItemID, unique only within this session
+        // -- saved as-is it could collide with a different track's id after a
+        // reload. The model's own sidechainSource property is the durable
+        // form, and the sync rebuilds the live value from it.
+        auto captured = plugin.state.createCopy();
+        captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
+        effect.setInternalState (captured, nullptr);
+    }
+
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track)
     {
@@ -732,15 +881,79 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
     syncMasterBus (song, edit);
 
     const auto generators = song.getGenerators();
+    const auto returns = song.getReturns();
 
-    edit.ensureNumberOfAudioTracks ((int) generators.size());
-    auto tracks = te::getAudioTracks (edit);
-
-    while (tracks.size() > (int) generators.size())   // generator was deleted
+    // Track layout: generator tracks first, in generator order, then one track
+    // per return bus. Return tracks are told apart by a stamp, never by
+    // position -- an index shift must not point the generator sync at a track
+    // full of shared reverb, which is how the first attempt at this died.
     {
-        edit.deleteTrack (tracks.getLast());
-        tracks = te::getAudioTracks (edit);
+        auto all = te::getAudioTracks (edit);
+
+        // Return tracks whose bus is gone, then surplus generator tracks from
+        // the end (preserving generator order).
+        for (int i = all.size(); --i >= 0;)
+            if (sync::isReturnTrack (*all[i])
+                 && ! song.findReturn (sync::getReturnTrackId (*all[i])))
+                edit.deleteTrack (all[i]);
+
+        auto generatorTracks = [&edit]
+        {
+            juce::Array<te::AudioTrack*> result;
+
+            for (auto track : te::getAudioTracks (edit))
+                if (! sync::isReturnTrack (*track))
+                    result.add (track);
+
+            return result;
+        };
+
+        for (auto current = generatorTracks(); current.size() > (int) generators.size();
+             current = generatorTracks())
+            edit.deleteTrack (current.getLast());
+
+        while (generatorTracks().size() < (int) generators.size())
+            edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr);
+
+        for (const auto& ret : returns)
+        {
+            bool exists = false;
+
+            for (auto track : te::getAudioTracks (edit))
+                if (sync::getReturnTrackId (*track) == ret.getId())
+                    exists = true;
+
+            if (! exists)
+                if (auto track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr))
+                    track->state.setProperty (sync::returnIdProperty, ret.getId(), nullptr);
+        }
+
+        // Order: a generator added while returns exist appears at the very
+        // end, behind them; move any return track that is not behind every
+        // generator track. Steady state makes no moves and rebuilds nothing.
+        for (bool moved = true; moved; )
+        {
+            moved = false;
+            auto all2 = te::getAudioTracks (edit);
+
+            for (int i = 0; i < all2.size() - 1; ++i)
+            {
+                if (sync::isReturnTrack (*all2[i]) && ! sync::isReturnTrack (*all2[i + 1]))
+                {
+                    edit.moveTrack (all2[i], te::TrackInsertPoint (nullptr, all2[all2.size() - 1]));
+                    moved = true;
+                    break;
+                }
+            }
+        }
     }
+
+    // Everything below addresses generator tracks only.
+    juce::Array<te::AudioTrack*> tracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isReturnTrack (*track))
+            tracks.add (track);
 
     for (int i = 0; i < (int) generators.size(); ++i)
     {
@@ -752,6 +965,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
 
         ensureInstrument (edit, track, generator);
         syncEffects (edit, track, generator);
+        syncSends (song, edit, track, generator);
         applyMixerState (generator, track);
 
         if (generator.isAudio())
@@ -761,6 +975,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
     }
 
     syncSidechains (song, edit, tracks);
+    syncReturns (song, edit);
 
 }
 
@@ -774,6 +989,19 @@ void flushSamplerLoads (te::Edit& edit)
 
 void EditSync::captureLivePluginState()
 {
+    // Return busses first: their reverbs have knobs too.
+    for (auto track : te::getAudioTracks (edit))
+    {
+        const auto returnTrackId = sync::getReturnTrackId (*track);
+        if (returnTrackId.isEmpty())
+            continue;
+
+        if (auto ret = song.findReturn (returnTrackId))
+            for (auto effect : ret->getEffects())
+                if (auto plugin = findEffectPlugin (*track, effect.getId()))
+                    captureEffectState (effect, *plugin);
+    }
+
     const auto generators = song.getGenerators();
     const auto tracks = te::getAudioTracks (edit);
 
@@ -783,33 +1011,8 @@ void EditSync::captureLivePluginState()
 
         // Insert effects first: these apply whatever the generator's own type.
         for (auto effect : generator.getEffects())
-        {
-            auto plugin = findEffectPlugin (*tracks[i], effect.getId());
-            if (plugin == nullptr)
-                continue;
-
-            if (auto external = dynamic_cast<te::ExternalPlugin*> (plugin))
-            {
-                if (auto instance = external->getAudioPluginInstance())
-                {
-                    juce::MemoryBlock block;
-                    instance->getStateInformation (block);
-                    if (! block.isEmpty())
-                        effect.setPluginState (block.toBase64Encoding(), nullptr);
-                }
-            }
-            else
-            {
-                // sidechainSourceID is an EditItemID, unique only within this
-                // session -- saved as-is it could collide with a different
-                // track's id after a reload. The model's own sidechainSource
-                // property is the durable form, and the sync above rebuilds
-                // the live value from it.
-                auto captured = plugin->state.createCopy();
-                captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
-                effect.setInternalState (captured, nullptr);
-            }
-        }
+            if (auto plugin = findEffectPlugin (*tracks[i], effect.getId()))
+                captureEffectState (effect, *plugin);
 
         if (generator.getType() != "plugin")
             continue;
@@ -869,6 +1072,21 @@ void EditSync::applyTempoOnly()
         // length is not. syncAudioClips already only writes what differs.
         syncAudioClips (song, generator, edit, *tracks[i]);
     }
+}
+
+void EditSync::applySendsAndReturnsOnly()
+{
+    syncReturns (song, edit);
+
+    const auto generators = song.getGenerators();
+    juce::Array<te::AudioTrack*> generatorTracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isReturnTrack (*track))
+            generatorTracks.add (track);
+
+    for (int i = 0; i < (int) generators.size() && i < generatorTracks.size(); ++i)
+        syncSends (song, edit, *generatorTracks[i], generators[(size_t) i]);
 }
 
 void EditSync::applyMixerStateOnly()
