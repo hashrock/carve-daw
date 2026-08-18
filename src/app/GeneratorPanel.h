@@ -30,6 +30,14 @@ public:
 
     std::function<void (model::PatternSlot)> onSlotClicked;
 
+    // A right click (or ctrl-click) on a slot. The panel owns the menu itself:
+    // everything on it is a model edit, and the grid holds no model.
+    std::function<void (model::PatternSlot)> onSlotMenuRequested;
+
+    // Cmd+D while the grid has the keyboard, which duplicates the selected
+    // slot -- the same shortcut the playlist duplicates a clip with.
+    std::function<void()> onDuplicateRequested;
+
     void setSlotState (const model::PatternSlot&, SlotState);
     void setSelectedSlot (std::optional<model::PatternSlot>);
     void clearSlots();
@@ -37,8 +45,13 @@ public:
     // Height needed to show all four banks; the pads take whatever width there is.
     static int getPreferredHeight();
 
+    // Where a slot sits on screen, so a menu can be hung off the pad it
+    // belongs to rather than off the pointer.
+    juce::Rectangle<int> getSlotScreenArea (const model::PatternSlot&) const;
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     juce::Rectangle<int> getSlotBounds (const model::PatternSlot&) const;
@@ -136,6 +149,18 @@ private:
     void discardUntouchedPattern (const juce::String& patternId,
                                   const juce::String& generatorId);
 
+    // The slot grid's right-click menu: clone this slot, send it to another
+    // generator, or take it through a MIDI file. Everything on it works on
+    // (generatorId, slot) rather than a Pattern, because the menu and the file
+    // choosers behind it are asynchronous and the song may be replaced while
+    // one is open.
+    void showSlotMenu (model::PatternSlot);
+    void duplicateSelectedPattern();
+    void duplicatePattern (const juce::String& generatorId, model::PatternSlot,
+                           const juce::String& destinationGeneratorId);
+    void exportPatternToMidi (const juce::String& generatorId, model::PatternSlot);
+    void importMidiIntoSlot (const juce::String& generatorId, model::PatternSlot);
+
     te::Engine& engine;
     model::Song song;
     juce::UndoManager& undoManager;
@@ -149,8 +174,10 @@ private:
     PatternSlotGrid slotGrid;
     juce::ComboBox patternBox;   // only the patterns outside the slot grid
 
-    // Has to outlive launchAsync, so it can't be a local.
-    std::unique_ptr<juce::FileChooser> sampleChooser;
+    // Have to outlive launchAsync, so they can't be locals. Two of them,
+    // because a sample chooser and a MIDI chooser are never open at once but
+    // one would otherwise cancel the other's callback on being replaced.
+    std::unique_ptr<juce::FileChooser> sampleChooser, midiChooser;
 
     juce::String selectedPatternId;
     bool isRefreshing = false;

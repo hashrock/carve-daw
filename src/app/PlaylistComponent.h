@@ -275,6 +275,29 @@ private:
     void deleteSelection();
     void dragSelectionTo (double targetStart);
 
+    // The clipboard. It goes through juce::SystemClipboard as XML rather than
+    // through a member of ours, so a copy made here survives being pasted from
+    // another window -- and so nothing has to be told when the song is
+    // replaced. Anything on the clipboard that is not ours reads as nothing.
+    void copySelection();
+    void cutSelection();
+    void pasteClips();
+
+    // The selected placements as one XML payload, each with its start relative
+    // to the earliest of them: the payload says the shape of the group and the
+    // paste says where it goes. Invalid when nothing is selected.
+    juce::ValueTree makeClipboardPayload() const;
+    static juce::ValueTree readClipboardPayload();
+
+    // Where a paste lands: the bar under the pointer while it is over a row,
+    // and the bar the playhead sits in otherwise -- so it follows the mouse
+    // when there is one to follow and the transport when there isn't.
+    double pasteTargetBeat() const;
+
+    // The generator a clipboard entry belongs to: by id, or -- for a paste into
+    // a song that no longer holds that id -- by the name it was copied under.
+    std::optional<model::Generator> generatorForClipboardEntry (const juce::ValueTree&) const;
+
     void showPatternMenu (const model::PlaylistClip&, juce::Rectangle<float> buttonBounds);
 
     void dragLoopTo (double beat);

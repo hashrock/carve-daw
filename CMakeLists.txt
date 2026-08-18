@@ -26,6 +26,8 @@ set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
     src/model/SongModel.cpp
+    src/model/MidiPatternIO.h
+    src/model/MidiPatternIO.cpp
     src/model/DemoSong.h
     src/model/DemoSong.cpp
     src/sync/EditSync.h
