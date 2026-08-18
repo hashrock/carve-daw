@@ -56,6 +56,8 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         generatorController->showAddGeneratorMenu (screenArea);
     };
 
+    playlist.onSeek = [this] (double beat) { seekToSongBeat (beat); };
+
     // Double-clicking a clip edits the pattern it plays: make that pattern the
     // selection, then open (or retarget) the pattern editor on it.
     playlist.onEditPattern = [this] (const juce::String& generatorId,
@@ -247,6 +249,13 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
                 if (safe != nullptr)
                     safe->previewNote (pitch, velocity);
             });
+
+        generatorWindow->onSeekPatternBeat =
+            [safe = juce::Component::SafePointer (this)] (double patternBeat)
+        {
+            if (safe != nullptr)
+                safe->seekToPatternBeat (patternBeat);
+        };
 
         // The window only reports gestures; the controller stays the selection
         // and model-edit authority, and its refresh comes back around through
@@ -525,10 +534,66 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
     return false;
 }
 
+void MainComponent::seekToSongBeat (double beat)
+{
+    edit->getTransport().setPosition (
+        edit->tempoSequence.toTime (te::BeatPosition::fromBeats (std::max (0.0, beat))));
+}
+
+void MainComponent::seekToPatternBeat (double patternBeat)
+{
+    // The earliest placement of the pattern: seeking "into the pattern" has to
+    // pick one of its placements, and the first is the one the user can
+    // predict without looking at the playlist.
+    std::optional<double> earliest;
+
+    for (const auto& clip : song.getPlaylist().getClips())
+        if (clip.getPatternId() == selectedPatternId)
+            if (! earliest || clip.getStart() < *earliest)
+                earliest = clip.getStart();
+
+    if (earliest)
+        seekToSongBeat (*earliest + patternBeat);
+}
+
+std::optional<double> MainComponent::patternBeatOfPlayhead (double songBeat) const
+{
+    auto generator = song.findGenerator (selectedGeneratorId);
+    if (! generator)
+        return std::nullopt;
+
+    auto pattern = generator->findPattern (selectedPatternId);
+    if (! pattern || pattern->getLengthBeats() <= 0.0)
+        return std::nullopt;
+
+    const auto patternLength = pattern->getLengthBeats();
+
+    // Inside any placement counts; a clip longer than the pattern loops it, so
+    // the position folds back into pattern beats the same way playback does.
+    for (const auto& clip : song.getPlaylist().getClips())
+    {
+        if (clip.getPatternId() != selectedPatternId)
+            continue;
+
+        const auto start = clip.getStart();
+        const auto length = clip.getLength (patternLength);
+
+        if (songBeat >= start && songBeat < start + length)
+            return std::fmod (songBeat - start, patternLength);
+    }
+
+    return std::nullopt;
+}
+
 void MainComponent::timerCallback()
 {
     const auto position = edit->getTransport().getPosition();
-    playlist.setPlayheadBeats (edit->tempoSequence.toBeats (position).inBeats());
+    const auto songBeat = edit->tempoSequence.toBeats (position).inBeats();
+
+    playlist.setPlayheadBeats (songBeat);
+
+    if (generatorWindow != nullptr)
+        generatorWindow->setPlayheadPatternBeat (patternBeatOfPlayhead (songBeat));
 }
 
 void MainComponent::resized()

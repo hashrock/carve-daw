@@ -158,6 +158,11 @@ public:
     void zoomBy (double factor);
     double getPixelsPerBeat() const  { return pixelsPerBeat; }
 
+    // Where in this pattern the transport currently is, in pattern beats, or
+    // nothing while it is playing somewhere the pattern is not placed. The
+    // owner works this out from the playlist; the roll only draws the line.
+    void setPlayheadBeat (std::optional<double>);
+
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -261,6 +266,7 @@ private:
     double gridBeats = 0.25;   // 16th-note grid
     bool snapEnabled = true;
     double pixelsPerBeat = defaultPixelsPerBeat;
+    std::optional<double> playheadBeat;
     Tool tool = Tool::draw;
 
     enum class DragMode { none, move, resize, erase, rubberBand };
@@ -312,12 +318,21 @@ public:
 
     static constexpr int preferredHeight = 20;
 
+    // A press (or a scrub drag) landed on this pattern beat: the owner moves
+    // the transport there. The ruler itself has no idea where in the song the
+    // pattern is placed, so all it reports is the beat.
+    std::function<void (double patternBeat)> onSeek;
+
     // x coordinate of the roll that sits at this component's left edge
     void setScrollOffset (int offsetX);
 
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
 
 private:
+    void seekTo (float x);
+
     const PianoRollComponent& roll;
     int scrollOffset = 0;
 };

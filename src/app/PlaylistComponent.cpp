@@ -2633,13 +2633,26 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (rulerBounds().contains (e.position) && ! e.mods.isRightButtonDown())
+    if (rulerBounds().contains (e.position))
     {
+        // A right click clears the loop range; the plain click that used to is
+        // the seek gesture now.
+        if (e.mods.isRightButtonDown())
+        {
+            if (song.hasLoopRange())
+            {
+                undoManager.beginNewTransaction();
+                song.clearLoopRange (&undoManager);
+            }
+            return;
+        }
+
         // Drag the ruler to set the loop range. Grabbing within a few pixels of
         // an existing edge drags that edge (the other one becomes the anchor);
         // anywhere else starts a fresh range from that bar. A click that never
-        // leaves its bar clears the range - see mouseUp.
-        loopAnchorBeats = nearestBar (xToBeat (e.position.x));
+        // leaves its bar moves the transport there instead - see mouseUp.
+        rulerPressBeats = nearestBar (xToBeat (e.position.x));
+        loopAnchorBeats = rulerPressBeats;
         loopDragMoved = false;
 
         if (song.hasLoopRange())
@@ -2877,10 +2890,10 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 
 void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 {
-    // A ruler click that never grew into a drag means "no loop range", which is
-    // also how the range is cleared.
-    if (dragMode == DragMode::loopRange && ! loopDragMoved && song.hasLoopRange())
-        song.clearLoopRange (&undoManager);
+    // A ruler click that never grew into a drag moves the transport to the bar
+    // it landed on. Clearing the loop moved to the ruler's right click.
+    if (dragMode == DragMode::loopRange && ! loopDragMoved && onSeek)
+        onSeek (rulerPressBeats);
 
     dragMode = DragMode::none;
     dragOriginStarts.clear();

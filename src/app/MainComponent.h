@@ -72,6 +72,17 @@ private:
     }
     bool handleGlobalKey (const juce::KeyPress&);
 
+    // Ruler seeks. The playlist's ruler names a song beat outright; the piano
+    // roll's names a beat inside the edited pattern, which lands on that beat
+    // of the pattern's earliest placement -- a pattern that is not placed has
+    // no position in the song, so that seek goes nowhere.
+    void seekToSongBeat (double beat);
+    void seekToPatternBeat (double patternBeat);
+
+    // Where in the selected pattern the transport is, or nothing while it is
+    // outside every placement of it. Drives the roll's playhead.
+    std::optional<double> patternBeatOfPlayhead (double songBeat) const;
+
     te::Engine& engine;
     std::unique_ptr<te::Edit> edit;
     juce::UndoManager undoManager;

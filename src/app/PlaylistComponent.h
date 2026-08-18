@@ -68,6 +68,10 @@ public:
     // The rectangle is where to hang it (the button, in screen coords).
     std::function<void (juce::Rectangle<int>)> onAddGenerator;
 
+    // A click on the ruler asked for the transport to move to this beat (a
+    // drag still sets the loop range; a right click clears it).
+    std::function<void (double beat)> onSeek;
+
     // A clip was double-clicked: (generatorId, patternId) of the pattern the
     // host should open in the pattern editor.
     std::function<void (const juce::String&, const juce::String&)> onEditPattern;
@@ -494,8 +498,11 @@ private:
     std::map<juce::String, WaveformPeaks> peakCache;
 
     // Loop drag: the end of the range that stays put, plus whether the pointer
-    // ever left the bar it went down in (a click without a drag clears).
+    // ever left the bar it went down in (a click without a drag seeks instead)
+    // and the bar the press itself landed on, which is where the seek goes --
+    // the anchor may be the far loop edge when the press grabbed the near one.
     double loopAnchorBeats = 0.0;
+    double rulerPressBeats = 0.0;
     bool loopDragMoved = false;
 
     // Marker drag: the change being moved, where in it the pointer went down,

@@ -207,6 +207,12 @@ public:
         // fires this for a signature change too, for the same reason.
         pianoRoll.onViewChanged = [this] { updateStrips(); ruler.repaint(); velocityLane.repaint(); };
 
+        ruler.onSeek = [this] (double beat)
+        {
+            if (onSeekPatternBeat)
+                onSeekPatternBeat (beat);
+        };
+
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
         pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); };
@@ -243,6 +249,18 @@ public:
 
     // fired after a rename so the window can refresh its title bar
     std::function<void (const juce::String&)> onPatternRenamed;
+
+    // A press on the ruler asked for the transport to move to this pattern
+    // beat. Where that is in the song is the owner's problem: the editor has
+    // no idea which placements the pattern has.
+    std::function<void (double patternBeat)> onSeekPatternBeat;
+
+    // Where in this pattern the transport currently is, worked out by the
+    // owner from the playlist; nothing while it plays elsewhere.
+    void setPlayheadBeat (std::optional<double> beat)
+    {
+        pianoRoll.setPlayheadBeat (beat);
+    }
 
     // The roll knows nothing about the engine, so whoever does supplies this.
     void setPreviewNoteCallback (std::function<void (int, int)> callback)

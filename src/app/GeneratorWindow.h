@@ -448,6 +448,12 @@ public:
     {
         rollContent.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
 
+        rollContent.onSeekPatternBeat = [this] (double beat)
+        {
+            if (onSeekPatternBeat)
+                onSeekPatternBeat (beat);
+        };
+
         content.header.instTab.onClick = [this] { showTab (Tab::instrument); };
         content.header.rollTab.onClick = [this] { showTab (Tab::pianoRoll); };
 
@@ -486,6 +492,17 @@ public:
     // One of the generator's patterns outside the slot grid was picked from
     // the header's combo (they only exist in songs saved before slots did).
     std::function<void (const juce::String&)> onUnslottedPatternPicked;
+
+    // The roll's ruler asked for the transport to move to this pattern beat;
+    // mapping that into a song position is the owner's job.
+    std::function<void (double patternBeat)> onSeekPatternBeat;
+
+    // Where in the edited pattern the transport currently is, or nothing
+    // while it plays somewhere this pattern is not placed.
+    void setPlayheadPatternBeat (std::optional<double> beat)
+    {
+        rollContent.setPlayheadBeat (beat);
+    }
 
     void showTab (Tab tab)
     {

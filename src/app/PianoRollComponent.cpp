@@ -165,6 +165,18 @@ std::vector<model::Note> PianoRollComponent::getNotes() const
 
 double PianoRollComponent::xToBeat (float x) const     { return (x - (float) keyboardWidth) / pixelsPerBeat; }
 float PianoRollComponent::beatToX (double beat) const  { return (float) (keyboardWidth + beat * pixelsPerBeat); }
+
+void PianoRollComponent::setPlayheadBeat (std::optional<double> beat)
+{
+    // Tolerant compare: this arrives on a timer, and repainting the roll for a
+    // sub-pixel move would burn paint for nothing while stopped.
+    if (playheadBeat.has_value() != beat.has_value()
+         || (beat.has_value() && std::abs (*playheadBeat - *beat) > 1.0e-3))
+    {
+        playheadBeat = beat;
+        repaint();
+    }
+}
 int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / rowHeight); }
 float PianoRollComponent::pitchToY (int pitch) const   { return (float) ((highestPitch - pitch) * rowHeight); }
 
@@ -760,6 +772,14 @@ void PianoRollComponent::paint (juce::Graphics& g)
         g.drawRect (rubberBand, 1.0f);
     }
 
+    // playhead, in the playlist's colour, drawn under the keyboard column so
+    // it disappears behind it rather than crossing the key names
+    if (playheadBeat && *playheadBeat >= 0.0 && *playheadBeat <= lengthBeats)
+    {
+        g.setColour (juce::Colours::orangered);
+        g.drawVerticalLine ((int) beatToX (*playheadBeat), 0.0f, (float) getHeight());
+    }
+
     // keyboard column
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
@@ -1069,8 +1089,6 @@ bool PianoRollComponent::keyPressed (const juce::KeyPress& key)
 PianoRollRuler::PianoRollRuler (const PianoRollComponent& rollToFollow)
     : roll (rollToFollow)
 {
-    // purely a read-out: clicks belong to whatever is behind it
-    setInterceptsMouseClicks (false, false);
 }
 
 void PianoRollRuler::setScrollOffset (int offsetX)
@@ -1080,6 +1098,29 @@ void PianoRollRuler::setScrollOffset (int offsetX)
         scrollOffset = offsetX;
         repaint();
     }
+}
+
+void PianoRollRuler::seekTo (float x)
+{
+    if (! onSeek)
+        return;
+
+    // The ruler shows the roll shifted by the scroll offset, so a click maps
+    // back through the roll's own geometry. Clamped rather than rejected:
+    // pressing past either end means "from the start" / "from the end".
+    const auto beat = juce::jlimit (0.0, roll.getLengthBeats(),
+                                    roll.xToBeat (x + (float) scrollOffset));
+    onSeek (beat);
+}
+
+void PianoRollRuler::mouseDown (const juce::MouseEvent& e)
+{
+    seekTo (e.position.x);
+}
+
+void PianoRollRuler::mouseDrag (const juce::MouseEvent& e)
+{
+    seekTo (e.position.x);   // scrub
 }
 
 void PianoRollRuler::paint (juce::Graphics& g)
