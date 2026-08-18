@@ -103,6 +103,40 @@ public:
     juce::ValueTree state;
 };
 
+
+// One insert effect on a generator's track. Either a tracktion internal
+// plugin, named by its xmlTypeName, or an external VST3/AU described the same
+// way the instrument is. The id is what lets EditSync match a model entry to
+// the live plugin it already built, so parameter tweaks survive a resync.
+class Effect
+{
+public:
+    explicit Effect (juce::ValueTree v) : state (std::move (v)) {}
+
+    static constexpr const char* externalType = "plugin";
+
+    juce::String getId() const    { return state[ids::id]; }
+    juce::String getType() const  { return state[ids::type]; }
+    bool isExternal() const       { return getType() == externalType; }
+    bool isEnabled() const        { return state.getProperty (ids::enabled, true); }
+
+    void setEnabled (bool e, juce::UndoManager* um)  { state.setProperty (ids::enabled, e, um); }
+
+    // For an external effect: which plugin, and its last captured state.
+    void setPlugin (const juce::PluginDescription&, juce::UndoManager*);
+    std::optional<juce::PluginDescription> getPluginDescription() const;
+    void setPluginState (const juce::String& base64, juce::UndoManager* um)  { state.setProperty (ids::state, base64, um); }
+    juce::String getPluginState() const  { return state[ids::state]; }
+
+    // An internal tracktion plugin *is* its ValueTree, so its parameters are
+    // kept by storing that tree here rather than as an opaque blob. Without
+    // this every reload would hand the user a compressor back at its defaults.
+    juce::ValueTree getInternalState() const;
+    void setInternalState (const juce::ValueTree& pluginState, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 class Generator
 {
 public:
@@ -145,6 +179,17 @@ public:
     std::optional<juce::PluginDescription> getPluginDescription() const;
     void setPluginState (const juce::String& base64, juce::UndoManager*);
     juce::String getPluginState() const;
+
+    // Insert effects, in signal order, sitting between the instrument and the
+    // track fader.
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+
+    // `type` is a tracktion xmlTypeName, or Effect::externalType with a
+    // description for a VST3/AU.
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
 
     int getNumPatterns() const;
     Pattern getPattern (int index) const;

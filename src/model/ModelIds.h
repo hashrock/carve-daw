@@ -11,6 +11,10 @@
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
+// │     ├─ EFFECTS
+// │     │  └─ EFFECT {id, type, desc, state, enabled}
+// │     │        type: a tracktion internal plugin's xmlTypeName, or "plugin"
+// │     │        for an external one (then desc/state describe it)
 // │     └─ PATTERNS
 // │        └─ PATTERN {id, name, lengthBeats, slot}
 // │           │        slot: optional pattern-slot key, "A1".."D9". Patterns
@@ -35,6 +39,8 @@ ORIONISH_DECLARE_ID (PATTERNS)
 ORIONISH_DECLARE_ID (PATTERN)
 ORIONISH_DECLARE_ID (NOTE)
 ORIONISH_DECLARE_ID (PLUGIN)
+ORIONISH_DECLARE_ID (EFFECTS)
+ORIONISH_DECLARE_ID (EFFECT)
 ORIONISH_DECLARE_ID (PLAYLIST)
 ORIONISH_DECLARE_ID (CLIP)
 ORIONISH_DECLARE_ID (AUTOMATION)
@@ -54,6 +60,7 @@ ORIONISH_DECLARE_ID (patternId)
 ORIONISH_DECLARE_ID (desc)
 ORIONISH_DECLARE_ID (state)
 ORIONISH_DECLARE_ID (transpose)
+ORIONISH_DECLARE_ID (enabled)
 ORIONISH_DECLARE_ID (loopStart)
 ORIONISH_DECLARE_ID (loopEnd)
 ORIONISH_DECLARE_ID (volumeDb)

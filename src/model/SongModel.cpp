@@ -3,6 +3,10 @@
 namespace orionish::model
 {
 
+// tracktion names a plugin's state tree "PLUGIN"; spelled out here so the model
+// layer doesn't have to include the engine just for one identifier.
+static const juce::Identifier te_pluginStateType ("PLUGIN");
+
 namespace
 {
     juce::String newId()  { return juce::Uuid().toString(); }
@@ -84,6 +88,88 @@ Note Pattern::addNote (double startBeats, double lengthBeats, int pitch, int vel
 void Pattern::removeNote (const Note& note, juce::UndoManager* um)
 {
     state.removeChild (note.state, um);
+}
+
+
+//==============================================================================
+// Effect
+
+void Effect::setPlugin (const juce::PluginDescription& description, juce::UndoManager* um)
+{
+    if (auto xml = description.createXml())
+        state.setProperty (ids::desc, xml->toString(), um);
+}
+
+std::optional<juce::PluginDescription> Effect::getPluginDescription() const
+{
+    if (auto xml = juce::parseXML (state[ids::desc].toString()))
+    {
+        juce::PluginDescription description;
+        if (description.loadFromXml (*xml))
+            return description;
+    }
+    return std::nullopt;
+}
+
+juce::ValueTree Effect::getInternalState() const
+{
+    return state.getChildWithName (te_pluginStateType);
+}
+
+void Effect::setInternalState (const juce::ValueTree& pluginState, juce::UndoManager* um)
+{
+    state.removeChild (state.getChildWithName (te_pluginStateType), um);
+
+    if (pluginState.isValid())
+        state.appendChild (pluginState.createCopy(), um);
+}
+
+std::vector<Effect> Generator::getEffects() const
+{
+    return collectChildren<Effect> (state.getChildWithName (ids::EFFECTS), ids::EFFECT);
+}
+
+std::optional<Effect> Generator::findEffect (const juce::String& effectId) const
+{
+    auto found = state.getChildWithName (ids::EFFECTS)
+                      .getChildWithProperty (ids::id, effectId);
+    if (! found.isValid())
+        return std::nullopt;
+
+    return Effect (found);
+}
+
+Effect Generator::addEffect (const juce::String& type,
+                             const juce::PluginDescription* description,
+                             juce::UndoManager* um)
+{
+    juce::ValueTree effect (ids::EFFECT);
+    effect.setProperty (ids::id, newId(), nullptr);
+    effect.setProperty (ids::type, type, nullptr);
+
+    getOrCreateChild (state, ids::EFFECTS).appendChild (effect, um);
+
+    Effect wrapper (effect);
+    if (description != nullptr)
+        wrapper.setPlugin (*description, um);
+
+    return wrapper;
+}
+
+void Generator::removeEffect (const Effect& effect, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::EFFECTS).removeChild (effect.state, um);
+}
+
+void Generator::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* um)
+{
+    auto effects = state.getChildWithName (ids::EFFECTS);
+    const auto from = effects.indexOf (effect.state);
+
+    if (from < 0)
+        return;
+
+    effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
 }
 
 //==============================================================================
