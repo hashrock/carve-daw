@@ -607,7 +607,11 @@ class MasterBus
 public:
     explicit MasterBus (juce::ValueTree v) : state (std::move (v)) {}
 
-    static constexpr float defaultVolumeDb = 0.0f;
+    // Matches the -3dB tracktion gives a fresh Edit's master fader: headroom
+    // against summing, and -- more to the point -- what every song rendered at
+    // before the master bus was model-backed. A 0dB default here quietly made
+    // every existing song 3dB louder.
+    static constexpr float defaultVolumeDb = -3.0f;
 
     float getVolumeDb() const  { return state.getProperty (ids::volumeDb, defaultVolumeDb); }
     void setVolumeDb (float db, juce::UndoManager* um)  { state.setProperty (ids::volumeDb, db, um); }

@@ -407,7 +407,8 @@ public:
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        volumeSlider.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (0.0f));
+        volumeSlider.setDoubleClickReturnValue (
+            true, te::decibelsToVolumeFaderPosition (model::MasterBus::defaultVolumeDb));
         volumeSlider.onDragStart = [this] { undoManager.beginNewTransaction(); };
         volumeSlider.onValueChange = [this]
         {
