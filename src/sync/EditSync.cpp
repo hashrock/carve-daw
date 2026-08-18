@@ -755,10 +755,16 @@ namespace
 
         // Curves are generated from the model's automation lanes; captured
         // as-is they would come back twice, in seconds that a tempo change
-        // has already invalidated.
+        // has already invalidated. Modifier assignments likewise: they name
+        // the modifier by its session-local itemID.
         for (int i = captured.getNumChildren(); --i >= 0;)
-            if (captured.getChild (i).hasType (juce::Identifier ("AUTOMATIONCURVE")))
+        {
+            const auto child = captured.getChild (i);
+
+            if (child.hasType (juce::Identifier ("AUTOMATIONCURVE"))
+                 || child.hasType (juce::Identifier ("MODIFIERASSIGNMENTS")))
                 captured.removeChild (i, nullptr);
+        }
 
         effect.setInternalState (captured, nullptr);
     }
@@ -881,6 +887,135 @@ namespace
                     // renders long before it would. This is the synchronous
                     // version of the same update.
                     param->updateStream();
+                }
+            }
+        }
+    }
+
+    // Applies the model's modifiers: one live LFOModifier per model MODIFIER,
+    // stamped with its id like effects are, its settings mirrored one to one,
+    // and its assignments reconciled through the parameter API -- assignments
+    // store the modifier's session-local itemID, so they are never captured
+    // and always rebuilt from the model.
+    void syncModifiers (const model::Song& song, te::Edit& edit,
+                        const juce::Array<te::AudioTrack*>& tracks)
+    {
+        static const juce::Identifier modifierIdProperty ("carveModifierId");
+        static const juce::Identifier lfoType ("LFO");
+
+        const auto generators = song.getGenerators();
+
+        for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        {
+            const auto& generator = generators[(size_t) i];
+            auto& track = *tracks[i];
+            auto* modifierList = track.getModifierList();
+
+            if (modifierList == nullptr)
+                continue;
+
+            const auto modifiers = generator.getModifiers();
+
+            auto findLive = [&] (const juce::String& id) -> te::Modifier*
+            {
+                for (auto m : modifierList->getModifiers())
+                    if (m->state.getProperty (modifierIdProperty).toString() == id)
+                        return m;
+
+                return nullptr;
+            };
+
+            // Copy: removal mutates the list. Anything the model no longer
+            // wants goes, which also drops its assignments.
+            for (auto live : modifierList->getModifiers())
+            {
+                const auto id = live->state.getProperty (modifierIdProperty).toString();
+                const auto wanted = std::any_of (modifiers.begin(), modifiers.end(),
+                                                 [&id] (const model::GenModifier& m)
+                                                 { return m.getId() == id; });
+
+                if (! wanted)
+                    live->remove();
+            }
+
+            for (const auto& modifier : modifiers)
+            {
+                if (modifier.getKind() != model::GenModifier::lfoKind)
+                    continue;   // the only kind so far
+
+                auto* live = findLive (modifier.getId());
+
+                if (live == nullptr)
+                {
+                    juce::ValueTree v (lfoType);
+                    v.setProperty (modifierIdProperty, modifier.getId(), nullptr);
+
+                    if (auto inserted = modifierList->insertModifier (v, -1, nullptr))
+                        live = inserted.get();
+                }
+
+                if (live == nullptr)
+                    continue;
+
+                // Mirror the settings, compare-before-set. The property names
+                // are tracktion's own, so this is a straight copy.
+                auto mirror = [&] (const juce::Identifier& prop, const juce::var& value)
+                {
+                    if (live->state.getProperty (prop) != value)
+                        live->state.setProperty (prop, value, nullptr);
+                };
+
+                mirror (juce::Identifier ("rate"), modifier.getRate());
+                mirror (juce::Identifier ("rateType"), modifier.getRateType());
+                mirror (juce::Identifier ("depth"), modifier.getDepth());
+                mirror (juce::Identifier ("wave"), modifier.getWave());
+                mirror (juce::Identifier ("syncType"), modifier.getSyncType());
+                mirror (juce::Identifier ("bipolar"), modifier.isBipolar());
+                mirror (juce::Identifier ("phase"), modifier.getPhase());
+                mirror (juce::Identifier ("offset"), modifier.getOffset());
+
+                // The settings are exposed as AutomatableParameters attached
+                // to those properties, and processing reads the parameter, not
+                // the tree -- the same lesson the Distortion restore taught:
+                // without this the LFO runs at its construction defaults.
+                for (auto param : live->getAutomatableParameters())
+                    param->updateFromAttachedValue();
+
+                // Assignments: same target addressing as automation lanes.
+                auto resolve = [&] (const model::ModifierAssign& assign)
+                    -> te::AutomatableParameter::Ptr
+                {
+                    const auto target = assign.getTarget();
+                    te::Plugin* plugin = nullptr;
+                    juce::String paramId;
+
+                    if (target == model::AutomationLane::volumeTarget)
+                        { plugin = track.getVolumePlugin(); paramId = "volume"; }
+                    else if (target == model::AutomationLane::panTarget)
+                        { plugin = track.getVolumePlugin(); paramId = "pan"; }
+                    else if (target == model::AutomationLane::instrumentTarget)
+                        { plugin = findInstrument (track); paramId = assign.getParam(); }
+                    else
+                        { plugin = findEffectPlugin (track, target); paramId = assign.getParam(); }
+
+                    if (plugin == nullptr || paramId.isEmpty())
+                        return {};
+
+                    return plugin->getAutomatableParameterByID (paramId);
+                };
+
+                for (const auto& assign : modifier.getAssigns())
+                {
+                    if (auto param = resolve (assign))
+                    {
+                        // addModifier answers the existing assignment if one
+                        // is already there, so this is idempotent by itself.
+                        if (auto assignment = param->addModifier (*live, assign.getAmount()))
+                            if (std::abs (assignment->value.get() - assign.getAmount()) > 1.0e-6f)
+                                assignment->value = assign.getAmount();
+
+                        param->updateStream();
+                    }
                 }
             }
         }
@@ -1107,6 +1242,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
 
     syncSidechains (song, edit, tracks);
     syncAutomation (song, edit, tracks);
+    syncModifiers (song, edit, tracks);
     syncReturns (song, edit);
 
 }

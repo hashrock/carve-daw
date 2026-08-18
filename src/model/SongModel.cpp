@@ -745,6 +745,62 @@ MasterBus Song::getMasterBus() const
 
 
 
+
+//==============================================================================
+// Modifiers
+
+std::vector<ModifierAssign> GenModifier::getAssigns() const
+{
+    return collectChildren<ModifierAssign> (state, ids::ASSIGN);
+}
+
+ModifierAssign GenModifier::addAssign (const juce::String& target, const juce::String& param,
+                                       juce::UndoManager* um)
+{
+    for (const auto& existing : getAssigns())
+        if (existing.getTarget() == target && existing.getParam() == param)
+            return existing;
+
+    juce::ValueTree assign (ids::ASSIGN);
+    assign.setProperty (ids::target, target, nullptr);
+
+    if (param.isNotEmpty())
+        assign.setProperty (ids::param, param, nullptr);
+
+    state.appendChild (assign, um);
+    return ModifierAssign (assign);
+}
+
+void GenModifier::removeAssign (const ModifierAssign& assign, juce::UndoManager* um)
+{
+    state.removeChild (assign.state, um);
+}
+
+std::vector<GenModifier> Generator::getModifiers() const
+{
+    return collectChildren<GenModifier> (state.getChildWithName (ids::MODIFIERS), ids::MODIFIER);
+}
+
+std::optional<GenModifier> Generator::findModifier (const juce::String& modifierId) const
+{
+    auto found = state.getChildWithName (ids::MODIFIERS).getChildWithProperty (ids::id, modifierId);
+    return found.isValid() ? std::optional<GenModifier> (GenModifier (found)) : std::nullopt;
+}
+
+GenModifier Generator::addModifier (const juce::String& kind, juce::UndoManager* um)
+{
+    juce::ValueTree modifier (ids::MODIFIER);
+    modifier.setProperty (ids::id, newId(), nullptr);
+    modifier.setProperty (ids::kind, kind, nullptr);
+    getOrCreateChild (state, ids::MODIFIERS).appendChild (modifier, um);
+    return GenModifier (modifier);
+}
+
+void Generator::removeModifier (const GenModifier& modifier, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::MODIFIERS).removeChild (modifier.state, um);
+}
+
 //==============================================================================
 // Automation
 

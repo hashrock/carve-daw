@@ -280,6 +280,59 @@ public:
     juce::ValueTree state;
 };
 
+
+// A modulation source on a generator -- an LFO for now, the kind field there
+// for the others tracktion ships (step, envelope follower, random). Its
+// assignments say which parameters it drives, addressed the same way an
+// automation lane is.
+class ModifierAssign
+{
+public:
+    explicit ModifierAssign (juce::ValueTree v) : state (std::move (v)) {}
+
+    juce::String getTarget() const  { return state[ids::target]; }
+    juce::String getParam() const   { return state[ids::param]; }
+    float getAmount() const         { return state.getProperty (ids::amount, 1.0f); }
+
+    void setAmount (float a, juce::UndoManager* um)  { state.setProperty (ids::amount, juce::jlimit (-1.0f, 1.0f, a), um); }
+
+    juce::ValueTree state;
+};
+
+class GenModifier
+{
+public:
+    explicit GenModifier (juce::ValueTree v) : state (std::move (v)) {}
+
+    static constexpr const char* lfoKind = "lfo";
+
+    juce::String getId() const    { return state[ids::id]; }
+    juce::String getKind() const  { return state.getProperty (ids::kind, lfoKind); }
+
+    // Mirrored one to one onto the LFOModifier's own properties, so the model
+    // needs no opinion about their meaning -- rateType 3 is "bar", wave 0 is
+    // sine, exactly as tracktion defines them.
+    float getRate() const      { return state.getProperty (ids::rate, 1.0f); }
+    float getRateType() const  { return state.getProperty (ids::rateType, 3.0f); }
+    float getDepth() const     { return state.getProperty (ids::depth, 1.0f); }
+    float getWave() const      { return state.getProperty (ids::wave, 0.0f); }
+    float getSyncType() const  { return state.getProperty (ids::syncType, 0.0f); }
+    bool isBipolar() const     { return state.getProperty (ids::bipolar, false); }
+    float getPhase() const     { return state.getProperty (ids::phase, 0.0f); }
+    float getOffset() const    { return state.getProperty (ids::offset, 0.0f); }
+
+    void set (const juce::Identifier& property, const juce::var& value, juce::UndoManager* um)
+    {
+        state.setProperty (property, value, um);
+    }
+
+    std::vector<ModifierAssign> getAssigns() const;
+    ModifierAssign addAssign (const juce::String& target, const juce::String& param, juce::UndoManager*);
+    void removeAssign (const ModifierAssign&, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 class Send;
 class Return;
 
@@ -359,6 +412,12 @@ public:
     // whatever it had. This is what the panel's file chooser and file drops
     // do: the tree can hold a multi-sample kit, but nothing edits one yet.
     SamplerSound setSingleSound (const juce::File&, juce::UndoManager*);
+
+    // Modulation sources and what they drive.
+    std::vector<GenModifier> getModifiers() const;
+    std::optional<GenModifier> findModifier (const juce::String& modifierId) const;
+    GenModifier addModifier (const juce::String& kind, juce::UndoManager*);
+    void removeModifier (const GenModifier&, juce::UndoManager*);
 
     // Automation lanes, one per automated parameter. findLane answers by
     // (target, param); addLane materialises on first use.

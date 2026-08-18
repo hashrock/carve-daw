@@ -38,6 +38,11 @@
 // │     │           beat: position in beats. value: the parameter's own
 // │     │           value (fader position for volume, -1..1 for pan).
 // │     │           curve: -1..1 bend, tracktion's own convention
+// │     ├─ MODIFIERS
+// │     │  └─ MODIFIER {id, kind, rate, rateType, depth, wave, syncType,
+// │     │     │         bipolar, phase, offset}      kind: "lfo" for now
+// │     │     └─ ASSIGN {target, param, amount}      same target addressing
+// │     │                                            as AUTOCURVE
 // │     ├─ SENDS
 // │     │  └─ SEND {returnId, gainDb}       at most one per return
 // │     ├─ EFFECTS
@@ -96,6 +101,9 @@ CARVE_DECLARE_ID (RETURNS)
 CARVE_DECLARE_ID (RETURN)
 CARVE_DECLARE_ID (AUTOCURVE)
 CARVE_DECLARE_ID (PT)
+CARVE_DECLARE_ID (MODIFIERS)
+CARVE_DECLARE_ID (MODIFIER)
+CARVE_DECLARE_ID (ASSIGN)
 CARVE_DECLARE_ID (SENDS)
 CARVE_DECLARE_ID (SEND)
 CARVE_DECLARE_ID (MASTER)
@@ -127,6 +135,16 @@ CARVE_DECLARE_ID (enabled)
 CARVE_DECLARE_ID (sidechainSource)
 CARVE_DECLARE_ID (returnId)
 CARVE_DECLARE_ID (target)
+CARVE_DECLARE_ID (kind)
+CARVE_DECLARE_ID (rate)
+CARVE_DECLARE_ID (rateType)
+CARVE_DECLARE_ID (depth)
+CARVE_DECLARE_ID (wave)
+CARVE_DECLARE_ID (syncType)
+CARVE_DECLARE_ID (bipolar)
+CARVE_DECLARE_ID (phase)
+CARVE_DECLARE_ID (offset)
+CARVE_DECLARE_ID (amount)
 CARVE_DECLARE_ID (param)
 CARVE_DECLARE_ID (beat)
 CARVE_DECLARE_ID (value)
@@ -144,7 +162,6 @@ CARVE_DECLARE_ID (relPath)
 CARVE_DECLARE_ID (rootNote)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
-CARVE_DECLARE_ID (offset)
 
 #undef CARVE_DECLARE_ID
 
