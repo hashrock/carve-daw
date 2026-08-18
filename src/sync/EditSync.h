@@ -11,10 +11,15 @@ namespace carve::sync
 
 // One-shot, idempotent sync of the whole song model into a tracktion Edit:
 //  - tempo -> TempoSequence
-//  - each Generator -> AudioTrack + FourOscPlugin instrument
+//  - each Generator -> AudioTrack + whatever instrument its type calls for
 //  - each Playlist placement -> MidiClip filled from the referenced Pattern
 // Patterns stay first-class in the model; clips are disposable expansions,
 // so editing a pattern updates every placement on the next sync.
+//
+// An "audio" generator is the exception at both ends: its track hosts no
+// instrument, and its placements become WaveAudioClips pointing straight at
+// the files. Those are matched by id and updated in place rather than rebuilt,
+// because re-inserting one re-reads the file and cuts what it is playing.
 void syncSongToEdit (const model::Song& song, te::Edit& edit);
 
 // Samplers pick their sounds up out of their own state from a message-loop

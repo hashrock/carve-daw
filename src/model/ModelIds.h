@@ -8,7 +8,7 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
 // │     │                          type: "internal-synth" | "plugin" | "sampler"
-// │     │                                | "drum-sampler"
+// │     │                                | "drum-sampler" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
@@ -31,9 +31,22 @@
 // │           │        Unused slots are absent from the tree entirely.
 // │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
 // ├─ PLAYLIST
-// │  └─ CLIP {generatorId, patternId, start, length, transpose}
-// │                                  length and transpose are per-placement
-// │                                  and optional; see PlaylistClip
+// │  ├─ CLIP {generatorId, patternId, start, length, transpose}
+// │  │                               length and transpose are per-placement
+// │  │                               and optional; see PlaylistClip
+// │  └─ AUDIOCLIP {id, generatorId, file, relPath, start, length, offset}
+// │                                  a file placed on an "audio" generator's
+// │                                  row. Its own node type rather than a CLIP
+// │                                  with a file: it names no pattern, carries
+// │                                  no transpose, and needs an explicit
+// │                                  length, so every consumer of CLIP would
+// │                                  have had to special-case it anyway.
+// │                                  start/length/offset are in beats, offset
+// │                                  being how far into the source the
+// │                                  placement begins. file/relPath work
+// │                                  exactly as SOUND's do -- see FileRef.
+// │                                  id is what lets EditSync match a live
+// │                                  wave clip to its placement.
 // └─ AUTOMATION (M6)
 
 namespace carve::model::ids
@@ -54,6 +67,7 @@ CARVE_DECLARE_ID (EFFECTS)
 CARVE_DECLARE_ID (EFFECT)
 CARVE_DECLARE_ID (PLAYLIST)
 CARVE_DECLARE_ID (CLIP)
+CARVE_DECLARE_ID (AUDIOCLIP)
 CARVE_DECLARE_ID (AUTOMATION)
 
 CARVE_DECLARE_ID (id)
@@ -84,6 +98,7 @@ CARVE_DECLARE_ID (rootNote)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
 CARVE_DECLARE_ID (gainDb)
+CARVE_DECLARE_ID (offset)
 
 #undef CARVE_DECLARE_ID
 
