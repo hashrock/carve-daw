@@ -34,10 +34,44 @@ public:
     juce::ValueTree state;
 };
 
+// Every generator exposes a fixed grid of pattern slots, A1..D9, so the user
+// can pick a slot and start drawing instead of creating a pattern first.
+// A slot is addressed by (bank, index) but identified in the tree by its key
+// ("A1"), so the grid can be resized later without rewriting old songs.
+struct PatternSlot
+{
+    static constexpr int numBanks = 4;                          // A..D
+    static constexpr int slotsPerBank = 9;                      // 1..9
+    static constexpr int numSlots = numBanks * slotsPerBank;
+
+    int bank = 0;
+    int index = 0;
+
+    bool isValid() const  { return bank >= 0 && bank < numBanks && index >= 0 && index < slotsPerBank; }
+    int toFlatIndex() const  { return bank * slotsPerBank + index; }
+
+    juce::String getKey() const
+    {
+        return juce::String::charToString ((juce::juce_wchar) ('A' + bank)) + juce::String (index + 1);
+    }
+
+    bool operator== (const PatternSlot& other) const  { return bank == other.bank && index == other.index; }
+    bool operator!= (const PatternSlot& other) const  { return ! operator== (other); }
+
+    static PatternSlot fromFlatIndex (int flat)  { return { flat / slotsPerBank, flat % slotsPerBank }; }
+
+    // Returns nothing for an empty or unparseable key, which is what patterns
+    // written before slots existed have.
+    static std::optional<PatternSlot> fromKey (const juce::String& key);
+};
+
 class Pattern
 {
 public:
     explicit Pattern (juce::ValueTree v) : state (std::move (v)) {}
+
+    // What a freshly materialised slot gets: one bar of 4/4.
+    static constexpr double defaultLengthBeats = 4.0;
 
     juce::String getId() const      { return state[ids::id]; }
     juce::String getName() const    { return state[ids::name]; }
@@ -45,6 +79,19 @@ public:
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
     void setLengthBeats (double beats, juce::UndoManager* um)    { state.setProperty (ids::lengthBeats, beats, um); }
+
+    // Which slot of its generator this pattern occupies, if any. The slot name
+    // is only the pattern's default name, so a slot pattern can be renamed
+    // freely and stays in its slot.
+    std::optional<PatternSlot> getSlot() const  { return PatternSlot::fromKey (state[ids::slot].toString()); }
+    void setSlot (const PatternSlot& s, juce::UndoManager* um)  { state.setProperty (ids::slot, s.getKey(), um); }
+
+    bool isEmpty() const  { return getNumNotes() == 0; }
+
+    // True while the pattern still carries the name its slot gave it, i.e. the
+    // user never renamed it. Empty patterns that are still in this state were
+    // only browsed past, so they can be dropped again.
+    bool hasDefaultSlotName() const;
 
     int getNumNotes() const;
     Note getNote (int index) const;
@@ -104,7 +151,22 @@ public:
     std::vector<Pattern> getPatterns() const;
     std::optional<Pattern> findPattern (const juce::String& patternId) const;
 
+    // Patterns that don't sit in a slot: everything in a song written before
+    // slots existed, plus anything the user adds beyond the grid. The slot
+    // picker lists them separately so they stay reachable.
+    std::vector<Pattern> getUnslottedPatterns() const;
+
+    std::optional<Pattern> findPatternInSlot (const PatternSlot& slot) const;
+
+    // Materialises the slot the first time it is used. Empty slots stay out of
+    // the tree deliberately: writing all 36 into every generator would bloat
+    // every .orion and make every EditSync resync walk dead nodes.
+    Pattern getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um);
+
     Pattern addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um);
+    Pattern addPattern (const PatternSlot& slot, const juce::String& name,
+                        double lengthBeats, juce::UndoManager* um);
+    void removePattern (const Pattern& pattern, juce::UndoManager* um);
 
     juce::ValueTree state;
 };
@@ -175,6 +237,10 @@ public:
     Generator addGenerator (const juce::String& name, const juce::String& type, juce::UndoManager* um);
 
     Playlist getPlaylist() const;
+
+    // Whether anything on the playlist plays this pattern. Used to decide if a
+    // slot the user only browsed past can be dropped again.
+    bool isPatternUsedInPlaylist (const Pattern& pattern) const;
 
     juce::ValueTree state;
 };

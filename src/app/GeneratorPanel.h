@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
@@ -8,6 +10,42 @@ namespace te = tracktion;
 
 namespace orionish::app
 {
+
+// The A1..D9 pattern slot grid, drawn as one click-per-slot pad grid the way
+// Orion and FL show their pattern selectors. It holds no model state of its
+// own: GeneratorPanel pushes a state per slot on every refresh, so a slot that
+// is not in the tree yet is simply drawn as "unused" and can still be clicked.
+class PatternSlotGrid final : public juce::Component
+{
+public:
+    enum class SlotState
+    {
+        unused,     // no pattern in the tree for this slot
+        empty,      // pattern exists but has no notes
+        hasNotes
+    };
+
+    PatternSlotGrid();
+
+    std::function<void (model::PatternSlot)> onSlotClicked;
+
+    void setSlotState (const model::PatternSlot&, SlotState);
+    void setSelectedSlot (std::optional<model::PatternSlot>);
+    void clearSlots();
+
+    // Height needed to show all four banks; the pads take whatever width there is.
+    static int getPreferredHeight();
+
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+
+private:
+    juce::Rectangle<int> getSlotBounds (const model::PatternSlot&) const;
+    std::optional<model::PatternSlot> getSlotAt (juce::Point<int>) const;
+
+    std::array<SlotState, (size_t) model::PatternSlot::numSlots> slotStates;
+    std::optional<model::PatternSlot> selectedSlot;
+};
 
 // Left-hand panel: the list of Generators and, for the selected one, its
 // Patterns. This is the entry point of the Orion workflow: pick a Generator,
@@ -55,10 +93,17 @@ private:
 
     void refresh();
     void rebuildPatternBox();
+    void rebuildSlotGrid();
     void fireSelectionChanged();
     void showAddGeneratorMenu();
     void addGenerator (const juce::String& name, const juce::String& type,
                        const juce::PluginDescription* description);
+
+    std::optional<model::Generator> getSelectedGenerator() const;
+    void ensureValidPatternSelection();
+    void slotClicked (model::PatternSlot);
+    void discardUntouchedPattern (const juce::String& patternId,
+                                  const juce::String& generatorId);
 
     te::Engine& engine;
     model::Song song;
@@ -69,8 +114,8 @@ private:
     juce::TextButton instrumentButton { "Instrument UI" };
     juce::TextButton editPatternButton { "Edit Pattern" };
     juce::Label patternHeader;
-    juce::ComboBox patternBox;
-    juce::TextButton addPatternButton { "+ Pattern" };
+    PatternSlotGrid slotGrid;
+    juce::ComboBox patternBox;   // only the patterns outside the slot grid
 
     juce::String selectedPatternId;
     bool isRefreshing = false;
