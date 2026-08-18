@@ -470,6 +470,58 @@ namespace
         }
     }
 
+    // Moves the pattern clips a tempo change displaced, without rebuilding them.
+    //
+    // A tempo change alters where every clip sits in time but not which clips
+    // exist or what is in them, and a full resync tears down and refills every
+    // MIDI clip in the song -- once per beat crossed while a tempo marker is
+    // being dragged, during playback. The clips are matched positionally
+    // because rebuildClips creates them in this same order and a tempo change
+    // cannot have reordered them; if the counts disagree, something structural
+    // did change after all and this bails out to let a full resync handle it.
+    bool repositionPatternClips (const model::Song& song, const model::Generator& generator,
+                                 te::Edit& edit, te::AudioTrack& track)
+    {
+        std::vector<te::MidiClip*> midiClips;
+
+        for (auto clip : track.getClips())
+            if (auto midi = dynamic_cast<te::MidiClip*> (clip))
+                midiClips.push_back (midi);
+
+        size_t index = 0;
+
+        for (const auto& placement : song.getPlaylist().getClips())
+        {
+            if (placement.getGeneratorId() != generator.getId())
+                continue;
+
+            auto pattern = generator.findPattern (placement.getPatternId());
+            if (! pattern)
+                continue;
+
+            const auto patternLength = pattern->getLengthBeats();
+            const auto clipLength = placement.getLength (patternLength);
+
+            if (patternLength <= 0.0 || clipLength <= 0.0)
+                continue;
+
+            if (index >= midiClips.size())
+                return false;
+
+            const auto startBeat = placement.getStart();
+            const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
+                                       te::BeatPosition::fromBeats (startBeat + clipLength));
+            const te::ClipPosition wanted { edit.tempoSequence.toTime (beats), te::TimeDuration() };
+
+            if (! positionsMatch (midiClips[index]->getPosition(), wanted))
+                midiClips[index]->setPosition (wanted);
+
+            ++index;
+        }
+
+        return index == midiClips.size();
+    }
+
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track)
     {
@@ -698,6 +750,31 @@ void EditSync::resyncNow()
 {
     cancelPendingUpdate();
     syncSongToEdit (song, edit);
+}
+
+void EditSync::applyTempoOnly()
+{
+    syncTempoSequence (song, edit);
+
+    const auto generators = song.getGenerators();
+    const auto tracks = te::getAudioTracks (edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+    {
+        const auto& generator = generators[(size_t) i];
+
+        if (! repositionPatternClips (song, generator, edit, *tracks[i]))
+        {
+            // The clips are not what this path assumed, so fall back rather
+            // than leave them where the old tempo put them.
+            triggerAsyncUpdate();
+            return;
+        }
+
+        // Audio placements move too: their start is musical even though their
+        // length is not. syncAudioClips already only writes what differs.
+        syncAudioClips (song, generator, edit, *tracks[i]);
+    }
 }
 
 void EditSync::applyMixerStateOnly()

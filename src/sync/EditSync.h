@@ -55,6 +55,14 @@ private:
         if (tree.hasType (model::ids::SONG) && model::Song::isLoopProperty (property))
             return;
 
+        // A tempo or signature change moves every clip but changes none of
+        // them, and a marker drag writes once per beat crossed.
+        if (tree.hasType (model::ids::TEMPO) || tree.hasType (model::ids::TIMESIG))
+        {
+            applyTempoOnly();
+            return;
+        }
+
         if (tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
             applyMixerStateOnly();
         else
@@ -69,6 +77,7 @@ private:
     void handleAsyncUpdate() override  { resyncNow(); }
 
     void applyMixerStateOnly();
+    void applyTempoOnly();
 
     model::Song song;
     te::Edit& edit;
