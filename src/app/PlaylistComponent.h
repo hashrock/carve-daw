@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -33,8 +34,13 @@ namespace carve::app
 // places them: onto an audio row when the drop lands on one, onto a new audio
 // generator otherwise.
 //
-// The header band holds the tool strip, the zoom control and the bar ruler.
-// Dragging the ruler sets the song's loop range.
+// The header band holds the tool strip, the zoom control, the tempo lane and
+// the bar ruler. Dragging the ruler sets the song's loop range; the lane above
+// it holds the song's tempo and time signature changes, one marker each.
+//
+// Bars come from the model, never from a constant: a 3/4 section draws
+// three-beat bars, and everything that snaps to a bar - painting, the loop
+// range, a file drop - follows the same lines the ruler numbers.
 //
 // Selection is pure UI state: it lives here and never reaches the model, so
 // selecting never dirties the document or triggers an EditSync resync.
@@ -95,13 +101,17 @@ public:
 private:
     static constexpr int labelWidth = 120;
     static constexpr int rowHeight = 44;
-    // Band above the rows: a strip of controls with the bar ruler under it.
-    // Both are pinned to the top of the visible area, so the rows start below
-    // the pair of them.
+    // Band above the rows: a strip of controls, the tempo lane, then the bar
+    // ruler. All three are pinned to the top of the visible area, so the rows
+    // start below the set of them.
+    //
+    // The lane is its own strip rather than an overlay on the ruler: the ruler
+    // is already a drag target for the loop range, and a marker sitting in it
+    // would mean every ruler press had to decide which of the two it meant.
     static constexpr int toolbarHeight = 26;
+    static constexpr int markerLaneHeight = 16;
     static constexpr int rulerHeight = 18;
-    static constexpr int headerHeight = toolbarHeight + rulerHeight;
-    static constexpr double snapBeats = 4.0;   // place on bar boundaries
+    static constexpr int headerHeight = toolbarHeight + markerLaneHeight + rulerHeight;
 
     // Zoom limits, in pixels per beat. The bottom of the range is where a
     // 4-beat bar is still ~12px wide, which is about as far out as the grid
@@ -127,7 +137,21 @@ private:
         move,
         trim,        // an audio clip's right edge
         loopRange,   // on the ruler
+        marker,      // a tempo or time signature change on the lane above it
         rubberBand   // select tool on empty space
+    };
+
+    // One tempo or time signature change as the lane draws and hit-tests it.
+    // Both kinds differ only in what they say and where they may land, so the
+    // lane holds them in one list rather than branching everywhere.
+    struct Marker
+    {
+        juce::ValueTree state;
+        double beat = 0.0;
+        juce::String text;
+        juce::Rectangle<float> bounds;
+
+        bool isTempo() const  { return state.hasType (model::ids::TEMPO); }
     };
 
     // A placement on the grid, whichever node type it is. The two kinds differ
@@ -162,7 +186,30 @@ private:
     double xToBeat (float x) const     { return ((double) x - (double) labelWidth) / pixelsPerBeat; }
     float rowY (int row) const         { return (float) (headerHeight + row * rowHeight); }
     int yToRow (float y) const         { return (int) std::floor ((y - (float) headerHeight) / (float) rowHeight); }
-    static double snapToBar (double beat)  { return std::max (0.0, std::floor (beat / snapBeats) * snapBeats); }
+
+    // Bars, all of them from the model, so a section in another time signature
+    // has bars of its length everywhere at once. snapToBar is what painting, a
+    // clip move and a file drop land on; nearestBar is for the gestures that
+    // have to follow the pointer in both directions.
+    double snapToBar (double beat) const;
+    double nextBarAfter (double beat) const;
+    double barLengthAt (double beat) const;
+
+    // The nearest bar line, optionally as it would be without one time
+    // signature change in the song. Where such a change may land is decided by
+    // every *other* change, never by itself: bar lines it defines move with it,
+    // and snapping to those would let a drag leave it off the grid entirely.
+    double nearestBar (double beat, const juce::ValueTree& ignore = {}) const;
+
+    // Every bar line from the start of the song up to untilBeat, as
+    // (0-based bar, its start, its length). The one walk over the time
+    // signature changes that the ruler and the grid both draw from.
+    void forEachBar (double untilBeat, const std::function<void (int, double, double)>&) const;
+
+    // The shortest bar anywhere in the song, which is what the ruler and the
+    // grid thin their lines against: a step that keeps 3/4 bars apart keeps
+    // the 4/4 ones apart too.
+    double shortestBar() const;
 
     juce::Viewport* getViewport() const;
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
@@ -181,7 +228,16 @@ private:
     }
 
     juce::Rectangle<float> toolbarBounds() const  { return headerBounds().withHeight ((float) toolbarHeight); }
-    juce::Rectangle<float> rulerBounds() const    { return headerBounds().withTrimmedTop ((float) toolbarHeight); }
+
+    juce::Rectangle<float> markerLaneBounds() const
+    {
+        return headerBounds().withTrimmedTop ((float) toolbarHeight).withHeight ((float) markerLaneHeight);
+    }
+
+    juce::Rectangle<float> rulerBounds() const
+    {
+        return headerBounds().withTrimmedTop ((float) (toolbarHeight + markerLaneHeight));
+    }
 
     std::optional<model::Pattern> patternForRow (const model::Generator&) const;
 
@@ -224,6 +280,31 @@ private:
     void dragLoopTo (double beat);
     void updateRubberBand (juce::Point<float> position);
 
+    // The tempo lane. Markers are rebuilt from the model on demand rather than
+    // cached: there are a handful of them, and a cache would be one more thing
+    // an undo could leave pointing at a change that has gone.
+    std::vector<Marker> markers() const;
+    std::optional<Marker> markerAt (juce::Point<float> position) const;
+
+    // Whether a change of the same kind already sits on this beat, ignoring
+    // one tree (the marker being dragged). Two changes on the same beat would
+    // fight over which one wins, so nothing is allowed to make a pair.
+    bool hasChangeAt (bool tempo, double beat, const juce::ValueTree& ignore = {}) const;
+
+    void addTempoChangeAt (double beat, double bpm);
+    void addTimeSigChangeAt (double beat, model::TimeSignature);
+    void removeMarker (const juce::ValueTree&);
+    void dragMarkerTo (double beat);
+
+    // Asks for a value, then writes it. Editing an existing change passes its
+    // tree; adding one passes an empty tree and the beat it would go on, so a
+    // cancelled dialog leaves nothing behind.
+    void editTempoValue (juce::ValueTree existing, double beatForNew);
+    void chooseTimeSigValue (juce::ValueTree existing, double beatForNew,
+                             juce::Rectangle<float> targetArea);
+    void showMarkerMenu (const Marker&);
+    void showLaneMenu (double beat, juce::Point<float> position);
+
     bool isSelected (const juce::ValueTree& clip) const;
     void selectClip (const juce::ValueTree&, bool extend);
     void clearSelection();
@@ -234,6 +315,7 @@ private:
     void selectionChanged();
     void updateShortcutHelp();
 
+    void paintMarkerLane (juce::Graphics&);
     void paintRuler (juce::Graphics&);
     void paintAudioClip (juce::Graphics&, const model::AudioClip&, juce::Rectangle<float>,
                          juce::Colour, bool selected);
@@ -309,6 +391,12 @@ private:
     double loopAnchorBeats = 0.0;
     bool loopDragMoved = false;
 
+    // Marker drag: the change being moved, where in it the pointer went down,
+    // and the beat we last wrote so dragging within one beat writes nothing.
+    juce::ValueTree dragMarker;
+    double markerGrabOffsetBeats = 0.0;
+    double markerLastBeat = 0.0;
+
     // Rubber band, plus the selection it started from so ⌘/⇧ adds to it.
     juce::Rectangle<float> rubberBand;
     juce::Point<float> rubberBandAnchor;
@@ -320,6 +408,10 @@ private:
     bool mouseIsOver = false;
     int hoverRow = -1;
     double hoverStartBeats = 0.0;
+
+    // The lane offers its own gestures, so the help bar lists those instead
+    // while the pointer is over it.
+    bool hoverMarkerLane = false;
 
     const juce::MouseCursor eraseCursor;
 };
