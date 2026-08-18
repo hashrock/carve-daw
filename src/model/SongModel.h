@@ -186,6 +186,33 @@ public:
     // belonging to the clip's own generator make sense here.
     void setPatternId (const juce::String& id, juce::UndoManager* um)  { state.setProperty (ids::patternId, id, um); }
 
+    // How long this placement plays for, independent of its pattern: shorter
+    // cuts the pattern off, longer repeats it. Absent means "as long as the
+    // pattern", which is what every clip was before this existed — so older
+    // songs keep playing exactly as they did.
+    bool hasOwnLength() const  { return state.hasProperty (ids::length); }
+
+    double getLength (double patternLengthBeats) const
+    {
+        const double length = state.getProperty (ids::length, patternLengthBeats);
+        return length > 0.0 ? length : patternLengthBeats;
+    }
+
+    void setLength (double beats, juce::UndoManager* um)
+    {
+        state.setProperty (ids::length, std::max (0.0625, beats), um);
+    }
+
+    void clearLength (juce::UndoManager* um)  { state.removeProperty (ids::length, um); }
+
+    // Semitones added to every note of the pattern, for this placement only.
+    int getTranspose() const  { return state.getProperty (ids::transpose, 0); }
+
+    void setTranspose (int semitones, juce::UndoManager* um)
+    {
+        state.setProperty (ids::transpose, juce::jlimit (-48, 48, semitones), um);
+    }
+
     juce::ValueTree state;
 };
 

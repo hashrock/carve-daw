@@ -106,19 +106,51 @@ namespace
             if (! pattern)
                 continue;
 
+            const auto patternLength = pattern->getLengthBeats();
+            const auto clipLength = placement.getLength (patternLength);
+
+            if (patternLength <= 0.0 || clipLength <= 0.0)
+                continue;
+
             const auto startBeat = placement.getStart();
             const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
-                                       te::BeatPosition::fromBeats (startBeat + pattern->getLengthBeats()));
+                                       te::BeatPosition::fromBeats (startBeat + clipLength));
             auto midiClip = track.insertMIDIClip (pattern->getName(),
                                                   edit.tempoSequence.toTime (beats), nullptr);
             if (midiClip == nullptr)
                 continue;
 
-            for (const auto& note : pattern->getNotes())
-                midiClip->getSequence().addNote (note.getPitch(),
-                                                 te::BeatPosition::fromBeats (note.getStart()),
-                                                 te::BeatDuration::fromBeats (note.getLength()),
-                                                 note.getVelocity(), 0, nullptr);
+            const auto transpose = placement.getTranspose();
+            const auto notes = pattern->getNotes();
+
+            // A placement can be longer than its pattern, in which case the
+            // pattern repeats, and shorter, in which case it is cut off. The
+            // repeat count is capped so a pattern shortened to almost nothing
+            // can't spin here.
+            constexpr int maxRepeats = 512;
+
+            for (int repeat = 0; repeat < maxRepeats; ++repeat)
+            {
+                const auto offset = repeat * patternLength;
+
+                if (offset >= clipLength - 1.0e-9)
+                    break;
+
+                for (const auto& note : notes)
+                {
+                    const auto noteStart = offset + note.getStart();
+
+                    if (noteStart >= clipLength - 1.0e-9)
+                        continue;
+
+                    midiClip->getSequence().addNote (
+                        juce::jlimit (0, 127, note.getPitch() + transpose),
+                        te::BeatPosition::fromBeats (noteStart),
+                        te::BeatDuration::fromBeats (std::min (note.getLength(),
+                                                               clipLength - noteStart)),
+                        note.getVelocity(), 0, nullptr);
+                }
+            }
         }
     }
 } // namespace

@@ -68,7 +68,7 @@ double TransportBar::getSongLengthBeats() const
     for (const auto& clip : song.getPlaylist().getClips())
         if (auto generator = song.findGenerator (clip.getGeneratorId()))
             if (auto pattern = generator->findPattern (clip.getPatternId()))
-                length = std::max (length, clip.getStart() + pattern->getLengthBeats());
+                length = std::max (length, clip.getStart() + clip.getLength (pattern->getLengthBeats()));
     return length;
 }
 

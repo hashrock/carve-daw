@@ -18,7 +18,9 @@
 // │           │        Unused slots are absent from the tree entirely.
 // │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
 // ├─ PLAYLIST
-// │  └─ CLIP {generatorId, patternId, start}
+// │  └─ CLIP {generatorId, patternId, start, length, transpose}
+// │                                  length and transpose are per-placement
+// │                                  and optional; see PlaylistClip
 // └─ AUTOMATION (M6)
 
 namespace orionish::model::ids
@@ -51,6 +53,7 @@ ORIONISH_DECLARE_ID (generatorId)
 ORIONISH_DECLARE_ID (patternId)
 ORIONISH_DECLARE_ID (desc)
 ORIONISH_DECLARE_ID (state)
+ORIONISH_DECLARE_ID (transpose)
 ORIONISH_DECLARE_ID (loopStart)
 ORIONISH_DECLARE_ID (loopEnd)
 ORIONISH_DECLARE_ID (volumeDb)
