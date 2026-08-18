@@ -186,6 +186,9 @@ void MainComponent::openPatternEditor()
             });
     }
 
+    // Before setPattern: the roll counts its bars in the song's signature, and
+    // this path is reached on load too, so a reloaded song lands here as well.
+    pianoRollWindow->setSong (song);
     pianoRollWindow->setPattern (std::move (pattern), title);
     pianoRollWindow->toFront (true);
 }

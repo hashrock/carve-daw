@@ -104,6 +104,7 @@ private:
     void rebuildSlotGrid();
     void rebuildPadGrid();
     void fireSelectionChanged();
+    double newPatternLengthBeats() const;
     void showAddGeneratorMenu();
     model::Generator addGenerator (const juce::String& name, const juce::String& type,
                                    const juce::PluginDescription* description);

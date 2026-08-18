@@ -331,14 +331,15 @@ std::optional<Pattern> Generator::findPatternInSlot (const PatternSlot& slot) co
     return Pattern (found);
 }
 
-Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um)
+Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,
+                                             double lengthBeats)
 {
     if (auto existing = findPatternInSlot (slot))
         return *existing;
 
     // The slot key doubles as the default name, so an untouched slot reads as
     // "A1" everywhere until the user renames it.
-    return addPattern (slot, slot.getKey(), Pattern::defaultLengthBeats, um);
+    return addPattern (slot, slot.getKey(), lengthBeats, um);
 }
 
 Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um)
