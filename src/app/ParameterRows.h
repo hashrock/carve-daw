@@ -150,17 +150,23 @@ private:
 // A plugin-state property that is not an AutomatableParameter, shown as a combo
 // box. `values` are the property values behind the menu entries, so a setting
 // stored as 12/24 rather than 0/1 still reads naturally.
+//
+// `defaultValue` is what the *plugin* falls back to while the property is
+// absent from the tree -- a freshly made synth has none of them yet. Reading
+// the raw property in that state showed 0 ("Off") for settings the engine
+// actually defaults to something else, like osc 1's sine.
 class PropertyChoiceRow : public EditorRow
 {
 public:
     PropertyChoiceRow (juce::ValueTree stateToEdit, const juce::Identifier& propertyToEdit,
                        const juce::String& displayName,
                        const juce::StringArray& choiceNames, juce::Array<int> choiceValues,
-                       std::function<bool()> isAliveCheck)
+                       std::function<bool()> isAliveCheck, int defaultValueToUse = 0)
         : EditorRow (displayName),
           state (std::move (stateToEdit)),
           property (propertyToEdit),
           values (std::move (choiceValues)),
+          defaultValue (defaultValueToUse),
           isAlive (std::move (isAliveCheck))
     {
         combo.addItemList (choiceNames, 1);
@@ -182,9 +188,10 @@ public:
     // The common case: menu entry n stores the value n.
     PropertyChoiceRow (juce::ValueTree stateToEdit, const juce::Identifier& propertyToEdit,
                        const juce::String& displayName, const juce::StringArray& choiceNames,
-                       std::function<bool()> isAliveCheck)
+                       std::function<bool()> isAliveCheck, int defaultValueToUse = 0)
         : PropertyChoiceRow (std::move (stateToEdit), propertyToEdit, displayName, choiceNames,
-                             makeIndexValues (choiceNames.size()), std::move (isAliveCheck))
+                             makeIndexValues (choiceNames.size()), std::move (isAliveCheck),
+                             defaultValueToUse)
     {
     }
 
@@ -194,8 +201,9 @@ public:
             return;
 
         const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
-        combo.setSelectedItemIndex (juce::jmax (0, values.indexOf ((int) state[property])),
-                                    juce::dontSendNotification);
+        combo.setSelectedItemIndex (
+            juce::jmax (0, values.indexOf ((int) state.getProperty (property, defaultValue))),
+            juce::dontSendNotification);
     }
 
 protected:
@@ -218,6 +226,7 @@ private:
     juce::ValueTree state;
     juce::Identifier property;
     juce::Array<int> values;
+    int defaultValue = 0;
     std::function<bool()> isAlive;
 
     juce::ComboBox combo;
@@ -230,10 +239,12 @@ class PropertyToggleRow : public EditorRow
 {
 public:
     PropertyToggleRow (juce::ValueTree stateToEdit, const juce::Identifier& propertyToEdit,
-                       const juce::String& displayName, std::function<bool()> isAliveCheck)
+                       const juce::String& displayName, std::function<bool()> isAliveCheck,
+                       bool defaultValueToUse = false)
         : EditorRow (displayName),
           state (std::move (stateToEdit)),
           property (propertyToEdit),
+          defaultValue (defaultValueToUse),
           isAlive (std::move (isAliveCheck))
     {
         toggle.onClick = [this]
@@ -254,7 +265,8 @@ public:
             return;
 
         const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
-        toggle.setToggleState ((bool) state[property], juce::dontSendNotification);
+        toggle.setToggleState ((bool) state.getProperty (property, defaultValue),
+                               juce::dontSendNotification);
     }
 
 protected:
@@ -266,6 +278,7 @@ protected:
 private:
     juce::ValueTree state;
     juce::Identifier property;
+    bool defaultValue = false;
     std::function<bool()> isAlive;
 
     juce::ToggleButton toggle;
@@ -282,10 +295,11 @@ public:
                        const juce::String& displayName,
                        double minimum, double maximum, double interval,
                        const juce::String& valueSuffix,
-                       std::function<bool()> isAliveCheck)
+                       std::function<bool()> isAliveCheck, double defaultValueToUse = 0.0)
         : EditorRow (displayName),
           state (std::move (stateToEdit)),
           property (propertyToEdit),
+          defaultValue (defaultValueToUse),
           isAlive (std::move (isAliveCheck))
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -317,7 +331,8 @@ public:
             return;
 
         const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
-        slider.setValue ((double) state[property], juce::dontSendNotification);
+        slider.setValue ((double) state.getProperty (property, defaultValue),
+                         juce::dontSendNotification);
         valueLabel.setText (slider.getTextFromValue (slider.getValue()), juce::dontSendNotification);
     }
 
@@ -331,6 +346,7 @@ protected:
 private:
     juce::ValueTree state;
     juce::Identifier property;
+    double defaultValue = 0.0;
     std::function<bool()> isAlive;
 
     juce::Label valueLabel;

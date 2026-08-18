@@ -105,6 +105,11 @@ public:
     void setSelection (const juce::String& generatorId, const juce::String& patternId);
     void setPlayheadBeats (double beats);
 
+    // Called by the host when the viewport we sit in changes size. Our width
+    // is clamped to at least the viewport's, so the header band spans the
+    // window -- but nothing else tells us the viewport grew.
+    void hostViewportResized()  { updateSize(); }
+
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
 

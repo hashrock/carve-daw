@@ -125,11 +125,15 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
                 continue;
 
             auto section = std::make_unique<EditorSection> ("Osc " + juce::String (i), nameColumnWidth);
+            // The default values are the engine's own (FourOscPlugin's referTo
+            // calls): a fresh synth has no properties in its tree yet, and
+            // reading them raw showed osc 1 as "Off" while it played a sine.
             section->add (std::make_unique<PropertyChoiceRow> (state, indexedId (te::IDs::waveShape, i),
-                                                               "Wave", oscWaveShapes, isAlive));
+                                                               "Wave", oscWaveShapes, isAlive,
+                                                               i == 1 ? 1 : 0));
             section->add (std::make_unique<PropertyChoiceRow> (state, indexedId (te::IDs::voices, i),
                                                                "Unison", getVoiceCountNames(),
-                                                               getVoiceCountValues(), isAlive));
+                                                               getVoiceCountValues(), isAlive, 1));
             section->add (std::make_unique<ParameterSliderRow> (*osc->tune, "Tune", isAlive));
             section->add (std::make_unique<ParameterSliderRow> (*osc->fineTune, "Fine", isAlive));
             section->add (std::make_unique<ParameterSliderRow> (*osc->level, "Level", isAlive));
@@ -148,7 +152,7 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         filter->add (std::make_unique<PropertyChoiceRow> (state, te::IDs::filterType, "Type",
                                                           filterTypes, isAlive));
         filter->add (std::make_unique<PropertyChoiceRow> (state, te::IDs::filterSlope, "Slope",
-                                                          filterSlopes, filterSlopeValues, isAlive));
+                                                          filterSlopes, filterSlopeValues, isAlive, 12));
         filter->add (std::make_unique<ParameterSliderRow> (*synth.filterFreq, "Freq", isAlive));
         filter->add (std::make_unique<ParameterSliderRow> (*synth.filterResonance, "Resonance", isAlive));
         filter->add (std::make_unique<ParameterSliderRow> (*synth.filterAmount, "Env Amount", isAlive));
@@ -173,14 +177,15 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         amp->add (std::make_unique<ParameterSliderRow> (*synth.ampSustain, "Sustain", isAlive));
         amp->add (std::make_unique<ParameterSliderRow> (*synth.ampRelease, "Release", isAlive));
         amp->add (std::make_unique<ParameterSliderRow> (*synth.ampVelocity, "Velocity", isAlive));
-        amp->add (std::make_unique<PropertyToggleRow> (state, te::IDs::ampAnalog, "Analog", isAlive));
+        amp->add (std::make_unique<PropertyToggleRow> (state, te::IDs::ampAnalog, "Analog", isAlive,
+                                                       true));
         page.add (std::move (amp));
 
         auto voice = std::make_unique<EditorSection> ("Voice", nameColumnWidth);
         voice->add (std::make_unique<PropertyChoiceRow> (state, te::IDs::voiceMode, "Mode",
-                                                         voiceModes, isAlive));
+                                                         voiceModes, isAlive, 2));
         voice->add (std::make_unique<PropertySliderRow> (state, te::IDs::voices, "Polyphony",
-                                                         1.0, 32.0, 1.0, juce::String(), isAlive));
+                                                         1.0, 32.0, 1.0, juce::String(), isAlive, 32.0));
         voice->add (std::make_unique<ParameterSliderRow> (*synth.legato, "Glide", isAlive));
         voice->add (std::make_unique<ParameterSliderRow> (*synth.masterLevel, "Level", isAlive));
         page.add (std::move (voice));
@@ -198,13 +203,15 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
 
             auto section = std::make_unique<EditorSection> ("LFO " + juce::String (i), nameColumnWidth);
             section->add (std::make_unique<PropertyChoiceRow> (state, indexedId (te::IDs::lfoWaveShape, i),
-                                                               "Wave", lfoWaveShapes, isAlive));
+                                                               "Wave", lfoWaveShapes, isAlive,
+                                                               i == 1 ? 1 : 0));
             section->add (std::make_unique<PropertyToggleRow> (state, indexedId (te::IDs::lfoSync, i),
                                                                "Sync", isAlive));
             section->add (std::make_unique<ParameterSliderRow> (*lfo->rate, "Rate", isAlive));
             // Only used while Sync is on, where the rate comes from the tempo.
             section->add (std::make_unique<PropertySliderRow> (state, indexedId (te::IDs::lfoBeat, i),
-                                                               "Beats", 0.25, 8.0, 0.25, juce::String(), isAlive));
+                                                               "Beats", 0.25, 8.0, 0.25, juce::String(),
+                                                               isAlive, 1.0));
             section->add (std::make_unique<ParameterSliderRow> (*lfo->depth, "Depth", isAlive));
             page.add (std::move (section));
         }
@@ -246,7 +253,7 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         // The delay time is in beats, and the only one of its settings that is
         // not an automatable parameter.
         delay->add (std::make_unique<PropertySliderRow> (state, te::IDs::delay, "Beats",
-                                                         0.125, 4.0, 0.125, juce::String(), isAlive));
+                                                         0.125, 4.0, 0.125, juce::String(), isAlive, 1.0));
         delay->add (std::make_unique<ParameterSliderRow> (*synth.delayFeedback, "Feedback", isAlive));
         delay->add (std::make_unique<ParameterSliderRow> (*synth.delayCrossfeed, "Crossfeed", isAlive));
         delay->add (std::make_unique<ParameterSliderRow> (*synth.delayMix, "Mix", isAlive));

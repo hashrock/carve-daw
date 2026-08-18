@@ -603,6 +603,7 @@ void MainComponent::resized()
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     clipProperties.setBounds (area.removeFromRight (210));
     playlistViewport.setBounds (area);
+    playlist.hostViewportResized();   // its minimum width is the viewport's
 }
 
 } // namespace carve::app
