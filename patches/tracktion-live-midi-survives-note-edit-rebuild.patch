@@ -1,0 +1,62 @@
+Live MIDI survives the graph rebuild a MIDI note edit triggers
+
+Every MIDI note add/remove rebuilds the playback graph (tracktion_Edit.cpp
+childAddedOrRemoved restarts on IDs::NOTE). LiveMidiInjectingNode carries
+its pending injected messages across such rebuilds by finding its old
+counterpart via nodeID -- but that id hashes the node's whole input chain,
+and LoopingMidiNode hashes its sequences into its own id, so a note edit
+changes the very id the lookup needs. The migration misses on exactly the
+rebuild every note edit causes, and any not-yet-processed live MIDI is
+stranded in the outgoing graph.
+
+In an app that previews notes as they are drawn (playGuideNote on the
+same mouse-down that writes the note), the note-on usually sits pending
+when the rebuild lands a few milliseconds later, so previews were lost
+depending on audio-callback timing -- observed failing roughly 2 times in
+3, and reliably on the first edit after launch.
+
+Fixed by falling back to matching the old node by track, of which each
+graph holds at most one. Renders are unaffected: they build one graph
+with no predecessor, so the fallback never runs.
+
+diff --git a/modules/tracktion_engine/playback/graph/tracktion_LiveMidiInjectingNode.cpp b/modules/tracktion_engine/playback/graph/tracktion_LiveMidiInjectingNode.cpp
+index eaedaa5..1ea6b58 100644
+--- a/modules/tracktion_engine/playback/graph/tracktion_LiveMidiInjectingNode.cpp
++++ b/modules/tracktion_engine/playback/graph/tracktion_LiveMidiInjectingNode.cpp
+@@ -45,15 +45,33 @@ std::vector<tracktion::graph::Node*> LiveMidiInjectingNode::getDirectInputNodes(
+ 
+ void LiveMidiInjectingNode::prepareToPlay (const tracktion::graph::PlaybackInitialisationInfo& info)
+ {
++    auto transferFrom = [this] (LiveMidiInjectingNode& oldNode)
++    {
++        const juce::ScopedLock sl2 (oldNode.liveMidiLock);
++        liveMidiMessages.swapWith (oldNode.liveMidiMessages);
++        midiSourceID = oldNode.midiSourceID;
++    };
++
+     if (auto oldNode = findNodeWithIDIfNonZero<LiveMidiInjectingNode> (info.nodeGraphToReplace, getNodeProperties().nodeID))
+     {
+         if (oldNode->track == track)
+         {
+-            const juce::ScopedLock sl2 (oldNode->liveMidiLock);
+-            liveMidiMessages.swapWith (oldNode->liveMidiMessages);
+-            midiSourceID = oldNode->midiSourceID;
++            transferFrom (*oldNode);
++            return;
+         }
+     }
++
++    // The nodeID above hashes this node's whole input chain, and any MIDI
++    // note edit changes that hash (LoopingMidiNode hashes its sequences into
++    // its id) -- so the lookup misses on exactly the graph rebuild every note
++    // edit triggers, stranding pending live MIDI (e.g. note previews) in the
++    // outgoing graph. Fall back to matching by track, of which each graph
++    // holds at most one of these nodes. (carve)
++    if (info.nodeGraphToReplace != nullptr)
++        for (auto n : info.nodeGraphToReplace->orderedNodes)
++            if (auto oldNode = dynamic_cast<LiveMidiInjectingNode*> (n))
++                if (oldNode->track == track)
++                    return transferFrom (*oldNode);
+ }
+ 
+ bool LiveMidiInjectingNode::isReadyToProcess()

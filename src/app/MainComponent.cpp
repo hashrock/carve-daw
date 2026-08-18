@@ -168,6 +168,13 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 
     editSync = std::make_unique<sync::EditSync> (song, *edit);
 
+    // The playback context is allocated up front rather than lazily on the
+    // first note preview, so the first preview doesn't pay for the allocation
+    // cascade (the live MIDI node's listener registration schedules a second
+    // graph rebuild) -- and so the mixer's master meter has a context to read
+    // while stopped.
+    edit->getTransport().ensureContextAllocated();
+
     transportBar->setSong (song);
     playlist.setSong (song);
     clipProperties.setSong (song);

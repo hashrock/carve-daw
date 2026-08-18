@@ -16,11 +16,14 @@ FetchContent_Declare(tracktion
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
     GIT_TAG        v3.2.0
     GIT_SHALLOW    TRUE
-    # Fixed-seed oscillator phase, so two renders of the same song are
-    # bit-identical. See the patch header for why this is safe.
+    # Local fixes, each explained in its own patch header:
+    #   * fixed-seed oscillator phase, so two renders of a song are identical
+    #   * pending live MIDI (note previews) survives the graph rebuild that
+    #     every MIDI note edit triggers
     # Idempotent: CMake re-runs this on reconfigure, so an already-patched
     # tree has to pass. "Reverse would apply" means the patch is in place.
-    PATCH_COMMAND  bash -c "git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch'"
+    # (No semicolons in here: CMake would split the command on them.)
+    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch')"
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)

@@ -1021,11 +1021,110 @@ namespace
         }
     }
 
+    // One MIDI note as a placement wants it, expanded for looping, transpose
+    // and cut-off. The comparison against a live clip and the rewrite of one
+    // both walk this list, so they can't disagree.
+    struct WantedNote
+    {
+        int pitch;
+        double startBeats, lengthBeats;
+        int velocity;
+    };
+
+    std::vector<WantedNote> wantedNotesFor (const model::Pattern& pattern, double patternLength,
+                                            double clipLength, int transpose)
+    {
+        std::vector<WantedNote> wanted;
+        const auto notes = pattern.getNotes();
+
+        // A placement can be longer than its pattern, in which case the
+        // pattern repeats, and shorter, in which case it is cut off. The
+        // repeat count is capped so a pattern shortened to almost nothing
+        // can't spin here.
+        constexpr int maxRepeats = 512;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            for (const auto& note : notes)
+            {
+                const auto noteStart = offset + note.getStart();
+
+                if (noteStart >= clipLength - 1.0e-9)
+                    continue;
+
+                wanted.push_back ({ juce::jlimit (0, 127, note.getPitch() + transpose),
+                                    noteStart,
+                                    std::min (note.getLength(), clipLength - noteStart),
+                                    note.getVelocity() });
+            }
+        }
+
+        return wanted;
+    }
+
+    // Compared as sets: the MidiList keeps its notes sorted by start beat with
+    // an unspecified order for ties, and the wanted list is in pattern order,
+    // so both sides are put into one canonical order first.
+    bool sequenceMatches (const te::MidiClip& clip, std::vector<WantedNote> wanted)
+    {
+        const auto& liveNotes = clip.getSequence().getNotes();
+
+        if ((size_t) liveNotes.size() != wanted.size())
+            return false;
+
+        std::vector<WantedNote> live;
+        live.reserve (wanted.size());
+
+        for (const auto* note : liveNotes)
+            live.push_back ({ note->getNoteNumber(), note->getStartBeat().inBeats(),
+                              note->getLengthBeats().inBeats(), note->getVelocity() });
+
+        const auto order = [] (const WantedNote& a, const WantedNote& b)
+        {
+            return std::tie (a.startBeats, a.pitch, a.lengthBeats, a.velocity)
+                 < std::tie (b.startBeats, b.pitch, b.lengthBeats, b.velocity);
+        };
+        std::sort (live.begin(), live.end(), order);
+        std::sort (wanted.begin(), wanted.end(), order);
+
+        for (size_t i = 0; i < wanted.size(); ++i)
+            if (live[i].pitch != wanted[i].pitch
+                 || live[i].velocity != wanted[i].velocity
+                 || std::abs (live[i].startBeats - wanted[i].startBeats) > 1.0e-6
+                 || std::abs (live[i].lengthBeats - wanted[i].lengthBeats) > 1.0e-6)
+                return false;
+
+        return true;
+    }
+
+    // Reconciles the track's MIDI clips against the playlist instead of
+    // deleting and recreating them. This is not (only) an optimisation:
+    // inserting or removing a te::Clip makes tracktion rebuild the whole
+    // playback graph, and a rebuild a few milliseconds after a note preview
+    // races the preview's voice -- which is how "add a note, hear nothing,
+    // add another, hear that one" happened. Rewriting a clip's MidiList
+    // touches no graph, so the common edit (notes changing inside a pattern)
+    // leaves playback and previews alone.
+    //
+    // Clips are matched positionally: every clip on a generator track is ours
+    // and created in playlist order, the same invariant repositionPatternClips
+    // already relies on.
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track)
     {
-        for (auto clip : juce::Array<te::Clip*> (track.getClips()))   // copy: removal mutates the list
-            clip->removeFromParent();
+        struct Desired
+        {
+            juce::String name;
+            te::TimeRange time;
+            std::vector<WantedNote> notes;
+        };
+
+        std::vector<Desired> desired;
 
         for (const auto& placement : song.getPlaylist().getClips())
         {
@@ -1045,41 +1144,59 @@ namespace
             const auto startBeat = placement.getStart();
             const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
                                        te::BeatPosition::fromBeats (startBeat + clipLength));
-            auto midiClip = track.insertMIDIClip (pattern->getName(),
-                                                  edit.tempoSequence.toTime (beats), nullptr);
-            if (midiClip == nullptr)
-                continue;
 
-            const auto transpose = placement.getTranspose();
-            const auto notes = pattern->getNotes();
+            desired.push_back ({ pattern->getName(),
+                                 edit.tempoSequence.toTime (beats),
+                                 wantedNotesFor (*pattern, patternLength, clipLength,
+                                                 placement.getTranspose()) });
+        }
 
-            // A placement can be longer than its pattern, in which case the
-            // pattern repeats, and shorter, in which case it is cut off. The
-            // repeat count is capped so a pattern shortened to almost nothing
-            // can't spin here.
-            constexpr int maxRepeats = 512;
+        // The live clips, positionally. Anything that is not one of our MIDI
+        // clips (there should be none on a generator track) is removed rather
+        // than reasoned about.
+        std::vector<te::MidiClip*> live;
 
-            for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        for (auto clip : juce::Array<te::Clip*> (track.getClips()))   // copy: removal mutates the list
+        {
+            if (auto midi = dynamic_cast<te::MidiClip*> (clip); midi != nullptr && live.size() < desired.size())
+                live.push_back (midi);
+            else
+                clip->removeFromParent();
+        }
+
+        for (size_t i = 0; i < desired.size(); ++i)
+        {
+            const auto& want = desired[i];
+            te::MidiClip* midiClip = nullptr;
+
+            if (i < live.size())
             {
-                const auto offset = repeat * patternLength;
+                midiClip = live[i];
+            }
+            else
+            {
+                midiClip = track.insertMIDIClip (want.name, want.time, nullptr).get();
 
-                if (offset >= clipLength - 1.0e-9)
-                    break;
+                if (midiClip == nullptr)
+                    continue;
+            }
 
-                for (const auto& note : notes)
-                {
-                    const auto noteStart = offset + note.getStart();
+            if (midiClip->getName() != want.name)
+                midiClip->setName (want.name);
 
-                    if (noteStart >= clipLength - 1.0e-9)
-                        continue;
+            if (! positionsMatch (midiClip->getPosition(), { want.time, te::TimeDuration() }))
+                midiClip->setPosition ({ want.time, te::TimeDuration() });
 
-                    midiClip->getSequence().addNote (
-                        juce::jlimit (0, 127, note.getPitch() + transpose),
-                        te::BeatPosition::fromBeats (noteStart),
-                        te::BeatDuration::fromBeats (std::min (note.getLength(),
-                                                               clipLength - noteStart)),
-                        note.getVelocity(), 0, nullptr);
-                }
+            if (! sequenceMatches (*midiClip, want.notes))
+            {
+                auto& sequence = midiClip->getSequence();
+                sequence.clear (nullptr);
+
+                for (const auto& note : want.notes)
+                    sequence.addNote (note.pitch,
+                                      te::BeatPosition::fromBeats (note.startBeats),
+                                      te::BeatDuration::fromBeats (note.lengthBeats),
+                                      note.velocity, 0, nullptr);
             }
         }
     }
