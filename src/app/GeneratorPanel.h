@@ -12,58 +12,13 @@ namespace te = tracktion;
 namespace carve::app
 {
 
-// The A1..D9 pattern slot grid, drawn as one click-per-slot pad grid the way
-// Orion and FL show their pattern selectors. It holds no model state of its
-// own: GeneratorPanel pushes a state per slot on every refresh, so a slot that
-// is not in the tree yet is simply drawn as "unused" and can still be clicked.
-class PatternSlotGrid final : public juce::Component
-{
-public:
-    enum class SlotState
-    {
-        unused,     // no pattern in the tree for this slot
-        empty,      // pattern exists but has no notes
-        hasNotes
-    };
-
-    PatternSlotGrid();
-
-    std::function<void (model::PatternSlot)> onSlotClicked;
-
-    // A right click (or ctrl-click) on a slot. The panel owns the menu itself:
-    // everything on it is a model edit, and the grid holds no model.
-    std::function<void (model::PatternSlot)> onSlotMenuRequested;
-
-    // Cmd+D while the grid has the keyboard, which duplicates the selected
-    // slot -- the same shortcut the playlist duplicates a clip with.
-    std::function<void()> onDuplicateRequested;
-
-    void setSlotState (const model::PatternSlot&, SlotState);
-    void setSelectedSlot (std::optional<model::PatternSlot>);
-    void clearSlots();
-
-    // Height needed to show all four banks; the pads take whatever width there is.
-    static int getPreferredHeight();
-
-    // Where a slot sits on screen, so a menu can be hung off the pad it
-    // belongs to rather than off the pointer.
-    juce::Rectangle<int> getSlotScreenArea (const model::PatternSlot&) const;
-
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    bool keyPressed (const juce::KeyPress&) override;
-
-private:
-    juce::Rectangle<int> getSlotBounds (const model::PatternSlot&) const;
-    std::optional<model::PatternSlot> getSlotAt (juce::Point<int>) const;
-
-    std::array<SlotState, (size_t) model::PatternSlot::numSlots> slotStates;
-    std::optional<model::PatternSlot> selectedSlot;
-};
-
 // Left-hand panel: the list of Generators and, for the selected one, its
 // Patterns. This is the entry point of the Orion workflow: pick a Generator,
 // pick/create one of its Patterns, then edit it in the piano roll.
+//
+// The A1..D9 slot switcher itself lives in the generator window's header
+// (GeneratorWindow.h); the panel stays the authority over what is selected,
+// which is why selectSlot and showSlotMenu are public API here.
 class GeneratorPanel : public juce::Component,
                        public juce::FileDragAndDropTarget,
                        private juce::ListBoxModel,
@@ -80,6 +35,11 @@ public:
     std::function<void()> onManagePlugins;
     std::function<void()> onOpenPatternEditor;
 
+    // Fired after every refresh, which any change to the song tree triggers,
+    // so the generator window's slot switcher can recolour without listening
+    // to the tree itself.
+    std::function<void()> onPatternsChanged;
+
     void setSong (model::Song newSong);
     void selectGenerator (const juce::String& generatorId);
 
@@ -90,6 +50,15 @@ public:
 
     juce::String getSelectedGeneratorId() const;
     juce::String getSelectedPatternId() const;
+
+    // A click on the slot switcher: materialises the slot's pattern if it has
+    // none yet, selects it, and drops the previous pattern again if it was
+    // only browsed past (see discardUntouchedPattern).
+    void selectSlot (model::PatternSlot);
+
+    // The slot right-click menu: duplicate, copy to another generator, MIDI in
+    // and out. screenArea is where to hang the menu (the switcher cell).
+    void showSlotMenu (model::PatternSlot, juce::Rectangle<int> screenArea);
 
     void resized() override;
 
@@ -114,7 +83,7 @@ private:
 
     void refresh();
     void rebuildPatternBox();
-    void rebuildSlotGrid();
+    void rebuildPatternHeader();
     void rebuildPadGrid();
     void fireSelectionChanged();
     double newPatternLengthBeats() const;
@@ -145,17 +114,12 @@ private:
 
     std::optional<model::Generator> getSelectedGenerator() const;
     void ensureValidPatternSelection();
-    void slotClicked (model::PatternSlot);
     void discardUntouchedPattern (const juce::String& patternId,
                                   const juce::String& generatorId);
 
-    // The slot grid's right-click menu: clone this slot, send it to another
-    // generator, or take it through a MIDI file. Everything on it works on
-    // (generatorId, slot) rather than a Pattern, because the menu and the file
-    // choosers behind it are asynchronous and the song may be replaced while
-    // one is open.
-    void showSlotMenu (model::PatternSlot);
-    void duplicateSelectedPattern();
+    // The menu behind showSlotMenu works on (generatorId, slot) rather than a
+    // Pattern, because the menu and the file choosers behind it are
+    // asynchronous and the song may be replaced while one is open.
     void duplicatePattern (const juce::String& generatorId, model::PatternSlot,
                            const juce::String& destinationGeneratorId);
     void exportPatternToMidi (const juce::String& generatorId, model::PatternSlot);
@@ -171,8 +135,7 @@ private:
     juce::TextButton editPatternButton { "Edit Pattern" };
     juce::Label patternHeader;
     DrumPadGrid padGrid;         // visible only while a drum kit is selected
-    PatternSlotGrid slotGrid;
-    juce::ComboBox patternBox;   // only the patterns outside the slot grid
+    juce::ComboBox patternBox;   // only the patterns outside the slot switcher
 
     // Have to outlive launchAsync, so they can't be locals. Two of them,
     // because a sample chooser and a MIDI chooser are never open at once but

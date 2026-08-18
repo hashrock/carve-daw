@@ -2,8 +2,6 @@
 
 #include "sync/EngineIds.h"
 
-#include "FourOscEditor.h"
-
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 
@@ -31,6 +29,16 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     generatorPanel->onManagePlugins = [this] { openPluginManager(); };
     generatorPanel->onOpenPatternEditor = [this] { openPatternEditor(); };
+
+    // Slot states change without the selection moving (a note lands in a
+    // pattern); the panel's refresh already runs then, so it recolours the
+    // window's switcher too.
+    generatorPanel->onPatternsChanged = [this]
+    {
+        if (generatorWindow != nullptr)
+            generatorWindow->updateSlots (song.findGenerator (selectedGeneratorId),
+                                          selectedPatternId);
+    };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
     transportBar->onExport = [this] { openExport(); };
@@ -140,8 +148,7 @@ MainComponent::~MainComponent()
 void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 {
     edit->getTransport().stop (false, false);
-    pluginEditorWindows.clear();
-    pianoRollWindow.reset();
+    generatorWindow.reset();
     mixerWindow.reset();
     exportWindow.reset();
     undoManager.clearUndoHistory();
@@ -199,49 +206,92 @@ void MainComponent::selectionChanged (const juce::String& generatorId, const juc
     selectedPatternId = patternId;
     playlist.setSelection (generatorId, patternId);
 
-    if (pianoRollWindow != nullptr)
-        openPatternEditor();   // retarget the open editor to the new selection
+    if (generatorWindow != nullptr)
+        retargetGeneratorWindow();   // retarget the open editor to the new selection
 }
 
 void MainComponent::openPatternEditor()
 {
-    std::optional<model::Pattern> pattern;
-    juce::String title;
+    openGeneratorWindow (GeneratorWindow::Tab::pianoRoll);
+}
 
-    if (auto generator = song.findGenerator (selectedGeneratorId))
-        if ((pattern = generator->findPattern (selectedPatternId)))
-            title = generator->getName() + " / " + pattern->getName();
-
-    if (pianoRollWindow == nullptr)
+void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
+{
+    if (generatorWindow == nullptr)
     {
         auto onClose = [safe = juce::Component::SafePointer (this)]
         {
             juce::MessageManager::callAsync ([safe]
             {
                 if (safe != nullptr)
-                    safe->pianoRollWindow.reset();
+                    safe->generatorWindow.reset();
             });
         };
         auto keyHandler = [safe = juce::Component::SafePointer (this)] (const juce::KeyPress& key)
         {
             return safe != nullptr && safe->handleGlobalKey (key);
         };
-        pianoRollWindow = std::make_unique<PianoRollWindow> (undoManager, std::move (onClose),
+        generatorWindow = std::make_unique<GeneratorWindow> (undoManager, std::move (onClose),
                                                              std::move (keyHandler));
 
-        pianoRollWindow->setPreviewNoteCallback (
+        generatorWindow->setPreviewNoteCallback (
             [safe = juce::Component::SafePointer (this)] (int pitch, int velocity)
             {
                 if (safe != nullptr)
                     safe->previewNote (pitch, velocity);
             });
+
+        // The switcher only reports clicks; the panel stays the selection
+        // authority, and its refresh comes back around through
+        // onPatternsChanged to recolour the switcher.
+        auto& slots = generatorWindow->getSlotSwitcher();
+        slots.onSlotClicked = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot)
+        {
+            if (safe != nullptr)
+                safe->generatorPanel->selectSlot (slot);
+        };
+        slots.onSlotMenu = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot,
+                                                                         juce::Rectangle<int> screenArea)
+        {
+            if (safe != nullptr)
+                safe->generatorPanel->showSlotMenu (slot, screenArea);
+        };
     }
 
-    // Before setPattern: the roll counts its bars in the song's signature, and
-    // this path is reached on load too, so a reloaded song lands here as well.
-    pianoRollWindow->setSong (song);
-    pianoRollWindow->setPattern (std::move (pattern), title);
-    pianoRollWindow->toFront (true);
+    retargetGeneratorWindow();
+    generatorWindow->showTab (tab);
+    generatorWindow->toFront (true);
+}
+
+void MainComponent::retargetGeneratorWindow()
+{
+    auto generator = song.findGenerator (selectedGeneratorId);
+
+    std::optional<model::Pattern> pattern;
+    juce::String title;
+
+    if (generator)
+        if ((pattern = generator->findPattern (selectedPatternId)))
+            title = generator->getName() + " / " + pattern->getName();
+
+    // generator order == track order (EditSync invariant)
+    te::Plugin* instrument = nullptr;
+    const auto generators = song.getGenerators();
+    const auto tracks = te::getAudioTracks (*edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        if (generators[(size_t) i].getId() == selectedGeneratorId)
+        {
+            // Not findFirstPluginOfType<ExternalPlugin>: an insert effect can
+            // be an external plugin too, and this must find the instrument.
+            instrument = sync::findInstrumentPlugin (*tracks[i]);
+            break;
+        }
+
+    // Song before pattern: the roll counts its bars in the song's signature,
+    // and this path is reached on load too.
+    generatorWindow->setSong (song);
+    generatorWindow->setGenerator (generator, instrument, std::move (pattern), title);
 }
 
 void MainComponent::previewNote (int pitch, int velocity)
@@ -318,46 +368,10 @@ void MainComponent::openMixer()
 
 void MainComponent::openPluginEditor (const juce::String& generatorId)
 {
-    if (auto existing = pluginEditorWindows.find (generatorId);
-        existing != pluginEditorWindows.end())
-    {
-        existing->second->toFront (true);
-        return;
-    }
-
-    // generator order == track order (EditSync invariant)
-    const auto generators = song.getGenerators();
-    const auto tracks = te::getAudioTracks (*edit);
-
-    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
-    {
-        if (generators[(size_t) i].getId() != generatorId)
-            continue;
-
-        // Not findFirstPluginOfType<ExternalPlugin>: an insert effect can be an
-        // external plugin too, and this must open the instrument's editor.
-        auto* instrument = sync::findInstrumentPlugin (*tracks[i]);
-
-        // destruction is deferred: the close callback runs inside the window's
-        // own member function
-        auto onClose = [safe = juce::Component::SafePointer (this), generatorId]
-        {
-            juce::MessageManager::callAsync ([safe, generatorId]
-            {
-                if (safe != nullptr)
-                    safe->pluginEditorWindows.erase (generatorId);
-            });
-        };
-
-        if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
-            pluginEditorWindows[generatorId] =
-                std::make_unique<PluginEditorWindow> (*external, std::move (onClose));
-        else if (auto synth = dynamic_cast<te::FourOscPlugin*> (instrument))
-            pluginEditorWindows[generatorId] =
-                std::make_unique<FourOscEditorWindow> (*synth, std::move (onClose));
-
-        return;   // a sampler is edited from the generator panel, not here
-    }
+    // The panel opens the editor of what it has selected, so the id already is
+    // the selection; the guard covers a call arriving mid-switch.
+    if (generatorId == selectedGeneratorId)
+        openGeneratorWindow (GeneratorWindow::Tab::instrument);
 }
 
 void MainComponent::openPluginManager()

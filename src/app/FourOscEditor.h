@@ -76,20 +76,5 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FourOscEditor)
 };
 
-//==============================================================================
-// The editor above in a floating window, shaped like PluginEditorWindow so the
-// owner can hold either through one pointer.
-class FourOscEditorWindow : public juce::DocumentWindow
-{
-public:
-    FourOscEditorWindow (te::FourOscPlugin&, std::function<void()> onCloseCallback);
-
-    void closeButtonPressed() override;
-
-private:
-    std::function<void()> onClose;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FourOscEditorWindow)
-};
 
 } // namespace carve::app

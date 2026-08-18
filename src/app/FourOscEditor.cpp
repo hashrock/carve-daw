@@ -310,30 +310,4 @@ void FourOscEditor::timerCallback()
         pages[(size_t) index]->refresh();
 }
 
-//==============================================================================
-FourOscEditorWindow::FourOscEditorWindow (te::FourOscPlugin& synth,
-                                          std::function<void()> onCloseCallback)
-    : juce::DocumentWindow (synth.getName(),
-                            juce::Colour (0xff232327),
-                            juce::DocumentWindow::closeButton),
-      onClose (std::move (onCloseCallback))
-{
-    setContentOwned (new FourOscEditor (synth), true);
-    setUsingNativeTitleBar (true);
-    setResizable (true, false);
-
-    // The sections are sized to their rows, so shrinking past this would just
-    // clip them; growing spreads the extra width across the sliders.
-    setResizeLimits (FourOscEditor::width, FourOscEditor::height, 1600, 1200);
-    centreWithSize (getWidth(), getHeight());
-    setVisible (true);
-    toFront (true);
-}
-
-void FourOscEditorWindow::closeButtonPressed()
-{
-    if (onClose)
-        onClose();   // owner destroys this window (deferred)
-}
-
 } // namespace carve::app

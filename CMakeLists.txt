@@ -82,6 +82,7 @@ target_sources(carve PRIVATE
     src/app/FourOscEditor.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
+    src/app/GeneratorWindow.h
     src/app/MixerComponent.h
     src/app/MixerComponent.cpp
     src/app/MixerWindow.h

@@ -6,152 +6,6 @@ namespace carve::app
 {
 
 //==============================================================================
-// PatternSlotGrid
-
-namespace
-{
-    // One row per bank, nine pads per row, with a narrow gutter on the left for
-    // the bank letter so each pad only has to fit a single digit.
-    constexpr int slotRowHeight = 20;
-    constexpr int slotGap = 2;
-    constexpr int slotGutterWidth = 14;
-} // namespace
-
-PatternSlotGrid::PatternSlotGrid()
-{
-    // So Cmd+D reaches us once a slot has been clicked. Anything else still
-    // bubbles up to the host, which owns Space and undo globally.
-    setWantsKeyboardFocus (true);
-    clearSlots();
-}
-
-int PatternSlotGrid::getPreferredHeight()
-{
-    return model::PatternSlot::numBanks * slotRowHeight
-            + (model::PatternSlot::numBanks - 1) * slotGap;
-}
-
-void PatternSlotGrid::clearSlots()
-{
-    slotStates.fill (SlotState::unused);
-    selectedSlot.reset();
-}
-
-void PatternSlotGrid::setSlotState (const model::PatternSlot& slot, SlotState state)
-{
-    if (slot.isValid())
-        slotStates[(size_t) slot.toFlatIndex()] = state;
-}
-
-void PatternSlotGrid::setSelectedSlot (std::optional<model::PatternSlot> slot)
-{
-    selectedSlot = slot;
-}
-
-juce::Rectangle<int> PatternSlotGrid::getSlotBounds (const model::PatternSlot& slot) const
-{
-    const int usable = getWidth() - slotGutterWidth
-                        - (model::PatternSlot::slotsPerBank - 1) * slotGap;
-    const int cellWidth = juce::jmax (8, usable / model::PatternSlot::slotsPerBank);
-
-    return { slotGutterWidth + slot.index * (cellWidth + slotGap),
-             slot.bank * (slotRowHeight + slotGap),
-             cellWidth, slotRowHeight };
-}
-
-std::optional<model::PatternSlot> PatternSlotGrid::getSlotAt (juce::Point<int> position) const
-{
-    for (int i = 0; i < model::PatternSlot::numSlots; ++i)
-    {
-        const auto slot = model::PatternSlot::fromFlatIndex (i);
-        if (getSlotBounds (slot).contains (position))
-            return slot;
-    }
-    return std::nullopt;
-}
-
-void PatternSlotGrid::paint (juce::Graphics& g)
-{
-    g.setFont (11.0f);
-
-    for (int i = 0; i < model::PatternSlot::numSlots; ++i)
-    {
-        const auto slot = model::PatternSlot::fromFlatIndex (i);
-        const auto bounds = getSlotBounds (slot).toFloat();
-        const auto state = slotStates[(size_t) i];
-        const bool isSelected = selectedSlot.has_value() && *selectedSlot == slot;
-
-        if (slot.index == 0)
-        {
-            g.setColour (juce::Colour (0xff9a9aa4));
-            g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + slot.bank)),
-                        0, (int) bounds.getY(), slotGutterWidth - 3, slotRowHeight,
-                        juce::Justification::centredRight);
-        }
-
-        // Filled = the slot has notes, outlined = materialised but still empty,
-        // flat = never used. The user can tell at a glance where the music is.
-        switch (state)
-        {
-            case SlotState::hasNotes:  g.setColour (juce::Colour (0xffe08a3c)); break;
-            case SlotState::empty:     g.setColour (juce::Colour (0xff3a3a40)); break;
-            case SlotState::unused:    g.setColour (juce::Colour (0xff2b2b30)); break;
-        }
-        g.fillRoundedRectangle (bounds, 3.0f);
-
-        if (isSelected)
-        {
-            g.setColour (juce::Colours::white);
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 3.0f, 1.5f);
-        }
-
-        g.setColour (state == SlotState::hasNotes ? juce::Colours::black
-                                                  : juce::Colour (0xff8a8a94));
-        g.drawText (juce::String (slot.index + 1), getSlotBounds (slot),
-                    juce::Justification::centred);
-    }
-}
-
-juce::Rectangle<int> PatternSlotGrid::getSlotScreenArea (const model::PatternSlot& slot) const
-{
-    return localAreaToGlobal (getSlotBounds (slot));
-}
-
-void PatternSlotGrid::mouseDown (const juce::MouseEvent& e)
-{
-    auto slot = getSlotAt (e.getPosition());
-
-    if (! slot)
-        return;
-
-    grabKeyboardFocus();   // so Cmd+D duplicates the slot that was just picked
-
-    // A right click acts on the slot without selecting it: the menu names the
-    // slot it opened on, so moving the selection under it would only surprise.
-    if (e.mods.isPopupMenu())
-    {
-        if (onSlotMenuRequested)
-            onSlotMenuRequested (*slot);
-        return;
-    }
-
-    if (onSlotClicked)
-        onSlotClicked (*slot);
-}
-
-bool PatternSlotGrid::keyPressed (const juce::KeyPress& key)
-{
-    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
-    {
-        if (onDuplicateRequested)
-            onDuplicateRequested();
-        return true;
-    }
-
-    return false;
-}
-
-//==============================================================================
 // GeneratorPanel
 
 GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, juce::UndoManager& um)
@@ -196,10 +50,6 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
     patternHeader.setText ("Patterns", juce::dontSendNotification);
     patternHeader.setJustificationType (juce::Justification::centredLeft);
 
-    slotGrid.onSlotClicked = [this] (model::PatternSlot slot) { slotClicked (slot); };
-    slotGrid.onSlotMenuRequested = [this] (model::PatternSlot slot) { showSlotMenu (slot); };
-    slotGrid.onDuplicateRequested = [this] { duplicateSelectedPattern(); };
-
     padGrid.onPadClicked = [this] (int pad) { padClicked (pad); };
     padGrid.onFilesDropped = [this] (int pad, const juce::StringArray& files) { padFilesDropped (pad, files); };
     padGrid.isInterestedInFiles = [this] (const juce::StringArray& files) { return isInterestedInFileDrag (files); };
@@ -220,8 +70,6 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
             const auto previousId = selectedPatternId;
             undoManager.beginNewTransaction();   // discardUntouchedPattern may edit
             selectedPatternId = others[(size_t) index].getId();
-            slotGrid.setSelectedSlot (std::nullopt);
-            slotGrid.repaint();
             fireSelectionChanged();
             discardUntouchedPattern (previousId, generator->getId());
         }
@@ -229,7 +77,7 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &generatorList, &addGeneratorButton, &instrumentButton,
-             &editPatternButton, &patternHeader, &slotGrid, &patternBox })
+             &editPatternButton, &patternHeader, &patternBox })
         addAndMakeVisible (c);
 
     // Only a drum kit has pads; refresh below shows the grid if one is selected.
@@ -590,7 +438,7 @@ std::optional<model::Generator> GeneratorPanel::getSelectedGenerator() const
     return std::nullopt;
 }
 
-void GeneratorPanel::slotClicked (model::PatternSlot slot)
+void GeneratorPanel::selectSlot (model::PatternSlot slot)
 {
     auto generator = getSelectedGenerator();
     if (! generator)
@@ -637,7 +485,7 @@ void GeneratorPanel::discardUntouchedPattern (const juce::String& patternId,
 //==============================================================================
 // The slot menu: duplicate, copy to another generator, MIDI in and out
 
-void GeneratorPanel::showSlotMenu (model::PatternSlot slot)
+void GeneratorPanel::showSlotMenu (model::PatternSlot slot, juce::Rectangle<int> screenArea)
 {
     auto generator = getSelectedGenerator();
 
@@ -687,8 +535,7 @@ void GeneratorPanel::showSlotMenu (model::PatternSlot slot)
                                                      : "Import MIDI...");
 
     menu.showMenuAsync (juce::PopupMenu::Options()
-                            .withTargetComponent (slotGrid)
-                            .withTargetScreenArea (slotGrid.getSlotScreenArea (slot)),
+                            .withTargetScreenArea (screenArea),
                         [this, generatorId, slot, otherGeneratorIds] (int result)
     {
         if (result == 1)
@@ -700,24 +547,6 @@ void GeneratorPanel::showSlotMenu (model::PatternSlot slot)
         else if (result >= 100 && result < 100 + otherGeneratorIds.size())
             duplicatePattern (generatorId, slot, otherGeneratorIds[result - 100]);
     });
-}
-
-void GeneratorPanel::duplicateSelectedPattern()
-{
-    auto generator = getSelectedGenerator();
-
-    if (! generator)
-        return;
-
-    // Only a pattern that sits in a slot: one from the box below the grid has
-    // no slot to duplicate "next to", and the grid is what the shortcut is on.
-    auto pattern = generator->findPattern (selectedPatternId);
-
-    if (! pattern)
-        return;
-
-    if (auto slot = pattern->getSlot())
-        duplicatePattern (generator->getId(), *slot, generator->getId());
 }
 
 void GeneratorPanel::duplicatePattern (const juce::String& generatorId, model::PatternSlot slot,
@@ -927,13 +756,20 @@ void GeneratorPanel::selectedRowsChanged (int)
 
 void GeneratorPanel::refresh()
 {
-    const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
-    ensureValidPatternSelection();
-    generatorList.updateContent();
-    generatorList.repaint();
-    rebuildSlotGrid();
-    rebuildPadGrid();
-    rebuildPatternBox();
+    {
+        const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
+        ensureValidPatternSelection();
+        generatorList.updateContent();
+        generatorList.repaint();
+        rebuildPatternHeader();
+        rebuildPadGrid();
+        rebuildPatternBox();
+    }
+
+    // Outside the isRefreshing guard: the listener only reads, and anything it
+    // triggers (a slot switcher repaint) must see the refreshed state.
+    if (onPatternsChanged)
+        onPatternsChanged();
 }
 
 void GeneratorPanel::rebuildPadGrid()
@@ -978,53 +814,34 @@ void GeneratorPanel::rebuildPadGrid()
     padGrid.repaint();
 }
 
-void GeneratorPanel::rebuildSlotGrid()
+void GeneratorPanel::rebuildPatternHeader()
 {
-    slotGrid.clearSlots();
-
     auto generator = getSelectedGenerator();
 
     // An audio generator has no patterns: its clips are the files placed on it,
     // and a pattern created here would be dead weight the playlist ignores.
     const bool showsPatterns = ! (generator && generator->isAudio());
 
-    if (showsPatterns != slotGrid.isVisible())
+    if (showsPatterns != editPatternButton.isVisible())
     {
-        slotGrid.setVisible (showsPatterns);
         editPatternButton.setVisible (showsPatterns);
         resized();
     }
 
-    if (! showsPatterns)
-        return;
     std::optional<model::Pattern> selected;
 
-    if (generator)
-    {
-        for (const auto& pattern : generator->getPatterns())
-        {
-            if (pattern.getId() == selectedPatternId)
-                selected = pattern;
+    if (generator && showsPatterns)
+        selected = generator->findPattern (selectedPatternId);
 
-            if (auto slot = pattern.getSlot())
-            {
-                slotGrid.setSlotState (*slot, pattern.isEmpty() ? PatternSlotGrid::SlotState::empty
-                                                                : PatternSlotGrid::SlotState::hasNotes);
-                if (pattern.getId() == selectedPatternId)
-                    slotGrid.setSelectedSlot (*slot);
-            }
-        }
-    }
-
-    // The pad only has room for the slot number, so the header carries the
-    // name - which the piano roll may have changed away from the slot's.
+    // The switcher's pad only has room for the slot number, so the header
+    // carries the name - which the piano roll may have changed away from the
+    // slot's.
     patternHeader.setText (selected ? "Pattern: " + selected->getName() : "Patterns",
                            juce::dontSendNotification);
 
     // Same button, different job for a sampler; see its onClick.
     instrumentButton.setButtonText (generator && generator->isSampler() ? "Load Sample..."
                                                                         : "Instrument UI");
-    slotGrid.repaint();
 }
 
 void GeneratorPanel::rebuildPatternBox()
@@ -1064,16 +881,15 @@ void GeneratorPanel::resized()
     addGeneratorButton.setBounds (area.removeFromTop (28));
     area.removeFromTop (6);
 
-    const int gridHeight = PatternSlotGrid::getPreferredHeight();
     const int otherPatternsHeight = patternBox.isVisible() ? 34 : 0;
 
     // The pads take the room the instrument button gives up, plus some of the
-    // generator list's: a kit needs both its pads and its pattern slots.
+    // generator list's: a kit needs both its pads and its pattern header.
     const int padsHeight = padGrid.isVisible() ? DrumPadGrid::getPreferredHeight() + 6 : 0;
     const int instrumentHeight = instrumentButton.isVisible() ? 28 + 6 : 0;
 
     auto bottom = area.removeFromBottom (6 + padsHeight + instrumentHeight + 22
-                                          + gridHeight + 6 + otherPatternsHeight + 28);
+                                          + 6 + otherPatternsHeight + 28);
     generatorList.setBounds (area);
 
     bottom.removeFromTop (6);
@@ -1091,7 +907,6 @@ void GeneratorPanel::resized()
     }
 
     patternHeader.setBounds (bottom.removeFromTop (22));
-    slotGrid.setBounds (bottom.removeFromTop (gridHeight));
     bottom.removeFromTop (6);
 
     if (patternBox.isVisible())

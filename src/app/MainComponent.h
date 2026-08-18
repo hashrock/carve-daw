@@ -3,8 +3,8 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "GeneratorPanel.h"
+#include "GeneratorWindow.h"
 #include "MixerWindow.h"
-#include "PianoRollWindow.h"
 #include "ClipPropertiesPanel.h"
 #include "ExportWindow.h"
 #include "PlaylistComponent.h"
@@ -53,6 +53,11 @@ private:
     void openPluginEditor (const juce::String& generatorId);
     void openPluginManager();
     void openPatternEditor();
+
+    // Both of the above land here: one window per selection, the tab picking
+    // which half of it is in front.
+    void openGeneratorWindow (GeneratorWindow::Tab);
+    void retargetGeneratorWindow();
     void openMixer();
     void openExport();
     void previewNote (int pitch, int velocity);
@@ -89,11 +94,8 @@ private:
     juce::String selectedGeneratorId, selectedPatternId;
 
     std::shared_ptr<juce::FileChooser> fileChooser;
-    // DocumentWindow, not PluginEditorWindow: an instrument is either an
-    // external plugin with its own editor or a 4OSC with ours.
-    std::map<juce::String, std::unique_ptr<juce::DocumentWindow>> pluginEditorWindows;
     std::unique_ptr<PluginScanWindow> pluginScanWindow;
-    std::unique_ptr<PianoRollWindow> pianoRollWindow;
+    std::unique_ptr<GeneratorWindow> generatorWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
 
