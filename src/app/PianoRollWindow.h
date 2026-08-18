@@ -61,10 +61,11 @@ public:
 
         viewport.setViewedComponent (&pianoRoll, false);
         viewport.setScrollBarsShown (true, true);
+        viewport.onVisibleAreaChanged = [this] { updateRuler(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &lengthHeader, &lengthLabel, &gridHeader, &gridBox,
-                 &snapButton, &viewport })
+                 &snapButton, &ruler, &viewport })
             addAndMakeVisible (c);
 
         refreshFromPattern();
@@ -110,7 +111,9 @@ public:
     {
         auto area = getLocalBounds();
         auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 5);
+        area.removeFromTop (PianoRollRuler::preferredHeight);
         viewport.setBounds (area);
+        updateRuler();
 
         auto place = [&toolbar] (juce::Component& c, int width, int gap = 6)
         {
@@ -129,9 +132,34 @@ public:
 private:
     static constexpr int toolbarHeight = 34;
 
+    // Keeps the ruler over the part of the roll that is actually on screen.
+    // Its width follows the viewport's visible area rather than the whole
+    // component, so a vertical scrollbar appearing cannot push it out of
+    // alignment with the grid underneath.
+    void updateRuler()
+    {
+        ruler.setBounds (viewport.getX(), viewport.getY() - PianoRollRuler::preferredHeight,
+                         viewport.getMaximumVisibleWidth(), PianoRollRuler::preferredHeight);
+        ruler.setScrollOffset (viewport.getViewPositionX());
+    }
+
+    // juce::Viewport only reports scrolling through this virtual, so the ruler
+    // needs a subclass to hear about it.
+    struct RollViewport : juce::Viewport
+    {
+        std::function<void()> onVisibleAreaChanged;
+
+        void visibleAreaChanged (const juce::Rectangle<int>&) override
+        {
+            if (onVisibleAreaChanged)
+                onVisibleAreaChanged();
+        }
+    };
+
     // The model has no time signature, and the roll already draws its bar
-    // lines every four beats, so the toolbar counts bars the same way.
-    static constexpr double beatsPerBar = 4.0;
+    // lines every four beats, so the toolbar counts bars the same way - taken
+    // from the roll rather than restated, so the two cannot drift apart.
+    static constexpr double beatsPerBar = PianoRollComponent::beatsPerBar;
     static constexpr double maxBars = 256.0;
 
     struct GridOption { const char* name; double beats; };
@@ -161,6 +189,10 @@ private:
 
     void refreshFromPattern()
     {
+        // this runs on exactly the changes the ruler cares about - a different
+        // pattern, or a new length - so it is also where the ruler is refreshed
+        ruler.repaint();
+
         const auto hasPattern = pattern.has_value();
         nameLabel.setEnabled (hasPattern);
         lengthLabel.setEnabled (hasPattern);
@@ -237,8 +269,9 @@ private:
     juce::Label nameLabel, lengthHeader, lengthLabel, gridHeader;
     juce::ComboBox gridBox;
     juce::ToggleButton snapButton { "Snap" };
-    juce::Viewport viewport;
+    RollViewport viewport;
     PianoRollComponent pianoRoll;
+    PianoRollRuler ruler { pianoRoll };
 };
 
 // Floating pattern editor (Orion-style): the playlist stays in the main
@@ -258,7 +291,8 @@ public:
           content (um)
     {
         content.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
-        content.setSize (860, 554);
+        // the extra height is the ruler, so the roll itself keeps its old size
+        content.setSize (860, 554 + PianoRollRuler::preferredHeight);
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);

@@ -78,9 +78,13 @@ void PianoRollComponent::patternChanged()
 
 void PianoRollComponent::updateSize()
 {
-    const double lengthBeats = pattern ? pattern->getLengthBeats() : 16.0;
-    setSize (keyboardWidth + juce::roundToInt (lengthBeats * pixelsPerBeat),
+    setSize (keyboardWidth + juce::roundToInt (getLengthBeats() * pixelsPerBeat),
              (highestPitch - lowestPitch + 1) * rowHeight);
+}
+
+double PianoRollComponent::getLengthBeats() const
+{
+    return pattern ? pattern->getLengthBeats() : defaultLengthBeats;
 }
 
 double PianoRollComponent::xToBeat (float x) const     { return (x - (float) keyboardWidth) / pixelsPerBeat; }
@@ -144,7 +148,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff232327));
 
-    const double lengthBeats = pattern ? pattern->getLengthBeats() : 16.0;
+    const auto lengthBeats = getLengthBeats();
     const auto gridRight = beatToX (lengthBeats);
 
     // rows
@@ -297,6 +301,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     if (auto note = noteAt (e.position))
     {
         draggedNote = note;
+        previewNote (note->getPitch(), note->getVelocity());
 
         if (isOverResizeZone (*note, e.position))
         {
@@ -322,7 +327,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     const auto length = juce::jmax (minLengthBeats(),
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
-    draggedNote = pattern->addNote (start, length, pitch, 100, &undoManager);
+    draggedNote = pattern->addNote (start, length, pitch, newNoteVelocity, &undoManager);
+    previewNote (pitch, newNoteVelocity);
     dragMode = DragMode::move;
     grabOffsetBeats = xToBeat (e.position.x) - start;
     grabPitchOffset = 0;   // a new note is created on the row under the cursor
@@ -357,8 +363,13 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         if (! juce::exactlyEqual (start, draggedNote->getStart()))
             draggedNote->setStart (start, &undoManager);
 
+        // Preview only when the note actually lands on a new row, so that
+        // dragging along a row does not machine-gun the same pitch.
         if (pitch != draggedNote->getPitch())
+        {
             draggedNote->setPitch (pitch, &undoManager);
+            previewNote (pitch, draggedNote->getVelocity());
+        }
     }
     else if (dragMode == DragMode::resize)
     {
@@ -380,6 +391,85 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
     dragMode = DragMode::none;
     draggedNote.reset();
     updateCursor (e);
+}
+
+//==============================================================================
+PianoRollRuler::PianoRollRuler (const PianoRollComponent& rollToFollow)
+    : roll (rollToFollow)
+{
+    // purely a read-out: clicks belong to whatever is behind it
+    setInterceptsMouseClicks (false, false);
+}
+
+void PianoRollRuler::setScrollOffset (int offsetX)
+{
+    if (offsetX != scrollOffset)
+    {
+        scrollOffset = offsetX;
+        repaint();
+    }
+}
+
+void PianoRollRuler::paint (juce::Graphics& g)
+{
+    const auto height = (float) getHeight();
+    const auto width = (float) getWidth();
+
+    g.fillAll (juce::Colour (0xff2a2a2f));
+
+    // Everything left of beat 0 sits over the roll's keyboard column, which
+    // scrolls away with the content, so the blank corner shrinks with it.
+    const auto originX = roll.beatToX (0.0) - (float) scrollOffset;
+
+    if (originX > 0.0f)
+    {
+        g.setColour (juce::Colour (0xff232327));
+        g.fillRect (0.0f, 0.0f, juce::jmin (originX, width), height);
+    }
+
+    const auto lengthBeats = roll.getLengthBeats();
+    const auto beatsPerBar = PianoRollComponent::beatsPerBar;
+
+    // Only walk the beats that can actually land on screen. Stepping by index
+    // keeps the marks on the same coordinates the roll's grid uses.
+    const auto firstVisibleBeat = roll.xToBeat ((float) scrollOffset);
+    const int firstBeat = juce::jmax (0, (int) std::floor (firstVisibleBeat));
+    const int lastBeat = (int) std::floor (juce::jmin (lengthBeats,
+                                                       roll.xToBeat ((float) scrollOffset + width)));
+
+    g.setFont (10.0f);
+
+    for (int beat = firstBeat; beat <= lastBeat; ++beat)
+    {
+        const auto x = roll.beatToX ((double) beat) - (float) scrollOffset;
+        const bool isBar = (beat % (int) beatsPerBar) == 0;
+
+        g.setColour (isBar ? juce::Colour (0xff6a6a74) : juce::Colour (0xff43434a));
+        g.drawVerticalLine ((int) x, isBar ? height * 0.35f : height * 0.65f, height);
+
+        if (isBar)
+        {
+            // Bars are numbered from one, as musicians count them.
+            g.setColour (juce::Colour (0xffa0a0aa));
+            g.drawText (juce::String (beat / (int) beatsPerBar + 1),
+                        juce::Rectangle<float> (x + 3.0f, 1.0f,
+                                                (float) (beatsPerBar * PianoRollComponent::pixelsPerBeat) - 6.0f,
+                                                height * 0.6f),
+                        juce::Justification::centredLeft, false);
+        }
+    }
+
+    // end of the pattern, matching the marker the roll draws
+    const auto endX = roll.beatToX (lengthBeats) - (float) scrollOffset;
+
+    if (endX >= 0.0f && endX <= width)
+    {
+        g.setColour (juce::Colour (0xff6a6a74));
+        g.drawVerticalLine ((int) endX, 0.0f, height);
+    }
+
+    g.setColour (juce::Colour (0xff3a3a40));
+    g.drawHorizontalLine (getHeight() - 1, 0.0f, width);
 }
 
 } // namespace orionish::app
