@@ -461,7 +461,8 @@ public:
 private:
     void updateTitle (const juce::String& patternName)
     {
-        setName (patternName.isNotEmpty() ? "Pattern Editor — " + titlePrefix + patternName
+        // ASCII only: juce::String (const char*) asserts above 127.
+        setName (patternName.isNotEmpty() ? "Pattern Editor - " + titlePrefix + patternName
                                           : "Pattern Editor");
     }
 
