@@ -7,7 +7,7 @@ namespace
 
 void printUsage()
 {
-    std::cout << "carve-render — Carve (tracktion_engine) headless renderer\n"
+    std::cout << "carve-render - Carve (tracktion_engine) headless renderer\n"
                  "\n"
                  "Usage:\n"
                  "  carve-render --demo <out.wav>          render the built-in demo song\n"
@@ -91,7 +91,7 @@ int scanPlugins (te::Engine& engine)
     }
 
     // PluginManager normally saves the list from an async change callback,
-    // which never runs in this CLI — persist it explicitly.
+    // which never runs in this CLI - persist it explicitly.
     if (auto xml = pluginManager.knownPluginList.createXml())
         engine.getPropertyStorage().setXmlProperty (te::SettingID::knownPluginList64, *xml);
 
@@ -110,7 +110,7 @@ int renderPluginDemo (te::Engine& engine, const juce::String& nameSubstring,
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
     if (types.isEmpty())
     {
-        std::cerr << "No plugins known — run --scan first\n";
+        std::cerr << "No plugins known - run --scan first\n";
         return 1;
     }
 

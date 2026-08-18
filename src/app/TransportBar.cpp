@@ -64,12 +64,9 @@ void TransportBar::setDocumentState (const juce::String& documentName, bool hasU
 
 double TransportBar::getSongLengthBeats() const
 {
-    double length = 0.0;
-    for (const auto& clip : song.getPlaylist().getClips())
-        if (auto generator = song.findGenerator (clip.getGeneratorId()))
-            if (auto pattern = generator->findPattern (clip.getPatternId()))
-                length = std::max (length, clip.getStart() + clip.getLength (pattern->getLengthBeats()));
-    return length;
+    // The model knows about audio placements too; measuring only pattern clips
+    // here would cut an audio-only song short.
+    return song.getLengthBeats();
 }
 
 void TransportBar::togglePlay()

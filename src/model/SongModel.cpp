@@ -188,6 +188,13 @@ void Generator::removeSound (const SamplerSound& sound, juce::UndoManager* um)
 
 SamplerSound Generator::setSingleSound (const juce::File& file, juce::UndoManager* um)
 {
+    // Whole-keyboard replacement: it drops every existing sound. That is right
+    // for a sampler and catastrophic for a drum kit, where each sound is a pad.
+    jassert (! isDrumKit());
+
+    if (isDrumKit())
+        return addSound (file, um);
+
     for (const auto& existing : getSounds())
         removeSound (existing, um);
 

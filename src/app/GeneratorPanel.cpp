@@ -215,6 +215,7 @@ void GeneratorPanel::showAddGeneratorMenu()
     menu.addItem (1, "4OSC (internal synth)");
     menu.addItem (3, "Sampler (choose a sample)...");
     menu.addItem (4, "Drum Kit (16 pads)");
+    menu.addItem (5, "Audio track");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> instruments;
@@ -256,6 +257,12 @@ void GeneratorPanel::showAddGeneratorMenu()
             // filled a pad at a time, so there is nothing to name it after.
             addGenerator ("Drum Kit " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::drumKitType, nullptr);
+        }
+        else if (result == 5)
+        {
+            // No instrument at all: its clips are the audio files placed on it.
+            addGenerator ("Audio " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::audioType, nullptr);
         }
         else if (result >= 100 && result < 100 + instruments.size())
         {
@@ -700,6 +707,20 @@ void GeneratorPanel::rebuildSlotGrid()
     slotGrid.clearSlots();
 
     auto generator = getSelectedGenerator();
+
+    // An audio generator has no patterns: its clips are the files placed on it,
+    // and a pattern created here would be dead weight the playlist ignores.
+    const bool showsPatterns = ! (generator && generator->isAudio());
+
+    if (showsPatterns != slotGrid.isVisible())
+    {
+        slotGrid.setVisible (showsPatterns);
+        editPatternButton.setVisible (showsPatterns);
+        resized();
+    }
+
+    if (! showsPatterns)
+        return;
     std::optional<model::Pattern> selected;
 
     if (generator)
