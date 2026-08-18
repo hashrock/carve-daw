@@ -71,6 +71,24 @@ public:
     // Only ours: the host appends its own global ones.
     std::function<void (std::vector<ShortcutHelpBar::Entry>)> onShortcutHelpChanged;
 
+    // One parameter an automation lane can drive: volume, pan, or a parameter
+    // of the generator's instrument or one of its insert effects. Names and
+    // ranges for the latter only exist in the live engine, which this
+    // component deliberately has no access to -- hence the callback.
+    struct AutomatableParamInfo
+    {
+        juce::String target;      // AutomationLane::volumeTarget / panTarget /
+                                  // instrumentTarget, or an insert effect's id
+        juce::String param;       // paramID; empty for volume and pan
+        juce::String label;       // "Volume", "Cutoff (4OSC)", ...
+        float minValue = 0.0f, maxValue = 1.0f, defaultValue = 0.0f;
+    };
+
+    // Asked whenever a lane needs the parameters a generator offers. Unset --
+    // or answering nothing -- falls back to volume and pan, which every track
+    // has regardless of what it hosts.
+    std::function<std::vector<AutomatableParamInfo> (const juce::String& generatorId)> getAutomatableParams;
+
     void setSong (model::Song newSong);
     void setSelection (const juce::String& generatorId, const juce::String& patternId);
     void setPlayheadBeats (double beats);
@@ -129,6 +147,16 @@ private:
     // sits inside the clip and everything to its left still drags the clip.
     static constexpr float trimHandleWidth = 6.0f;
 
+    // The automation lane an expanded row carries under its clip band, and the
+    // points on its curve. The hit radius is larger than the drawn dot, or
+    // grabbing one would take pixel aim; the segment distance is how close to
+    // the line a double click has to land to split it.
+    static constexpr int automationLaneHeight = 40;
+    static constexpr float autoPointRadius = 3.5f;
+    static constexpr float autoPointHitRadius = 6.0f;
+    static constexpr float autoSegmentHitDistance = 5.0f;
+    static constexpr float autoLaneValuePad = 4.0f;   // top/bottom inset of the value range
+
     enum class DragMode
     {
         none,
@@ -138,6 +166,7 @@ private:
         trim,        // an audio clip's right edge
         loopRange,   // on the ruler
         marker,      // a tempo or time signature change on the lane above it
+        autoPoint,   // a point on a row's automation lane
         rubberBand   // select tool on empty space
     };
 
@@ -184,8 +213,16 @@ private:
     // follow.
     float beatToX (double beat) const  { return (float) ((double) labelWidth + beat * pixelsPerBeat); }
     double xToBeat (float x) const     { return ((double) x - (double) labelWidth) / pixelsPerBeat; }
-    float rowY (int row) const         { return (float) (headerHeight + row * rowHeight); }
-    int yToRow (float y) const         { return (int) std::floor ((y - (float) headerHeight) / (float) rowHeight); }
+
+    // Rows are no longer all one height: an expanded row carries its
+    // automation lane under its clip band, pushing everything below it down.
+    // Everything that maps y to a row has to say which band it means, so the
+    // clip gestures and the lane gestures cannot claim each other's pixels.
+    int rowTotalHeight (int row) const;
+    float rowY (int row) const;    // top of the row's clip band
+    int rowAt (float y) const;     // clip band or lane; numRows below the last row, -1 above
+    int clipRowAt (float y) const; // like rowAt, but -1 when y is in an automation lane
+    int laneRowAt (float y) const; // -1 unless y is in an automation lane
 
     // Bars, all of them from the model, so a section in another time signature
     // has bars of its length everywhere at once. snapToBar is what painting, a
@@ -328,6 +365,35 @@ private:
     void showMarkerMenu (const Marker&);
     void showLaneMenu (double beat, juce::Point<float> position);
 
+    // The automation lane under an expanded row. Which rows are expanded and
+    // which parameter each lane shows are UI state like the selection; the
+    // AUTOCURVE itself is only made once a point lands on it, so browsing
+    // parameters leaves the song alone.
+    bool isGeneratorExpanded (const juce::String& generatorId) const;
+    bool isRowExpanded (int row) const;
+    void toggleRowExpanded (int row);
+
+    juce::Rectangle<float> disclosureBounds (int row) const;
+    juce::Rectangle<float> automationLaneBounds (int row) const;   // empty when collapsed
+    juce::Rectangle<float> automationCurveBounds (int row) const;  // the part right of the labels
+    juce::Rectangle<float> laneSelectorBounds (int row) const;
+
+    std::vector<AutomatableParamInfo> automatableParamsFor (const juce::String& generatorId) const;
+    AutomatableParamInfo displayedParamFor (const juce::String& generatorId) const;
+    std::optional<model::AutomationLane> displayedLaneFor (const model::Generator&) const;
+
+    // Values map linearly between the parameter's own min and max, so the lane
+    // never has to know what the number means.
+    float valueToLaneY (float value, const AutomatableParamInfo&, juce::Rectangle<float> curveArea) const;
+    float laneYToValue (float y, const AutomatableParamInfo&, juce::Rectangle<float> curveArea) const;
+
+    std::optional<model::AutomationPoint> autoPointAt (int row, juce::Point<float> position) const;
+    bool isNearCurveSegment (int row, juce::Point<float> position) const;
+
+    void showLaneParamMenu (int row);
+    void paintAutomationLane (juce::Graphics&, int row, const model::Generator&, juce::Colour rowColour);
+    void dragAutoPointTo (juce::Point<float> position);
+
     bool isSelected (const juce::ValueTree& clip) const;
     void selectClip (const juce::ValueTree&, bool extend);
     void clearSelection();
@@ -420,6 +486,21 @@ private:
     double markerGrabOffsetBeats = 0.0;
     double markerLastBeat = 0.0;
 
+    // Which generators show their automation lane, and which parameter each
+    // one shows. Both keyed by id, like the selection, so neither touches the
+    // model or the undo history.
+    std::vector<juce::String> expandedGenerators;
+    std::map<juce::String, std::pair<juce::String, juce::String>> laneParamChoices;   // id -> (target, param)
+
+    // Automation point drag: the PT being moved, the lane's parameter and row
+    // as they were at the press, and the last beat/value written so dragging
+    // within one beat writes nothing.
+    juce::ValueTree dragAutoPoint;
+    AutomatableParamInfo dragAutoInfo;
+    int dragAutoRow = -1;
+    double autoPointLastBeat = 0.0;
+    float autoPointLastValue = 0.0f;
+
     // Rubber band, plus the selection it started from so ⌘/⇧ adds to it.
     juce::Rectangle<float> rubberBand;
     juce::Point<float> rubberBandAnchor;
@@ -435,6 +516,9 @@ private:
     // The lane offers its own gestures, so the help bar lists those instead
     // while the pointer is over it.
     bool hoverMarkerLane = false;
+
+    // Same again for an automation lane: -1 when the pointer is anywhere else.
+    int hoverLaneRow = -1;
 
     const juce::MouseCursor eraseCursor;
 };
