@@ -20,6 +20,8 @@ Synapse Orion 風の「Generator 中心・パターンベース」DAW。
 - **エフェクト**: tracktion 内蔵 (Compressor/Limiter, EQ, Reverb, Delay,
   Chorus, Phaser, LPF/HPF, PitchShift) + 自前の Distortion + VST3/AU。
   コンプは別 Generator を**サイドチェイン**元にできる
+- **オートメーション**: パラメータカーブ (プレイリストの行を展開して編集) と
+  LFO モディファイア。どちらも拍基準でテンポ変更に追従
 - **その他**: 途中でのテンポ・拍子変更、プリセット保存/読込、WAV 書き出し (⌘E)、
   undo 全対応、`.carve` 保存 (旧 `.orion` も読める)
 

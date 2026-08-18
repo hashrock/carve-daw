@@ -54,6 +54,55 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*generatorPanel);
+    // The automation lane's parameter menu: names and ranges come from the
+    // live plugins, which the playlist deliberately cannot reach.
+    playlist.getAutomatableParams = [this] (const juce::String& generatorId)
+    {
+        std::vector<PlaylistComponent::AutomatableParamInfo> result;
+        result.push_back ({ model::AutomationLane::volumeTarget, {}, "Volume", 0.0f, 1.0f, 0.65f });
+        result.push_back ({ model::AutomationLane::panTarget, {}, "Pan", -1.0f, 1.0f, 0.0f });
+
+        const auto generators = song.getGenerators();
+        const auto tracks = te::getAudioTracks (*edit);
+
+        for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        {
+            const auto& generator = generators[(size_t) i];
+
+            if (generator.getId() != generatorId)
+                continue;
+
+            auto addParams = [&result] (te::Plugin* plugin, const juce::String& target,
+                                        const juce::String& suffix)
+            {
+                if (plugin == nullptr)
+                    return;
+
+                for (auto param : plugin->getAutomatableParameters())
+                {
+                    const auto range = param->getValueRange();
+                    result.push_back ({ target, param->paramID,
+                                        param->getParameterName() + suffix,
+                                        range.getStart(), range.getEnd(),
+                                        param->getCurrentValue() });
+                }
+            };
+
+            addParams (sync::findInstrumentPlugin (*tracks[i]),
+                       model::AutomationLane::instrumentTarget, " (inst)");
+
+            for (const auto& effect : generator.getEffects())
+                for (auto plugin : tracks[i]->pluginList.getPlugins())
+                    if (plugin->state.getProperty (sync::effectIdProperty).toString() == effect.getId())
+                        addParams (plugin, effect.getId(),
+                                   " (" + plugin->getShortName (6) + ")");
+
+            break;
+        }
+
+        return result;
+    };
+
     playlist.onClipSelectionChanged = [this] (const std::vector<model::PlaylistClip>& clips)
     {
         clipProperties.setSelection (clips);
