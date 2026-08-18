@@ -14,7 +14,7 @@
 // │     ├─ SOUNDS                           type "sampler" only, absent otherwise
 // │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan}
 // │     │        file: absolute path to the sample. relPath: the same file
-// │     │        relative to the .orion's folder, rewritten on every save.
+// │     │        relative to the .carve's folder, rewritten on every save.
 // │     │        Loading prefers relPath when it resolves to a file that
 // │     │        exists, so a song moved with its samples plays elsewhere.
 // │     │        Everything but the paths is optional; see SamplerSound for
@@ -35,55 +35,55 @@
 // │                                  and optional; see PlaylistClip
 // └─ AUTOMATION (M6)
 
-namespace orionish::model::ids
+namespace carve::model::ids
 {
 
-#define ORIONISH_DECLARE_ID(name) inline const juce::Identifier name { #name };
+#define CARVE_DECLARE_ID(name) inline const juce::Identifier name { #name };
 
-ORIONISH_DECLARE_ID (SONG)
-ORIONISH_DECLARE_ID (GENERATORS)
-ORIONISH_DECLARE_ID (GENERATOR)
-ORIONISH_DECLARE_ID (PATTERNS)
-ORIONISH_DECLARE_ID (PATTERN)
-ORIONISH_DECLARE_ID (NOTE)
-ORIONISH_DECLARE_ID (PLUGIN)
-ORIONISH_DECLARE_ID (SOUNDS)
-ORIONISH_DECLARE_ID (SOUND)
-ORIONISH_DECLARE_ID (EFFECTS)
-ORIONISH_DECLARE_ID (EFFECT)
-ORIONISH_DECLARE_ID (PLAYLIST)
-ORIONISH_DECLARE_ID (CLIP)
-ORIONISH_DECLARE_ID (AUTOMATION)
+CARVE_DECLARE_ID (SONG)
+CARVE_DECLARE_ID (GENERATORS)
+CARVE_DECLARE_ID (GENERATOR)
+CARVE_DECLARE_ID (PATTERNS)
+CARVE_DECLARE_ID (PATTERN)
+CARVE_DECLARE_ID (NOTE)
+CARVE_DECLARE_ID (PLUGIN)
+CARVE_DECLARE_ID (SOUNDS)
+CARVE_DECLARE_ID (SOUND)
+CARVE_DECLARE_ID (EFFECTS)
+CARVE_DECLARE_ID (EFFECT)
+CARVE_DECLARE_ID (PLAYLIST)
+CARVE_DECLARE_ID (CLIP)
+CARVE_DECLARE_ID (AUTOMATION)
 
-ORIONISH_DECLARE_ID (id)
-ORIONISH_DECLARE_ID (name)
-ORIONISH_DECLARE_ID (tempo)
-ORIONISH_DECLARE_ID (type)
-ORIONISH_DECLARE_ID (lengthBeats)
-ORIONISH_DECLARE_ID (slot)
-ORIONISH_DECLARE_ID (start)
-ORIONISH_DECLARE_ID (length)
-ORIONISH_DECLARE_ID (pitch)
-ORIONISH_DECLARE_ID (velocity)
-ORIONISH_DECLARE_ID (generatorId)
-ORIONISH_DECLARE_ID (patternId)
-ORIONISH_DECLARE_ID (desc)
-ORIONISH_DECLARE_ID (state)
-ORIONISH_DECLARE_ID (transpose)
-ORIONISH_DECLARE_ID (enabled)
-ORIONISH_DECLARE_ID (loopStart)
-ORIONISH_DECLARE_ID (loopEnd)
-ORIONISH_DECLARE_ID (volumeDb)
-ORIONISH_DECLARE_ID (pan)
-ORIONISH_DECLARE_ID (mute)
-ORIONISH_DECLARE_ID (solo)
-ORIONISH_DECLARE_ID (file)
-ORIONISH_DECLARE_ID (relPath)
-ORIONISH_DECLARE_ID (rootNote)
-ORIONISH_DECLARE_ID (minNote)
-ORIONISH_DECLARE_ID (maxNote)
-ORIONISH_DECLARE_ID (gainDb)
+CARVE_DECLARE_ID (id)
+CARVE_DECLARE_ID (name)
+CARVE_DECLARE_ID (tempo)
+CARVE_DECLARE_ID (type)
+CARVE_DECLARE_ID (lengthBeats)
+CARVE_DECLARE_ID (slot)
+CARVE_DECLARE_ID (start)
+CARVE_DECLARE_ID (length)
+CARVE_DECLARE_ID (pitch)
+CARVE_DECLARE_ID (velocity)
+CARVE_DECLARE_ID (generatorId)
+CARVE_DECLARE_ID (patternId)
+CARVE_DECLARE_ID (desc)
+CARVE_DECLARE_ID (state)
+CARVE_DECLARE_ID (transpose)
+CARVE_DECLARE_ID (enabled)
+CARVE_DECLARE_ID (loopStart)
+CARVE_DECLARE_ID (loopEnd)
+CARVE_DECLARE_ID (volumeDb)
+CARVE_DECLARE_ID (pan)
+CARVE_DECLARE_ID (mute)
+CARVE_DECLARE_ID (solo)
+CARVE_DECLARE_ID (file)
+CARVE_DECLARE_ID (relPath)
+CARVE_DECLARE_ID (rootNote)
+CARVE_DECLARE_ID (minNote)
+CARVE_DECLARE_ID (maxNote)
+CARVE_DECLARE_ID (gainDb)
 
-#undef ORIONISH_DECLARE_ID
+#undef CARVE_DECLARE_ID
 
-} // namespace orionish::model::ids
+} // namespace carve::model::ids

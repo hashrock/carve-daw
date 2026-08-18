@@ -8,7 +8,7 @@
 
 #include "model/SongModel.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Piano roll editor for one Pattern. Sized to its content; put it in a
@@ -224,4 +224,4 @@ private:
     int scrollOffset = 0;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

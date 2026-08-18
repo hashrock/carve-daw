@@ -8,7 +8,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // The A1..D9 pattern slot grid, drawn as one click-per-slot pad grid the way
@@ -139,4 +139,4 @@ private:
     bool isRefreshing = false;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

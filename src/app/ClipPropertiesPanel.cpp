@@ -1,6 +1,6 @@
 #include "ClipPropertiesPanel.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 namespace
@@ -262,4 +262,4 @@ void ClipPropertiesPanel::resized()
     row (patternLengthLabel, patternLengthSlider);
 }
 
-} // namespace orionish::app
+} // namespace carve::app

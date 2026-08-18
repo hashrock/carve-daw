@@ -1,6 +1,6 @@
 #include "TransportBar.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um)
@@ -148,4 +148,4 @@ void TransportBar::resized()
     documentLabel.setBounds (right);
 }
 
-} // namespace orionish::app
+} // namespace carve::app

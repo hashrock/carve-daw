@@ -1,11 +1,11 @@
 #include "DemoSong.h"
 
-namespace orionish::model
+namespace carve::model
 {
 
 Song buildDemoSong()
 {
-    auto song = Song::create ("Orionish Demo");
+    auto song = Song::create ("Carve Demo");
     song.setTempo (120.0, nullptr);
     auto playlist = song.getPlaylist();
 
@@ -57,4 +57,4 @@ Song buildDemoSong()
     return song;
 }
 
-} // namespace orionish::model
+} // namespace carve::model

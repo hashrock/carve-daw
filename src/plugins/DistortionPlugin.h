@@ -4,7 +4,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::plugins
+namespace carve::plugins
 {
 
 // The one effect on the wish list that tracktion doesn't already ship.
@@ -12,7 +12,7 @@ namespace orionish::plugins
 // A drive stage into a soft-clipping waveshaper, with a tone control and a
 // dry/wet mix. Deliberately small: the point is to have a distortion that
 // travels with the song rather than to compete with a dedicated plugin. Being
-// internal, its settings live in the .orion as plain properties and a song
+// internal, its settings live in the .carve as plain properties and a song
 // opens on a machine that has never scanned a plugin.
 class DistortionPlugin : public te::Plugin
 {
@@ -62,4 +62,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DistortionPlugin)
 };
 
-} // namespace orionish::plugins
+} // namespace carve::plugins

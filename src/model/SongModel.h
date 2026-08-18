@@ -13,7 +13,7 @@
 // Wrappers are cheap value types referencing shared tree state; all edits go
 // through the tree so undo, listeners and serialisation come for free.
 
-namespace orionish::model
+namespace carve::model
 {
 
 class Note
@@ -272,7 +272,7 @@ public:
 
     // Materialises the slot the first time it is used. Empty slots stay out of
     // the tree deliberately: writing all 36 into every generator would bloat
-    // every .orion and make every EditSync resync walk dead nodes.
+    // every .carve and make every EditSync resync walk dead nodes.
     Pattern getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um);
 
     Pattern addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um);
@@ -358,7 +358,7 @@ public:
 
     // Sampler paths, which are the only thing in the model that means anything
     // outside the file. Each sound stores both an absolute path and one
-    // relative to the .orion: resolving prefers the relative one when it lands
+    // relative to the .carve: resolving prefers the relative one when it lands
     // on a file that exists, because that is the case where the absolute one
     // is wrong (the project was copied elsewhere, and the old path may still
     // exist on this machine pointing at a different sample). Refreshing
@@ -408,4 +408,4 @@ public:
     juce::ValueTree state;
 };
 
-} // namespace orionish::model
+} // namespace carve::model

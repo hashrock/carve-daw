@@ -6,7 +6,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Play/stop, loop toggle, BPM, position readout, document name, undo/redo and
@@ -46,4 +46,4 @@ private:
     juce::Label bpmLabel, positionLabel, documentLabel;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

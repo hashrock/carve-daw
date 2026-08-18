@@ -4,7 +4,7 @@
 #include <cmath>
 #include <limits>
 
-namespace orionish::app
+namespace carve::app
 {
 
 namespace
@@ -1226,4 +1226,4 @@ bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
     return false;
 }
 
-} // namespace orionish::app
+} // namespace carve::app

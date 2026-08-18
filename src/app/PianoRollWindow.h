@@ -9,7 +9,7 @@
 #include "PianoRollComponent.h"
 #include "ShortcutHelpBar.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Content of the pattern editor window: a toolbar over a scrolling piano roll,
@@ -472,4 +472,4 @@ private:
     PianoRollContent content;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

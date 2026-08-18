@@ -1,6 +1,6 @@
 #include "GeneratorPanel.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 //==============================================================================
@@ -597,4 +597,4 @@ void GeneratorPanel::resized()
     editPatternButton.setBounds (bottom.removeFromTop (28));
 }
 
-} // namespace orionish::app
+} // namespace carve::app

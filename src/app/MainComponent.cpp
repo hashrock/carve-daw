@@ -5,7 +5,7 @@
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 MainComponent::MainComponent (te::Engine& engineToUse)
@@ -129,7 +129,7 @@ void MainComponent::updateDocumentDisplay()
     // parentHierarchyChanged() comes back here once it does.
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
         window->setName (documentName + (hasUnsavedChanges ? " *" : "")
-                             + " - " + orionish::applicationName);
+                             + " - " + carve::applicationName);
 
     if (transportBar != nullptr)
         transportBar->setDocumentState (documentName, hasUnsavedChanges);
@@ -309,7 +309,7 @@ void MainComponent::saveSong()
 
 void MainComponent::saveSongAs()
 {
-    fileChooser = std::make_shared<juce::FileChooser> ("Save song", currentFile, "*.orion");
+    fileChooser = std::make_shared<juce::FileChooser> ("Save song", currentFile, "*.carve");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                   | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
@@ -318,7 +318,7 @@ void MainComponent::saveSongAs()
         auto file = chooser.getResult();
         if (file == juce::File())
             return;
-        writeSongTo (file.withFileExtension ("orion"));
+        writeSongTo (file.withFileExtension ("carve"));
     });
 }
 
@@ -344,7 +344,7 @@ void MainComponent::writeSongTo (const juce::File& file)
 
 void MainComponent::openSong()
 {
-    fileChooser = std::make_shared<juce::FileChooser> ("Open song", juce::File(), "*.orion");
+    fileChooser = std::make_shared<juce::FileChooser> ("Open song", juce::File(), "*.carve;*.orion");
     fileChooser->launchAsync (juce::FileBrowserComponent::openMode
                                   | juce::FileBrowserComponent::canSelectFiles,
                               [this] (const juce::FileChooser& chooser)
@@ -410,4 +410,4 @@ void MainComponent::resized()
     playlistViewport.setBounds (area);
 }
 
-} // namespace orionish::app
+} // namespace carve::app

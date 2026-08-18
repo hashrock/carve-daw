@@ -6,7 +6,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::sync
+namespace carve::sync
 {
 
 // One-shot, idempotent sync of the whole song model into a tracktion Edit:
@@ -71,4 +71,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EditSync)
 };
 
-} // namespace orionish::sync
+} // namespace carve::sync

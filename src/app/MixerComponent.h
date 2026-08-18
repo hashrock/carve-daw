@@ -13,14 +13,14 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // One channel strip per Generator: insert effect slots, post-fader level meter,
 // volume fader, pan, mute and solo.
 //
 // Edits go through the song model, not straight at the tracktion track, so they
-// are undoable and saved in the .orion file like every other edit; EditSync
+// are undoable and saved in the .carve file like every other edit; EditSync
 // pushes them on to the track. Only the meters read the engine directly.
 //
 // Sized to its content — put it in a Viewport.
@@ -101,4 +101,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)
 };
 
-} // namespace orionish::app
+} // namespace carve::app

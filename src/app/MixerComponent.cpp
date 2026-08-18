@@ -2,7 +2,7 @@
 
 #include "sync/EngineIds.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 namespace
@@ -531,4 +531,4 @@ void MixerComponent::resized()
         strips[i]->setBounds ((int) i * stripWidth, 0, stripWidth, getHeight());
 }
 
-} // namespace orionish::app
+} // namespace carve::app

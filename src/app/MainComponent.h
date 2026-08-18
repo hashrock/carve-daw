@@ -13,7 +13,7 @@
 #include "model/SongModel.h"
 #include "sync/EditSync.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 class MainComponent : public juce::Component,
@@ -94,4 +94,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
 
-} // namespace orionish::app
+} // namespace carve::app

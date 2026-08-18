@@ -3,7 +3,7 @@
 
 #include "PianoRollComponent.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 namespace
@@ -867,4 +867,4 @@ void PianoRollRuler::paint (juce::Graphics& g)
     g.drawHorizontalLine (getHeight() - 1, 0.0f, width);
 }
 
-} // namespace orionish::app
+} // namespace carve::app

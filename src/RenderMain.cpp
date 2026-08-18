@@ -7,15 +7,15 @@ namespace
 
 void printUsage()
 {
-    std::cout << "orionish-te-render — Orionish (tracktion_engine) headless renderer\n"
+    std::cout << "carve-render — Carve (tracktion_engine) headless renderer\n"
                  "\n"
                  "Usage:\n"
-                 "  orionish-te-render --demo <out.wav>          render the built-in demo song\n"
-                 "  orionish-te-render --write-demo <out.orion>  write the demo song as a project file\n"
-                 "  orionish-te-render <song.orion> <out.wav>    render an Orionish project file\n"
-                 "  orionish-te-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n"
-                 "  orionish-te-render --scan                    scan VST3/AU plugins (cached in settings)\n"
-                 "  orionish-te-render --plugin-demo <name> <out.wav>\n"
+                 "  carve-render --demo <out.wav>          render the built-in demo song\n"
+                 "  carve-render --write-demo <out.carve>  write the demo song as a project file\n"
+                 "  carve-render <song.carve> <out.wav>    render an Carve project file\n"
+                 "  carve-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n"
+                 "  carve-render --scan                    scan VST3/AU plugins (cached in settings)\n"
+                 "  carve-render --plugin-demo <name> <out.wav>\n"
                  "        render the demo song using the named (substring-matched) instrument plugin\n";
 }
 
@@ -62,14 +62,14 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
     return 0;
 }
 
-int renderSongToWav (te::Engine& engine, const orionish::model::Song& song, const juce::File& outputFile)
+int renderSongToWav (te::Engine& engine, const carve::model::Song& song, const juce::File& outputFile)
 {
     auto edit = te::Edit::createSingleTrackEdit (engine);
-    orionish::sync::syncSongToEdit (song, *edit);
+    carve::sync::syncSongToEdit (song, *edit);
 
     // No message loop is running here, so nothing would otherwise deliver the
     // callback a sampler waits on and it would render silence.
-    orionish::sync::flushSamplerLoads (*edit);
+    carve::sync::flushSamplerLoads (*edit);
 
     return renderEditToWav (*edit, outputFile, song.getName());
 }
@@ -130,10 +130,10 @@ int renderPluginDemo (te::Engine& engine, const juce::String& nameSubstring,
 
     std::cout << "Using " << match->pluginFormatName << ": " << match->name << "\n";
 
-    auto song = orionish::model::buildDemoSong();
+    auto song = carve::model::buildDemoSong();
     for (auto generator : song.getGenerators())
     {
-        generator.state.setProperty (orionish::model::ids::type, "plugin", nullptr);
+        generator.state.setProperty (carve::model::ids::type, "plugin", nullptr);
         generator.setPlugin (*match, nullptr);
     }
     return renderSongToWav (engine, song, outputFile);
@@ -154,7 +154,7 @@ int main (int argc, char* argv[])
         return args.isEmpty() ? 0 : 1;
     }
 
-    auto enginePtr = orionish::createEngine (std::make_unique<orionish::HeadlessUIBehaviour>());
+    auto enginePtr = carve::createEngine (std::make_unique<carve::HeadlessUIBehaviour>());
     auto& engine = *enginePtr;
 
     if (args[0] == "--scan")
@@ -164,12 +164,12 @@ int main (int argc, char* argv[])
         return renderPluginDemo (engine, args[1], resolveFile (args[2]));
 
     if (args[0] == "--demo")
-        return renderSongToWav (engine, orionish::model::buildDemoSong(), resolveFile (args[1]));
+        return renderSongToWav (engine, carve::model::buildDemoSong(), resolveFile (args[1]));
 
     if (args[0] == "--write-demo")
     {
         auto file = resolveFile (args[1]);
-        if (! orionish::model::buildDemoSong().saveToFile (file))
+        if (! carve::model::buildDemoSong().saveToFile (file))
         {
             std::cerr << "Failed to write " << file.getFullPathName() << "\n";
             return 1;
@@ -196,7 +196,7 @@ int main (int argc, char* argv[])
         return renderEditToWav (*edit, resolveFile (args[1]), inputFile.getFileName());
     }
 
-    auto song = orionish::model::Song::loadFromFile (inputFile);
+    auto song = carve::model::Song::loadFromFile (inputFile);
     if (! song)
     {
         std::cerr << "Could not parse project file: " << args[0] << "\n";

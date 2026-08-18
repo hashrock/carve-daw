@@ -18,12 +18,12 @@ cd "$(dirname "$0")"
 usage() { sed -n '3,9p' "$0" | cut -c3-; }
 
 mode=release
-target=orionish-te
+target=carve
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --asan)     mode=asan; shift ;;
-        --render)   target=orionish-te-render; shift; break ;;
+        --render)   target=carve-render; shift; break ;;
         -h|--help)  usage; exit 0 ;;
         *)          break ;;
     esac
@@ -52,10 +52,10 @@ fi
 [[ -d $build_dir ]] || cmake -B "$build_dir" "${configure_args[@]}"
 cmake --build "$build_dir" --target "$target" --parallel
 
-if [[ $target == orionish-te ]]; then
-    binary="$build_dir/orionish-te_artefacts/$config/Orionish TE.app/Contents/MacOS/Orionish TE"
+if [[ $target == carve ]]; then
+    binary="$build_dir/carve_artefacts/$config/Carve DAW.app/Contents/MacOS/Carve DAW"
 else
-    binary="$build_dir/orionish-te-render_artefacts/$config/orionish-te-render"
+    binary="$build_dir/carve-render_artefacts/$config/carve-render"
 fi
 
 exec "$binary" "$@"

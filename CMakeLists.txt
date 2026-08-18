@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(OrionishTracktion VERSION 0.1.0 LANGUAGES C CXX)
+project(CarveDAW VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,7 @@ FetchContent_Declare(tracktion
 
 FetchContent_MakeAvailable(tracktion)
 
-set(ORIONISH_CORE_SOURCES
+set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
     src/model/SongModel.cpp
@@ -33,8 +33,8 @@ set(ORIONISH_CORE_SOURCES
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp)
 
-function(orionish_configure_target target)
-    target_sources(${target} PRIVATE ${ORIONISH_CORE_SOURCES})
+function(carve_configure_target target)
+    target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(${target} PRIVATE
         JUCE_WEB_BROWSER=0
@@ -51,11 +51,11 @@ function(orionish_configure_target target)
 endfunction()
 
 # --- GUI app ---
-juce_add_gui_app(orionish-te
-    PRODUCT_NAME "Orionish TE"
-    BUNDLE_ID    "com.hashrock.orionish-te"
+juce_add_gui_app(carve
+    PRODUCT_NAME "Carve DAW"
+    BUNDLE_ID    "com.hashrock.carve"
     MICROPHONE_PERMISSION_ENABLED TRUE)
-target_sources(orionish-te PRIVATE
+target_sources(carve PRIVATE
     src/app/Main.cpp
     src/app/MainComponent.h
     src/app/MainComponent.cpp
@@ -78,10 +78,10 @@ target_sources(orionish-te PRIVATE
     src/app/PlaylistComponent.h
     src/app/PlaylistComponent.cpp
     src/app/ShortcutHelpBar.h)
-orionish_configure_target(orionish-te)
+carve_configure_target(carve)
 
 # --- Headless renderer CLI ---
-juce_add_console_app(orionish-te-render
-    PRODUCT_NAME "orionish-te-render")
-target_sources(orionish-te-render PRIVATE src/RenderMain.cpp)
-orionish_configure_target(orionish-te-render)
+juce_add_console_app(carve-render
+    PRODUCT_NAME "carve-render")
+target_sources(carve-render PRIVATE src/RenderMain.cpp)
+carve_configure_target(carve-render)

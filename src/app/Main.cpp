@@ -3,13 +3,13 @@
 #include "EngineSetup.h"
 #include "MainComponent.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 class Application : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override     { return "Orionish TE"; }
+    const juce::String getApplicationName() override     { return "Carve DAW"; }
     const juce::String getApplicationVersion() override  { return "0.1.0"; }
 
     void initialise (const juce::String& commandLine) override
@@ -24,7 +24,7 @@ public:
             return;
         }
 
-        engine = orionish::createEngine (nullptr, true);
+        engine = carve::createEngine (nullptr, true);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
     }
 
@@ -61,6 +61,6 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
 };
 
-} // namespace orionish::app
+} // namespace carve::app
 
-START_JUCE_APPLICATION (orionish::app::Application)
+START_JUCE_APPLICATION (carve::app::Application)

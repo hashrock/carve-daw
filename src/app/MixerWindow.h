@@ -7,7 +7,7 @@
 #include "MixerComponent.h"
 #include "ShortcutHelpBar.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Floating mixer, in the same spirit as the Pattern Editor window: the main
@@ -209,4 +209,4 @@ private:
     Content content { viewport, helpBar };
 };
 
-} // namespace orionish::app
+} // namespace carve::app

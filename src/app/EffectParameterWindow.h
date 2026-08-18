@@ -8,7 +8,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // A generic editor for a tracktion internal plugin: one slider per
@@ -214,4 +214,4 @@ private:
     juce::Viewport viewport;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

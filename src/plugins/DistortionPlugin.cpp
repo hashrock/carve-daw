@@ -1,6 +1,6 @@
 #include "DistortionPlugin.h"
 
-namespace orionish::plugins
+namespace carve::plugins
 {
 
 namespace
@@ -19,7 +19,7 @@ namespace
     }
 } // namespace
 
-const char* DistortionPlugin::xmlTypeName = "orionishDistortion";
+const char* DistortionPlugin::xmlTypeName = "carveDistortion";
 
 DistortionPlugin::DistortionPlugin (te::PluginCreationInfo info) : te::Plugin (info)
 {
@@ -119,4 +119,4 @@ void DistortionPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v
         parameter->updateFromAttachedValue();
 }
 
-} // namespace orionish::plugins
+} // namespace carve::plugins

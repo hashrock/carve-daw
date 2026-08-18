@@ -6,7 +6,7 @@
 
 #include "model/SongModel.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Properties of the playlist clips that are currently selected.
@@ -63,4 +63,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ClipPropertiesPanel)
 };
 
-} // namespace orionish::app
+} // namespace carve::app

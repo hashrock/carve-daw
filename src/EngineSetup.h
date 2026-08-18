@@ -8,15 +8,15 @@
 
 namespace te = tracktion;
 
-namespace orionish
+namespace carve
 {
 
 // tracktion derives the settings folder from the name the Engine is built with,
 // so this is what decides where the scanned plugin list, device setup and the
 // rest are kept. The GUI and the renderer are one application and must agree:
 // when they passed different names they silently kept separate stores, and a
-// plugin list built by "orionish-te-render --scan" was invisible to the GUI.
-inline constexpr const char* applicationName = "Orionish TE";
+// plugin list built by "carve-render --scan" was invisible to the GUI.
+inline constexpr const char* applicationName = "Carve DAW";
 
 // The app never records, so it has no reason to open an audio input — and
 // opening one is actively dangerous with JUCE 8.0.6 on macOS.
@@ -67,9 +67,25 @@ struct HeadlessUIBehaviour : te::UIBehaviour
     }
 };
 
+// The app was called Orionish TE before, and tracktion derives its settings
+// folder from the name -- so a rename would silently orphan the scanned plugin
+// list, the blacklist that keeps a crashing plugin out, and the device setup.
+// Moved once, only when there is nothing in the new place to overwrite.
+inline void migrateSettingsFromFormerName()
+{
+    auto library = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+    auto current = library.getChildFile (applicationName);
+    auto former = library.getChildFile ("Orionish TE");
+
+    if (! current.exists() && former.isDirectory())
+        former.copyDirectoryTo (current);
+}
+
 inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour> uiBehaviour = nullptr,
                                                  bool scanPluginsOutOfProcess = false)
 {
+    migrateSettingsFromFormerName();
+
     auto engine = std::make_unique<te::Engine> (
         applicationName, std::move (uiBehaviour),
         std::make_unique<PlaybackOnlyEngineBehaviour> (scanPluginsOutOfProcess));
@@ -81,4 +97,4 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     return engine;
 }
 
-} // namespace orionish
+} // namespace carve

@@ -4,7 +4,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Floating window hosting an external plugin's own editor UI
@@ -77,4 +77,4 @@ private:
     std::function<void()> onClose;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

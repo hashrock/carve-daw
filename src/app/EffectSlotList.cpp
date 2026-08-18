@@ -1,6 +1,6 @@
 #include "EffectSlotList.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 namespace
@@ -403,4 +403,4 @@ juce::String EffectSlotList::getSlotName (const model::Effect& effect) const
     return type;
 }
 
-} // namespace orionish::app
+} // namespace carve::app

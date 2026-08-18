@@ -8,7 +8,7 @@
 #include "ShortcutHelpBar.h"
 #include "model/SongModel.h"
 
-namespace orionish::app
+namespace carve::app
 {
 
 // Song timeline: one row per Generator, pattern placements as blocks.
@@ -241,4 +241,4 @@ private:
     const juce::MouseCursor eraseCursor;
 };
 
-} // namespace orionish::app
+} // namespace carve::app

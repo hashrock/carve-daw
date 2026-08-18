@@ -1,14 +1,14 @@
-# orionish-tracktion
+# Carve DAW
 
 Synapse Orion 風の「Generator 中心・パターンベース」DAW。エンジンは **tracktion_engine**、
-モデルは独自の Orion 風 ValueTree ドキュメント(`.orion`)。
+モデルは独自の Orion 風 ValueTree ドキュメント(`.carve`)。
 
 ## アーキテクチャ
 
 ```
 src/
 ├─ model/   Orion風モデル (Song → Generators[] → Patterns[] → Notes + Playlist)
-│           ValueTree + 型付きラッパー。undo・.orion (XML) 保存。真実の源。
+│           ValueTree + 型付きラッパー。undo・.carve (XML) 保存。真実の源。
 ├─ sync/    EditSync: モデル変更を監視して tracktion Edit へ全再同期
 │           (Generator → AudioTrack + 4OSC + ミキサー状態、Pattern配置 → MidiClip)
 ├─ app/     GUI: Transportバー / Generator・Patternパネル / ピアノロール / ミキサー / Playlist
@@ -27,19 +27,19 @@ cmake --build build --parallel
 ```
 
 macOS で Xcode.app と Command Line Tools のバージョンが食い違う環境では、
-CC/CXX/SDKROOT を CLT 側に固定して configure する(orionish 本体の README 参照)。
+CC/CXX/SDKROOT を CLT 側に固定して configure する(carve 本体の README 参照)。
 
 ## 使い方
 
 ```sh
 # GUI (デモ曲入りで起動)
-open "build/orionish-te_artefacts/Release/Orionish TE.app"
+open "build/carve_artefacts/Release/Carve DAW.app"
 
 # CLI
-BIN=./build/orionish-te-render_artefacts/Release/orionish-te-render
+BIN=./build/carve-render_artefacts/Release/carve-render
 $BIN --demo demo.wav              # デモ曲をレンダリング
-$BIN --write-demo demo.orion      # デモ曲を .orion として書き出し
-$BIN demo.orion out.wav           # .orion をレンダリング
+$BIN --write-demo demo.carve      # デモ曲を .carve として書き出し
+$BIN demo.carve out.wav           # .carve をレンダリング
 $BIN some.tracktionedit out.wav   # 素の tracktion edit もレンダリング可
 $BIN --scan                       # VST3/AU をスキャン (GUI と共有の設定に永続化)
 $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ曲をレンダ

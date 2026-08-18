@@ -1,6 +1,6 @@
 #include "SongModel.h"
 
-namespace orionish::model
+namespace carve::model
 {
 
 // tracktion names a plugin's state tree "PLUGIN"; spelled out here so the model
@@ -109,7 +109,7 @@ void SamplerSound::setFile (const juce::File& file, juce::UndoManager* um)
     state.setProperty (ids::file, file.getFullPathName(), um);
 
     // Stale the moment the file changes; Song::saveToFile writes a fresh one
-    // against whichever .orion the song ends up in.
+    // against whichever .carve the song ends up in.
     state.removeProperty (ids::relPath, um);
 }
 
@@ -534,4 +534,4 @@ bool Song::isPatternUsedInPlaylist (const Pattern& pattern) const
     return false;
 }
 
-} // namespace orionish::model
+} // namespace carve::model

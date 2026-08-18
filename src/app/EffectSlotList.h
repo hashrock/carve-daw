@@ -10,7 +10,7 @@
 
 namespace te = tracktion;
 
-namespace orionish::app
+namespace carve::app
 {
 
 // The insert-effect slots of one mixer channel strip: the generator's chain in
@@ -84,4 +84,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectSlotList)
 };
 
-} // namespace orionish::app
+} // namespace carve::app
