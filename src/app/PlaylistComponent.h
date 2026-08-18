@@ -60,6 +60,14 @@ public:
 
     std::function<void (const juce::String&)> onSelectGenerator;
 
+    // A row label was double-clicked: the host should open that generator's
+    // window (whichever tab it was last on).
+    std::function<void (const juce::String&)> onOpenGenerator;
+
+    // The "+ Generator" button in the tool strip; the host owns the add menu.
+    // The rectangle is where to hang it (the button, in screen coords).
+    std::function<void (juce::Rectangle<int>)> onAddGenerator;
+
     // A clip was double-clicked: (generatorId, patternId) of the pattern the
     // host should open in the pattern editor.
     std::function<void (const juce::String&, const juce::String&)> onEditPattern;
@@ -264,6 +272,14 @@ private:
         return { 0.0f, (float) visibleOrigin().y, (float) getWidth(), (float) headerHeight };
     }
 
+    // The row-label column is pinned to the left edge of the visible area the
+    // same way the header band is pinned to its top, so scrolling right never
+    // takes the row names off screen. Everything that used to test against
+    // labelWidth tests against this edge instead.
+    float labelBandLeft() const   { return (float) visibleOrigin().x; }
+    float labelBandRight() const  { return labelBandLeft() + (float) labelWidth; }
+    bool inLabelBand (juce::Point<float> p) const  { return p.x < labelBandRight(); }
+
     juce::Rectangle<float> toolbarBounds() const  { return headerBounds().withHeight ((float) toolbarHeight); }
 
     juce::Rectangle<float> markerLaneBounds() const
@@ -406,6 +422,7 @@ private:
 
     void paintMarkerLane (juce::Graphics&);
     void paintRuler (juce::Graphics&);
+    void paintRowLabels (juce::Graphics&);
     void paintAudioClip (juce::Graphics&, const model::AudioClip&, juce::Rectangle<float>,
                          juce::Colour, bool selected);
 
@@ -448,6 +465,7 @@ private:
     Tool tool = Tool::paint;
     juce::TextButton paintToolButton { "Paint" }, selectToolButton { "Select" };
     juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" };
+    juce::TextButton addTrackButton { "+ Generator" };
 
     // The clips the user has selected, as the CLIP trees themselves: a
     // ValueTree compares by identity, so this survives any edit that does not

@@ -145,8 +145,10 @@ PlaylistComponent::PlaylistComponent (juce::UndoManager& um)
     // juce::String.
     zoomOutButton.setTooltip ("Zoom out (- key, or cmd-scroll)");
     zoomInButton.setTooltip ("Zoom in (= key, or cmd-scroll)");
+    addTrackButton.setTooltip ("Add a generator: synth, sampler, drum kit, plugin or audio track");
 
-    for (auto* b : { &paintToolButton, &selectToolButton, &zoomOutButton, &zoomInButton })
+    for (auto* b : { &paintToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
+                     &addTrackButton })
     {
         b->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
         b->setColour (juce::TextButton::textColourOnId, juce::Colours::black);
@@ -165,6 +167,11 @@ PlaylistComponent::PlaylistComponent (juce::UndoManager& um)
     selectToolButton.onClick = [this] { setTool (Tool::select); };
     zoomOutButton.onClick = [this] { zoomBy (1.0 / 1.5); };
     zoomInButton.onClick = [this] { zoomBy (1.5); };
+    addTrackButton.onClick = [this]
+    {
+        if (onAddGenerator)
+            onAddGenerator (addTrackButton.getScreenBounds());
+    };
 
     setWantsKeyboardFocus (true);
     setTool (tool);
@@ -378,6 +385,7 @@ void PlaylistComponent::layOutToolStrip()
     selectToolButton.setBounds (paintToolButton.getRight(), origin.y + 4, 54, h);
     zoomOutButton.setBounds (selectToolButton.getRight() + 12, origin.y + 4, 24, h);
     zoomInButton.setBounds (zoomOutButton.getRight(), origin.y + 4, 24, h);
+    addTrackButton.setBounds (zoomInButton.getRight() + 12, origin.y + 4, 90, h);
 }
 
 //==============================================================================
@@ -864,33 +872,14 @@ void PlaylistComponent::paintAutomationLane (juce::Graphics& g, int row,
     // A tint rather than an opaque fill, so the bar lines painted under it
     // still show through: they are what the points snap near.
     g.setColour (juce::Colours::black.withAlpha (0.25f));
-    g.fillRect (lane.withTrimmedLeft ((float) labelWidth));
+    g.fillRect (automationCurveBounds (row));
     g.setColour (juce::Colour (0xff2f2f36));
     g.drawHorizontalLine ((int) lane.getY(), 0.0f, (float) getWidth());
 
-    // The lane's label cell holds the parameter selector; opening it is the
-    // only gesture the cell offers.
-    g.setColour (juce::Colour (0xff26262c));
-    g.fillRect (0.0f, lane.getY() + 1.0f, (float) labelWidth - 2.0f, lane.getHeight() - 1.0f);
-
     const auto info = displayedParamFor (generator.getId());
-    const auto selector = laneSelectorBounds (row);
 
-    g.setColour (juce::Colour (0xff35353d));
-    g.fillRoundedRectangle (selector, 3.0f);
-    g.setColour (juce::Colour (0xffb8b8c0));
-    g.setFont (11.0f);
-    g.drawText (info.label, selector.reduced (6.0f, 0.0f).withTrimmedRight (10.0f).toNearestInt(),
-                juce::Justification::centredLeft);
-
-    juce::Path chevron;
-    const auto c = juce::Point<float> (selector.getRight() - 9.0f, selector.getCentreY());
-    chevron.startNewSubPath (c.x - 3.0f, c.y - 1.5f);
-    chevron.lineTo (c.x, c.y + 2.0f);
-    chevron.lineTo (c.x + 3.0f, c.y - 1.5f);
-    g.setColour (juce::Colour (0xff9a9aa4));
-    g.strokePath (chevron, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
+    // The label cell and its selector are painted in paintRowLabels: they are
+    // pinned, so the curve scrolling under them must be drawn first.
 
     // The curve, clipped to its own band so a point dragged to beat 0 does not
     // paint into the labels.
@@ -947,6 +936,83 @@ void PlaylistComponent::paintAutomationLane (juce::Graphics& g, int row,
     }
 }
 
+void PlaylistComponent::paintRowLabels (juce::Graphics& g)
+{
+    // Painted after everything that scrolls and before the header band: the
+    // label column is pinned to the visible left edge, so clips, ghosts and
+    // the playhead all pass underneath it.
+    const auto left = labelBandLeft();
+    const int numRows = song.getNumGenerators();
+
+    for (int row = 0; row < numRows; ++row)
+    {
+        auto generator = song.getGenerator (row);
+        const auto y = rowY (row);
+        const bool isSelectedRow = generator.getId() == selectedGeneratorId;
+
+        g.setColour (isSelectedRow ? juce::Colour (0xff35353d) : juce::Colour (0xff2b2b30));
+        g.fillRect (left, y + 1.0f, (float) labelWidth - 2.0f, (float) rowHeight - 1.0f);
+        g.setColour (isSelectedRow ? juce::Colours::white : juce::Colour (0xffb8b8c0));
+        g.setFont (13.0f);
+        // Trimmed on the right so a long name never runs under the disclosure.
+        g.drawText (generator.getName(), (int) left + 8, (int) y, labelWidth - 30, rowHeight,
+                    juce::Justification::centredLeft);
+
+        // Disclosure for the row's automation lane: a chevron pointing right
+        // when closed and down at the lane when open.
+        {
+            const auto d = disclosureBounds (row).getCentre();
+            juce::Path tri;
+
+            if (isRowExpanded (row))
+            {
+                tri.startNewSubPath (d.x - 3.5f, d.y - 2.0f);
+                tri.lineTo (d.x, d.y + 2.0f);
+                tri.lineTo (d.x + 3.5f, d.y - 2.0f);
+            }
+            else
+            {
+                tri.startNewSubPath (d.x - 2.0f, d.y - 3.5f);
+                tri.lineTo (d.x + 2.0f, d.y);
+                tri.lineTo (d.x - 2.0f, d.y + 3.5f);
+            }
+
+            g.setColour (juce::Colour (0xff8a8a94));
+            g.strokePath (tri, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+        }
+
+        if (! isRowExpanded (row))
+            continue;
+
+        // The expanded row's lane label cell, holding the parameter selector;
+        // opening it is the only gesture the cell offers.
+        const auto lane = automationLaneBounds (row);
+
+        g.setColour (juce::Colour (0xff26262c));
+        g.fillRect (left, lane.getY() + 1.0f, (float) labelWidth - 2.0f, lane.getHeight() - 1.0f);
+
+        const auto info = displayedParamFor (generator.getId());
+        const auto selector = laneSelectorBounds (row);
+
+        g.setColour (juce::Colour (0xff35353d));
+        g.fillRoundedRectangle (selector, 3.0f);
+        g.setColour (juce::Colour (0xffb8b8c0));
+        g.setFont (11.0f);
+        g.drawText (info.label, selector.reduced (6.0f, 0.0f).withTrimmedRight (10.0f).toNearestInt(),
+                    juce::Justification::centredLeft);
+
+        juce::Path chevron;
+        const auto c = juce::Point<float> (selector.getRight() - 9.0f, selector.getCentreY());
+        chevron.startNewSubPath (c.x - 3.0f, c.y - 1.5f);
+        chevron.lineTo (c.x, c.y + 2.0f);
+        chevron.lineTo (c.x + 3.0f, c.y - 1.5f);
+        g.setColour (juce::Colour (0xff9a9aa4));
+        g.strokePath (chevron, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+    }
+}
+
 std::vector<PlaylistComponent::Marker> PlaylistComponent::markers() const
 {
     const auto lane = markerLaneBounds();
@@ -998,7 +1064,8 @@ void PlaylistComponent::paintMarkerLane (juce::Graphics& g)
     // empty strip would otherwise read as padding.
     g.setFont (9.0f);
     g.setColour (juce::Colour (0xff6a6a74));
-    g.drawText ("TEMPO / SIG", 8, (int) lane.getY(), labelWidth - 12, (int) lane.getHeight(),
+    g.drawText ("TEMPO / SIG", (int) labelBandLeft() + 8, (int) lane.getY(),
+                labelWidth - 12, (int) lane.getHeight(),
                 juce::Justification::centredLeft);
 
     // What the song opens with, dim and untouchable, so the lane says what it
@@ -1151,43 +1218,12 @@ void PlaylistComponent::paint (juce::Graphics& g)
     {
         auto generator = song.getGenerator (row);
         const auto y = rowY (row);
-        const bool isSelectedRow = generator.getId() == selectedGeneratorId;
 
         g.setColour (juce::Colour (0xff3a3a40));
         g.drawHorizontalLine ((int) y, 0.0f, (float) getWidth());
 
-        // label cell
-        g.setColour (isSelectedRow ? juce::Colour (0xff35353d) : juce::Colour (0xff2b2b30));
-        g.fillRect (0.0f, y + 1.0f, (float) labelWidth - 2.0f, (float) rowHeight - 1.0f);
-        g.setColour (isSelectedRow ? juce::Colours::white : juce::Colour (0xffb8b8c0));
-        g.setFont (13.0f);
-        // Trimmed on the right so a long name never runs under the disclosure.
-        g.drawText (generator.getName(), 8, (int) y, labelWidth - 30, rowHeight,
-                    juce::Justification::centredLeft);
-
-        // Disclosure for the row's automation lane: a chevron pointing right
-        // when closed and down at the lane when open.
-        {
-            const auto d = disclosureBounds (row).getCentre();
-            juce::Path tri;
-
-            if (isRowExpanded (row))
-            {
-                tri.startNewSubPath (d.x - 3.5f, d.y - 2.0f);
-                tri.lineTo (d.x, d.y + 2.0f);
-                tri.lineTo (d.x + 3.5f, d.y - 2.0f);
-            }
-            else
-            {
-                tri.startNewSubPath (d.x - 2.0f, d.y - 3.5f);
-                tri.lineTo (d.x + 2.0f, d.y);
-                tri.lineTo (d.x - 2.0f, d.y + 3.5f);
-            }
-
-            g.setColour (juce::Colour (0xff8a8a94));
-            g.strokePath (tri, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
-                                                     juce::PathStrokeType::rounded));
-        }
+        // The label cell is painted in paintRowLabels, after everything that
+        // scrolls: it is pinned, so scrolled clips pass under it.
 
         // clips
         const auto rowColour = juce::Colour::fromHSV (0.08f + 0.13f * (float) row, 0.55f, 0.75f, 1.0f);
@@ -1344,6 +1380,9 @@ void PlaylistComponent::paint (juce::Graphics& g)
         }
     }
 
+    // The pinned label column, over the scrolling grid but under the header.
+    paintRowLabels (g);
+
     // Header band last and opaque: it is pinned to the visible area, so it
     // covers whatever grid has scrolled underneath it.
     const auto header = headerBounds();
@@ -1354,7 +1393,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
 
-    const auto statusX = zoomInButton.getRight() + 10;
+    const auto statusX = addTrackButton.getRight() + 10;
     const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
                                                   juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
     g.setFont (11.0f);
@@ -2185,7 +2224,7 @@ juce::Rectangle<float> PlaylistComponent::disclosureBounds (int row) const
 {
     // The right end of the row's label cell, where the pattern chevron sits on
     // a clip: the same corner meaning "there is more here" in both places.
-    return { (float) labelWidth - 20.0f, rowY (row) + (float) rowHeight * 0.5f - 7.0f,
+    return { labelBandRight() - 20.0f, rowY (row) + (float) rowHeight * 0.5f - 7.0f,
              14.0f, 14.0f };
 }
 
@@ -2199,7 +2238,7 @@ juce::Rectangle<float> PlaylistComponent::automationLaneBounds (int row) const
 
 juce::Rectangle<float> PlaylistComponent::automationCurveBounds (int row) const
 {
-    return automationLaneBounds (row).withTrimmedLeft ((float) labelWidth);
+    return automationLaneBounds (row).withTrimmedLeft (labelBandRight());
 }
 
 juce::Rectangle<float> PlaylistComponent::laneSelectorBounds (int row) const
@@ -2208,7 +2247,7 @@ juce::Rectangle<float> PlaylistComponent::laneSelectorBounds (int row) const
     if (lane.isEmpty())
         return {};
 
-    return { 6.0f, lane.getCentreY() - 9.0f, (float) labelWidth - 14.0f, 18.0f };
+    return { labelBandLeft() + 6.0f, lane.getCentreY() - 9.0f, (float) labelWidth - 14.0f, 18.0f };
 }
 
 std::vector<PlaylistComponent::AutomatableParamInfo> PlaylistComponent::automatableParamsFor (const juce::String& generatorId) const
@@ -2431,7 +2470,7 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
         if (laneSelectorBounds (laneRow).contains (position))
             return juce::MouseCursor::PointingHandCursor;
 
-        if (position.x < (float) labelWidth)
+        if (inLabelBand (position))
             return juce::MouseCursor::NormalCursor;
 
         const auto point = autoPointAt (laneRow, position);
@@ -2449,7 +2488,7 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
             && disclosureBounds (overRow).contains (position))
         return juce::MouseCursor::PointingHandCursor;   // toggles the lane
 
-    if (position.x < (float) labelWidth || headerBounds().contains (position))
+    if (inLabelBand (position) || headerBounds().contains (position))
         return juce::MouseCursor::NormalCursor;
 
     const int row = clipRowAt (position.y);
@@ -2502,7 +2541,7 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
 
     // An automation lane has gestures of its own too, so the help bar follows
     // the pointer into one the same way it follows it into the tempo lane.
-    const int laneRow = position.x >= (float) labelWidth && ! headerBounds().contains (position)
+    const int laneRow = ! inLabelBand (position) && ! headerBounds().contains (position)
                             ? laneRowAt (position.y) : -1;
     if (laneRow != hoverLaneRow)
     {
@@ -2510,7 +2549,7 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
         updateShortcutHelp();
     }
 
-    const int row = position.x >= (float) labelWidth && ! headerBounds().contains (position)
+    const int row = ! inLabelBand (position) && ! headerBounds().contains (position)
                         ? clipRowAt (position.y) : -1;
     const auto start = snapToBar (xToBeat (position.x));
 
@@ -2640,7 +2679,7 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
-        if (e.position.x < (float) labelWidth)
+        if (inLabelBand (e.position))
             return;   // the rest of the lane's label cell does nothing
 
         const auto info = displayedParamFor (generator.getId());
@@ -2700,7 +2739,7 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     auto generator = song.getGenerator (row);
 
-    if (e.position.x < (float) labelWidth)
+    if (inLabelBand (e.position))
     {
         if (onSelectGenerator)
             onSelectGenerator (generator.getId());
@@ -2787,7 +2826,7 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 
     const int row = clipRowAt (e.position.y);
     const auto beat = xToBeat (e.position.x);
-    const bool insideGrid = e.position.x >= (float) labelWidth
+    const bool insideGrid = ! inLabelBand (e.position)
                                 && ! headerBounds().contains (e.position)
                                 && row >= 0 && row < song.getNumGenerators();
 
@@ -2894,8 +2933,19 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
         return;
     }
 
-    if (e.position.x < (float) labelWidth || headerBounds().contains (e.position))
+    if (headerBounds().contains (e.position))
         return;
+
+    // A double click on a row label opens that generator's window, the same
+    // window a clip's double click opens on the roll.
+    if (inLabelBand (e.position))
+    {
+        if (const int labelRow = clipRowAt (e.position.y);
+            labelRow >= 0 && labelRow < song.getNumGenerators() && onOpenGenerator)
+            onOpenGenerator (song.getGenerator (labelRow).getId());
+
+        return;
+    }
 
     // A double click on an automation lane's line splits the segment: the new
     // point takes the value the curve already has on that beat, so the shape
@@ -3011,7 +3061,7 @@ bool PlaylistComponent::isInterestedInFileDrag (const juce::StringArray& files)
 
 std::optional<PlaylistComponent::FileDropTarget> PlaylistComponent::fileDropTargetFor (juce::Point<float> position) const
 {
-    if (position.x < (float) labelWidth || headerBounds().contains (position))
+    if (inLabelBand (position) || headerBounds().contains (position))
         return std::nullopt;
 
     const auto numRows = song.getNumGenerators();

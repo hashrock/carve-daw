@@ -17,23 +17,18 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onSave = [this] { saveSong(); };
     transportBar->onOpen = [this] { openSong(); };
 
-    generatorPanel = std::make_unique<GeneratorPanel> (engine, song, undoManager);
-    generatorPanel->onSelectionChanged = [this] (const juce::String& generatorId,
-                                                 const juce::String& patternId)
+    generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
+    generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
+                                             const juce::String& patternId)
     {
         selectionChanged (generatorId, patternId);
     };
-    generatorPanel->onOpenPluginEditor = [this] (const juce::String& generatorId)
-    {
-        openPluginEditor (generatorId);
-    };
-    generatorPanel->onManagePlugins = [this] { openPluginManager(); };
-    generatorPanel->onOpenPatternEditor = [this] { openPatternEditor(); };
+    generatorController->onManagePlugins = [this] { openPluginManager(); };
 
     // Slot states change without the selection moving (a note lands in a
-    // pattern); the panel's refresh already runs then, so it recolours the
-    // window's switcher too.
-    generatorPanel->onPatternsChanged = [this]
+    // pattern); the controller's refresh already runs then, so it recolours
+    // the window's switcher and pads too.
+    generatorController->onPatternsChanged = [this]
     {
         if (generatorWindow != nullptr)
             generatorWindow->updateSlots (song.findGenerator (selectedGeneratorId),
@@ -45,7 +40,20 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
-        generatorPanel->selectGenerator (generatorId);
+        generatorController->selectGenerator (generatorId);
+    };
+
+    // Double-clicking a row label opens the generator itself, so the Inst tab;
+    // a clip's double click below opens the pattern it plays instead.
+    playlist.onOpenGenerator = [this] (const juce::String& generatorId)
+    {
+        generatorController->selectGenerator (generatorId);
+        openGeneratorWindow (GeneratorWindow::Tab::instrument);
+    };
+
+    playlist.onAddGenerator = [this] (juce::Rectangle<int> screenArea)
+    {
+        generatorController->showAddGeneratorMenu (screenArea);
     };
 
     // Double-clicking a clip edits the pattern it plays: make that pattern the
@@ -53,15 +61,14 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     playlist.onEditPattern = [this] (const juce::String& generatorId,
                                      const juce::String& patternId)
     {
-        generatorPanel->selectGenerator (generatorId);
-        generatorPanel->selectPattern (patternId);
+        generatorController->selectGenerator (generatorId);
+        generatorController->selectPattern (patternId);
         openPatternEditor();
     };
 
     playlistViewport.setViewedComponent (&playlist, false);
 
     addAndMakeVisible (*transportBar);
-    addAndMakeVisible (*generatorPanel);
     // The automation lane's parameter menu: names and ranges come from the
     // live plugins, which the playlist deliberately cannot reach.
     playlist.getAutomatableParams = [this] (const juce::String& generatorId)
@@ -162,7 +169,7 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     transportBar->setSong (song);
     playlist.setSong (song);
     clipProperties.setSong (song);
-    generatorPanel->setSong (song);   // fires onSelectionChanged -> updates piano roll
+    generatorController->setSong (song);   // fires onSelectionChanged -> updates piano roll
 
     // Last, because handing the song to the views can write to the tree and a
     // song that has just been loaded has nothing unsaved by definition.
@@ -241,20 +248,50 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
                     safe->previewNote (pitch, velocity);
             });
 
-        // The switcher only reports clicks; the panel stays the selection
-        // authority, and its refresh comes back around through
-        // onPatternsChanged to recolour the switcher.
+        // The window only reports gestures; the controller stays the selection
+        // and model-edit authority, and its refresh comes back around through
+        // onPatternsChanged to recolour the switcher and pads.
         auto& slots = generatorWindow->getSlotSwitcher();
         slots.onSlotClicked = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot)
         {
             if (safe != nullptr)
-                safe->generatorPanel->selectSlot (slot);
+                safe->generatorController->selectSlot (slot);
         };
         slots.onSlotMenu = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot,
                                                                          juce::Rectangle<int> screenArea)
         {
             if (safe != nullptr)
-                safe->generatorPanel->showSlotMenu (slot, screenArea);
+                safe->generatorController->showSlotMenu (slot, screenArea);
+        };
+
+        generatorWindow->onUnslottedPatternPicked =
+            [safe = juce::Component::SafePointer (this)] (const juce::String& patternId)
+        {
+            if (safe != nullptr)
+                safe->generatorController->selectPattern (patternId);
+        };
+
+        auto& inst = generatorWindow->getInstrumentView();
+        inst.onPadClicked = [safe = juce::Component::SafePointer (this)] (int pad,
+                                                                          juce::Rectangle<int> screenArea)
+        {
+            if (safe != nullptr)
+                safe->generatorController->padClicked (pad, screenArea);
+        };
+        inst.onPadFilesDropped = [safe = juce::Component::SafePointer (this)] (int startPad,
+                                                                               const juce::StringArray& files)
+        {
+            if (safe != nullptr)
+                safe->generatorController->padFilesDropped (startPad, files);
+        };
+        inst.isInterestedInPadFiles = [safe = juce::Component::SafePointer (this)] (const juce::StringArray& files)
+        {
+            return safe != nullptr && safe->generatorController->canImportAudioFiles (files);
+        };
+        inst.onLoadSample = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->chooseSampleForSelected();
         };
     }
 
@@ -364,14 +401,6 @@ void MainComponent::openMixer()
     mixerWindow = std::make_unique<MixerWindow> (*edit, undoManager,
                                                  std::move (onClose), std::move (keyHandler));
     mixerWindow->setSong (song);
-}
-
-void MainComponent::openPluginEditor (const juce::String& generatorId)
-{
-    // The panel opens the editor of what it has selected, so the id already is
-    // the selection; the guard covers a call arriving mid-switch.
-    if (generatorId == selectedGeneratorId)
-        openGeneratorWindow (GeneratorWindow::Tab::instrument);
 }
 
 void MainComponent::openPluginManager()
@@ -508,7 +537,6 @@ void MainComponent::resized()
     transportBar->setBounds (area.removeFromTop (44));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     clipProperties.setBounds (area.removeFromRight (210));
-    generatorPanel->setBounds (area.removeFromLeft (220));
     playlistViewport.setBounds (area);
 }
 

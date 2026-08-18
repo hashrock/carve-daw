@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "DrumPadGrid.h"
 #include "FourOscEditor.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
@@ -186,18 +187,53 @@ private:
 };
 
 //==============================================================================
-// The Inst tab's content: whichever editor the generator's instrument has.
-// A 4OSC gets ours; an external plugin gets its own editor hosted inline; the
-// sampler types and audio rows get a note about where they are edited, until
-// they grow inline editors of their own.
+// The Inst tab's content: whichever editing surface the generator offers.
+// A 4OSC gets our editor, an external plugin its own hosted inline, a drum
+// kit its 16 pads, a plain sampler its Load Sample chooser; an audio row just
+// says what it is. The model edits behind the pads and the sample button live
+// in GeneratorController -- this view only reports gestures and shows state.
 class InstrumentView : public juce::Component
 {
 public:
+    // Pad gestures, forwarded from the grid with the pad's screen area so the
+    // controller can hang its replace/clear menu off the pad itself.
+    std::function<void (int pad, juce::Rectangle<int> screenArea)> onPadClicked;
+    std::function<void (int startPad, const juce::StringArray&)> onPadFilesDropped;
+    std::function<bool (const juce::StringArray&)> isInterestedInPadFiles;
+    std::function<void()> onLoadSample;
+
     InstrumentView()
     {
         info.setJustificationType (juce::Justification::centred);
         info.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
         addAndMakeVisible (info);
+
+        pads.onPadClicked = [this] (int pad)
+        {
+            if (onPadClicked)
+                onPadClicked (pad, pads.localAreaToGlobal (pads.getPadBounds (pad)));
+        };
+        pads.onFilesDropped = [this] (int startPad, const juce::StringArray& files)
+        {
+            if (onPadFilesDropped)
+                onPadFilesDropped (startPad, files);
+        };
+        pads.isInterestedInFiles = [this] (const juce::StringArray& files)
+        {
+            return isInterestedInPadFiles && isInterestedInPadFiles (files);
+        };
+        addChildComponent (pads);
+
+        loadSampleButton.onClick = [this]
+        {
+            if (onLoadSample)
+                onLoadSample();
+        };
+        addChildComponent (loadSampleButton);
+
+        sampleName.setJustificationType (juce::Justification::centred);
+        sampleName.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
+        addChildComponent (sampleName);
     }
 
     ~InstrumentView() override
@@ -205,55 +241,119 @@ public:
         clearEditors();
     }
 
-    void setInstrument (te::Plugin* instrument)
+    // The static half of a retarget: which surface to show. The dynamic half
+    // (pad states, the sampler's sound name) is refresh(), called on every
+    // model change as well.
+    void setGenerator (const std::optional<model::Generator>& generator, te::Plugin* instrument)
     {
+        const auto kind = kindFor (generator);
+
         // The editor components hold pointers into the plugin, so tearing them
         // down before pointing anywhere else is not optional.
-        if (instrument == shownInstrument)
+        if (kind == shownKind && instrument == shownInstrument)
             return;
 
         clearEditors();
+        shownKind = kind;
         shownInstrument = instrument;
 
-        if (auto synth = dynamic_cast<te::FourOscPlugin*> (instrument))
+        pads.setVisible (kind == Kind::drumKit);
+        loadSampleButton.setVisible (kind == Kind::sampler);
+        sampleName.setVisible (kind == Kind::sampler);
+        info.setVisible (false);
+
+        if (kind == Kind::instrument)
         {
-            fourOsc = std::make_unique<FourOscEditor> (*synth);
-            viewport.setViewedComponent (fourOsc.get(), false);
-            viewport.setScrollBarsShown (true, true);
-            addAndMakeVisible (viewport);
-            info.setVisible (false);
-        }
-        else if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
-        {
-            if (auto instance = external->getAudioPluginInstance())
+            if (auto synth = dynamic_cast<te::FourOscPlugin*> (instrument))
             {
-                presetBar = std::make_unique<PresetBar> (*external);
-                externalEditor.reset (instance->createEditorIfNeeded());
-                addAndMakeVisible (presetBar.get());
+                fourOsc = std::make_unique<FourOscEditor> (*synth);
+                viewport.setViewedComponent (fourOsc.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
+            {
+                if (auto instance = external->getAudioPluginInstance())
+                {
+                    presetBar = std::make_unique<PresetBar> (*external);
+                    externalEditor.reset (instance->createEditorIfNeeded());
+                    addAndMakeVisible (presetBar.get());
 
-                if (externalEditor != nullptr)
-                    addAndMakeVisible (externalEditor.get());
+                    if (externalEditor != nullptr)
+                        addAndMakeVisible (externalEditor.get());
+                }
 
-                info.setVisible (externalEditor == nullptr);
-                info.setText ("This plugin has no editor", juce::dontSendNotification);
+                if (externalEditor == nullptr)
+                    showInfo ("This plugin has no editor");
+            }
+            else
+            {
+                showInfo ("No instrument on this generator");
             }
         }
-        else
+        else if (kind == Kind::audio)
         {
-            info.setVisible (true);
-            info.setText (instrument == nullptr
-                              ? "No instrument on this generator"
-                              : "Edited from the generator panel",
-                          juce::dontSendNotification);
+            showInfo ("Audio track: its clips are the files placed on the playlist");
+        }
+        else if (kind == Kind::none)
+        {
+            showInfo ("No generator selected");
         }
 
         resized();
+    }
+
+    // Pad states and the sampler's sound name, pushed on every model refresh
+    // so a drop or an undo shows up while the window is open.
+    void refresh (const std::optional<model::Generator>& generator,
+                  const juce::String& selectedPatternId)
+    {
+        if (shownKind == Kind::drumKit && generator)
+        {
+            // Which pads the pattern being edited plays, so the kit and the
+            // piano roll line up without switching tabs.
+            std::array<bool, (size_t) drumkit::numPads> used {};
+
+            if (auto pattern = generator->findPattern (selectedPatternId))
+                for (const auto& note : pattern->getNotes())
+                    if (auto pad = drumkit::getPadForNote (note.getPitch()))
+                        used[(size_t) *pad] = true;
+
+            for (int pad = 0; pad < drumkit::numPads; ++pad)
+            {
+                const auto sound = drumkit::findSoundForPad (*generator, pad);
+                pads.setPadState (pad, sound ? sound->getName() : juce::String(),
+                                  used[(size_t) pad]);
+            }
+
+            pads.repaint();
+        }
+
+        if (shownKind == Kind::sampler && generator)
+        {
+            const auto sounds = generator->getSounds();
+            sampleName.setText (sounds.empty() ? "No sample loaded"
+                                               : sounds.front().getName(),
+                                juce::dontSendNotification);
+        }
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
         info.setBounds (area);
+
+        if (pads.isVisible())
+            pads.setBounds (area.reduced (16).withHeight (
+                juce::jmin (area.getHeight() - 32, DrumPadGrid::getPreferredHeight())));
+
+        if (loadSampleButton.isVisible())
+        {
+            auto centre = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 32, 320), 64);
+            loadSampleButton.setBounds (centre.removeFromTop (28));
+            centre.removeFromTop (8);
+            sampleName.setBounds (centre);
+        }
 
         if (fourOsc != nullptr)
         {
@@ -279,6 +379,29 @@ public:
     }
 
 private:
+    // A drum kit's instrument is a sampler plugin too, so the view is picked
+    // from the generator's type, never from the plugin's.
+    enum class Kind { none, instrument, sampler, drumKit, audio };
+
+    static Kind kindFor (const std::optional<model::Generator>& generator)
+    {
+        if (! generator)
+            return Kind::none;
+        if (generator->isDrumKit())
+            return Kind::drumKit;
+        if (generator->isSampler())
+            return Kind::sampler;
+        if (generator->isAudio())
+            return Kind::audio;
+        return Kind::instrument;
+    }
+
+    void showInfo (const juce::String& text)
+    {
+        info.setVisible (true);
+        info.setText (text, juce::dontSendNotification);
+    }
+
     void clearEditors()
     {
         externalEditor.reset();
@@ -287,10 +410,15 @@ private:
         removeChildComponent (&viewport);
         fourOsc.reset();
         shownInstrument = nullptr;
+        shownKind = Kind::none;
     }
 
+    Kind shownKind = Kind::none;
     te::Plugin* shownInstrument = nullptr;
     juce::Label info;
+    DrumPadGrid pads;
+    juce::TextButton loadSampleButton { "Load Sample..." };
+    juce::Label sampleName;
     juce::Viewport viewport;
     std::unique_ptr<FourOscEditor> fourOsc;
     std::unique_ptr<PresetBar> presetBar;
@@ -323,6 +451,14 @@ public:
         content.header.instTab.onClick = [this] { showTab (Tab::instrument); };
         content.header.rollTab.onClick = [this] { showTab (Tab::pianoRoll); };
 
+        content.header.unslotted.onChange = [this]
+        {
+            const int index = content.header.unslotted.getSelectedItemIndex();
+
+            if (index >= 0 && index < unslottedIds.size() && onUnslottedPatternPicked)
+                onUnslottedPatternPicked (unslottedIds[index]);
+        };
+
         content.body.addAndMakeVisible (instrumentView);
         content.body.addChildComponent (rollContent);
         content.onLayout = [this] { layoutBody(); };
@@ -344,7 +480,12 @@ public:
         showTab (Tab::pianoRoll);
     }
 
-    SlotSwitcher& getSlotSwitcher()  { return content.header.slots; }
+    SlotSwitcher& getSlotSwitcher()      { return content.header.slots; }
+    InstrumentView& getInstrumentView()  { return instrumentView; }
+
+    // One of the generator's patterns outside the slot grid was picked from
+    // the header's combo (they only exist in songs saved before slots did).
+    std::function<void (const juce::String&)> onUnslottedPatternPicked;
 
     void showTab (Tab tab)
     {
@@ -368,12 +509,35 @@ public:
         rollContent.setSong (std::move (song));
     }
 
-    // Just the switcher's states: cheap, safe to call on every model refresh,
-    // so notes landing in a slot recolour it while the window is open.
+    // The dynamic state: the switcher's slot colours, the Inst tab's pad
+    // states and sample name, and the header's unslotted-pattern combo. Cheap
+    // and editor-free, so it is safe to call on every model refresh -- notes
+    // landing in a slot recolour it while the window is open.
     void updateSlots (const std::optional<model::Generator>& generator,
                       const juce::String& selectedPatternId)
     {
         content.header.slots.setFromGenerator (generator, selectedPatternId);
+        instrumentView.refresh (generator, selectedPatternId);
+
+        unslottedIds.clear();
+        auto& box = content.header.unslotted;
+        box.clear (juce::dontSendNotification);
+
+        if (generator && ! generator->isAudio())
+        {
+            const auto others = generator->getUnslottedPatterns();
+
+            for (int i = 0; i < (int) others.size(); ++i)
+            {
+                unslottedIds.add (others[(size_t) i].getId());
+                box.addItem (others[(size_t) i].getName(), i + 1);
+
+                if (others[(size_t) i].getId() == selectedPatternId)
+                    box.setSelectedItemIndex (i, juce::dontSendNotification);
+            }
+        }
+
+        box.setVisible (! unslottedIds.isEmpty());
     }
 
     // The whole retarget in one call: the switcher's states, the Inst view's
@@ -383,8 +547,8 @@ public:
                        std::optional<model::Pattern> pattern,
                        const juce::String& title)
     {
+        instrumentView.setGenerator (generator, instrument);
         updateSlots (generator, pattern ? pattern->getId() : juce::String());
-        instrumentView.setInstrument (instrument);
 
         titlePrefix = {};
         juce::String name;
@@ -441,6 +605,11 @@ private:
             }
 
             addAndMakeVisible (slots);
+
+            // Patterns outside the slot grid only exist in songs saved before
+            // slots did (or once a generator holds more than 36), so the box
+            // stays hidden until one turns up.
+            addChildComponent (unslotted);
         }
 
         void resized() override
@@ -450,6 +619,7 @@ private:
             instTab.setBounds (tabRow.removeFromLeft (72));
             tabRow.removeFromLeft (4);
             rollTab.setBounds (tabRow.removeFromLeft (72));
+            unslotted.setBounds (area.removeFromRight (150).reduced (2));
             slots.setBounds (area);
         }
 
@@ -460,6 +630,7 @@ private:
 
         juce::TextButton instTab { "Inst" }, rollTab { "Pianoroll" };
         SlotSwitcher slots;
+        juce::ComboBox unslotted;
     };
 
     struct Content : public juce::Component
@@ -488,6 +659,7 @@ private:
     std::function<void()> onClose;
     std::function<bool (const juce::KeyPress&)> onKey;
     juce::String titlePrefix;
+    juce::StringArray unslottedIds;   // parallel to the header combo's items
     Tab activeTab = Tab::pianoRoll;
 
     Content content;

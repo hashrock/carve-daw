@@ -80,8 +80,8 @@ target_sources(carve PRIVATE
     src/app/DrumPadGrid.cpp
     src/app/FourOscEditor.h
     src/app/FourOscEditor.cpp
-    src/app/GeneratorPanel.h
-    src/app/GeneratorPanel.cpp
+    src/app/GeneratorController.h
+    src/app/GeneratorController.cpp
     src/app/GeneratorWindow.h
     src/app/MixerComponent.h
     src/app/MixerComponent.cpp

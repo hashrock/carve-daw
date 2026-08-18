@@ -2,7 +2,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
-#include "GeneratorPanel.h"
+#include "GeneratorController.h"
 #include "GeneratorWindow.h"
 #include "MixerWindow.h"
 #include "ClipPropertiesPanel.h"
@@ -50,12 +50,11 @@ private:
     void saveSongAs();
     void writeSongTo (const juce::File& file);
     void openSong();
-    void openPluginEditor (const juce::String& generatorId);
     void openPluginManager();
     void openPatternEditor();
 
-    // Both of the above land here: one window per selection, the tab picking
-    // which half of it is in front.
+    // One window per selection, the tab picking which half is in front. The
+    // pattern editor above and the playlist's label double-click land here.
     void openGeneratorWindow (GeneratorWindow::Tab);
     void retargetGeneratorWindow();
     void openMixer();
@@ -85,7 +84,7 @@ private:
     bool hasUnsavedChanges = false;
 
     std::unique_ptr<TransportBar> transportBar;
-    std::unique_ptr<GeneratorPanel> generatorPanel;
+    std::unique_ptr<GeneratorController> generatorController;
     PlaylistComponent playlist { undoManager };
     juce::Viewport playlistViewport;
     ClipPropertiesPanel clipProperties { undoManager };

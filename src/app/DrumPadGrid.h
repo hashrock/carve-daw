@@ -41,9 +41,9 @@ namespace drumkit
 } // namespace drumkit
 
 // The 4x4 pad grid a drum-kit generator gets in place of a plain sampler's
-// single sample. Like PatternSlotGrid it holds no model state: GeneratorPanel
-// pushes a state per pad on every refresh, so the grid never has to look at
-// the tree or worry about it changing under it.
+// single sample. It holds no model state: the generator window pushes a state
+// per pad on every refresh, so the grid never has to look at the tree or
+// worry about it changing under it.
 class DrumPadGrid final : public juce::Component,
                           public juce::FileDragAndDropTarget
 {
