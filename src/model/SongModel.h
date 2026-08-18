@@ -101,6 +101,16 @@ public:
     Note addNote (double startBeats, double lengthBeats, int pitch, int velocity, juce::UndoManager* um);
     void removeNote (const Note& note, juce::UndoManager* um);
 
+    // Drops every note, keeping the pattern's id, name, slot and length -- so
+    // everything already pointing at it (a playlist clip, the piano roll) still
+    // is. What a MIDI import needs before it writes the file's notes in.
+    void clearNotes (juce::UndoManager* um);
+
+    // Replaces this pattern's notes with copies of another's. The source may
+    // belong to any generator: a note names a pitch and nothing about the
+    // instrument that sounds it, so a pattern crosses generators unchanged.
+    void copyNotesFrom (const Pattern& source, juce::UndoManager* um);
+
     juce::ValueTree state;
 };
 
@@ -310,6 +320,23 @@ public:
 
     std::optional<Pattern> findPatternInSlot (const PatternSlot& slot) const;
 
+    // The first slot holding no pattern, searching forward from the one after
+    // `after` and wrapping round at D9. Duplicating a pattern lands in this,
+    // so a copy appears next to what it was copied from rather than back at
+    // A1. Empty only when all 36 slots are taken.
+    std::optional<PatternSlot> findFreeSlot (std::optional<PatternSlot> after = {}) const;
+
+    // Copies a pattern into one of this generator's slots: its length and its
+    // notes, under a fresh id, so nothing that referenced the source now
+    // references the copy. The source may belong to another generator, which
+    // is all there is to copying a pattern between them.
+    //
+    // The destination slot must be free -- findFreeSlot is what picks one --
+    // because overwriting a slot the user cannot see is not what "duplicate"
+    // ever means.
+    Pattern duplicatePattern (const Pattern& source, const PatternSlot& destination,
+                              juce::UndoManager* um);
+
     // Materialises the slot the first time it is used. Empty slots stay out of
     // the tree deliberately: writing all 36 into every generator would bloat
     // every .carve and make every EditSync resync walk dead nodes.
@@ -503,6 +530,29 @@ public:
     juce::ValueTree state;
 };
 
+// The mix bus. It carries the same EFFECT nodes a generator does, so one
+// effect implementation and one EditSync reconciliation cover both -- the only
+// difference is which plugin list they end up in.
+class MasterBus
+{
+public:
+    explicit MasterBus (juce::ValueTree v) : state (std::move (v)) {}
+
+    static constexpr float defaultVolumeDb = 0.0f;
+
+    float getVolumeDb() const  { return state.getProperty (ids::volumeDb, defaultVolumeDb); }
+    void setVolumeDb (float db, juce::UndoManager* um)  { state.setProperty (ids::volumeDb, db, um); }
+
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 class Song
 {
 public:
@@ -564,6 +614,10 @@ public:
     Generator addGenerator (const juce::String& name, const juce::String& type, juce::UndoManager* um);
 
     Playlist getPlaylist() const;
+
+    // Materialised on first use, like the playlist, so songs written before the
+    // master bus existed gain nothing until something touches it.
+    MasterBus getMasterBus() const;
 
     // Where the last placement on the playlist ends, counting both pattern and
     // audio clips. This is what "the whole song" means to the transport, so it

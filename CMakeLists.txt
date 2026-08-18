@@ -26,6 +26,8 @@ set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
     src/model/SongModel.cpp
+    src/model/MidiPatternIO.h
+    src/model/MidiPatternIO.cpp
     src/model/DemoSong.h
     src/model/DemoSong.cpp
     src/sync/EditSync.h
@@ -66,6 +68,9 @@ target_sources(carve PRIVATE
     src/app/EffectParameterWindow.h
     src/app/EffectSlotList.h
     src/app/EffectSlotList.cpp
+    src/app/ExportComponent.h
+    src/app/ExportComponent.cpp
+    src/app/ExportWindow.h
     src/app/DrumPadGrid.h
     src/app/DrumPadGrid.cpp
     src/app/FourOscEditor.h

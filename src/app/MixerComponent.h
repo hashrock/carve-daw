@@ -17,11 +17,19 @@ namespace carve::app
 {
 
 // One channel strip per Generator: insert effect slots, post-fader level meter,
-// volume fader, pan, mute and solo.
+// volume fader, pan, mute and solo. A master strip is pinned to the right of
+// them, carrying the Edit's master fader, its output meter and its insert
+// chain.
 //
-// Edits go through the song model, not straight at the tracktion track, so they
-// are undoable and saved in the .carve file like every other edit; EditSync
-// pushes them on to the track. Only the meters read the engine directly.
+// Generator edits go through the song model, not straight at the tracktion
+// track, so they are undoable and saved in the .carve file like every other
+// edit; EditSync pushes them on to the track. Only the meters read the engine
+// directly.
+//
+// The master strip is the exception, and knowingly so: the song model has no
+// node for a master fader or a master chain, so those edits go straight at the
+// Edit. They are neither undoable nor saved. Giving them a home in the model is
+// a change to src/model plus EditSync -- see the strip's own comment.
 //
 // Sized to its content — put it in a Viewport.
 class MixerComponent : public juce::Component,
@@ -44,11 +52,15 @@ public:
 
 private:
     class ChannelStrip;
+    class MasterStrip;
 
     // Wider than a bare fader strip needs to be: the insert slots have to
     // show enough of an effect's name to tell two of them apart.
     static constexpr int stripWidth = 116;
     static constexpr int minHeight = 300;
+
+    // The gap that sets the master apart from the generators it sums.
+    static constexpr int masterGap = 10;
 
     // An open editor window, keyed by effect id. The Plugin::Ptr is a strong
     // reference on purpose: removing the effect drops the track's own
@@ -58,6 +70,7 @@ private:
     // it is destroyed first.
     struct OpenEffectWindow
     {
+        // Empty for a master insert: it belongs to no generator.
         juce::String generatorId;
         te::Plugin::Ptr plugin;
         std::unique_ptr<juce::DocumentWindow> window;
@@ -80,11 +93,12 @@ private:
     void effectListChanged (const juce::ValueTree& parent);
 
     // generator order == track order (EditSync invariant), then the plugin on
-    // that track stamped with the effect's id.
+    // that track stamped with the effect's id. An empty generatorId means the
+    // master list, where the id is the plugin's own EditItemID.
     te::Plugin* findEffectPlugin (const juce::String& generatorId,
                                   const juce::String& effectId) const;
 
-    void openEffectEditor (const juce::String& generatorId, const model::Effect&);
+    void openEffectEditor (const juce::String& generatorId, const juce::String& effectId);
     void closeEffectWindow (const juce::String& effectId);
 
     // Drops any window whose plugin the model or EditSync has replaced or
@@ -96,6 +110,7 @@ private:
     model::Song song { model::Song::create ("Untitled") };
 
     std::vector<std::unique_ptr<ChannelStrip>> strips;
+    std::unique_ptr<MasterStrip> masterStrip;
     std::map<juce::String, OpenEffectWindow> effectWindows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)

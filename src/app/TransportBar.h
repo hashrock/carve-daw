@@ -17,7 +17,7 @@ class TransportBar : public juce::Component,
 public:
     TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um);
 
-    std::function<void()> onSave, onOpen, onOpenMixer;
+    std::function<void()> onSave, onOpen, onOpenMixer, onExport;
 
     void setSong (model::Song newSong);
 
@@ -39,7 +39,7 @@ private:
     juce::UndoManager& undoManager;
 
     juce::TextButton playButton { "Play" }, stopButton { "Stop" },
-                     mixerButton { "Mixer" },
+                     mixerButton { "Mixer" }, exportButton { "Export" },
                      undoButton { "Undo" }, redoButton { "Redo" },
                      saveButton { "Save" }, openButton { "Open" };
     juce::ToggleButton loopButton { "Loop" };

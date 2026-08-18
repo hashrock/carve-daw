@@ -33,6 +33,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     generatorPanel->onOpenPatternEditor = [this] { openPatternEditor(); };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
+    transportBar->onExport = [this] { openExport(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
@@ -93,6 +94,7 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     pluginEditorWindows.clear();
     pianoRollWindow.reset();
     mixerWindow.reset();
+    exportWindow.reset();
     undoManager.clearUndoHistory();
 
     song.state.removeListener (this);
@@ -213,6 +215,31 @@ void MainComponent::previewNote (int pitch, int velocity)
         tracks[i]->playGuideNote (pitch, te::MidiChannel (1), velocity, true, false, true);
         return;
     }
+}
+
+void MainComponent::openExport()
+{
+    if (exportWindow != nullptr)
+    {
+        exportWindow->toFront (true);
+        return;
+    }
+
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->exportWindow.reset();
+        });
+    };
+
+    // The live plugin state belongs in the model before anything renders from
+    // it, exactly as it does before a save.
+    if (editSync != nullptr)
+        editSync->captureLivePluginState();
+
+    exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
 }
 
 void MainComponent::openMixer()
@@ -375,6 +402,12 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
         transportBar->togglePlay();
         return true;
     }
+    if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier, 0))
+    {
+        openExport();
+        return true;
+    }
+
     if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0))
     {
         undoManager.undo();

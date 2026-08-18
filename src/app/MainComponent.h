@@ -6,6 +6,7 @@
 #include "MixerWindow.h"
 #include "PianoRollWindow.h"
 #include "ClipPropertiesPanel.h"
+#include "ExportWindow.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
@@ -53,6 +54,7 @@ private:
     void openPluginManager();
     void openPatternEditor();
     void openMixer();
+    void openExport();
     void previewNote (int pitch, int velocity);
 
     // Shortcuts that work from anywhere, appended after whatever the focused
@@ -61,7 +63,8 @@ private:
     {
         return { { "Space", "play/stop" },
                  { "Cmd+Z", "undo" },
-                 { "Cmd+S", "save" } };
+                 { "Cmd+S", "save" },
+                 { "Cmd+E", "export" } };
     }
     bool handleGlobalKey (const juce::KeyPress&);
 
@@ -92,6 +95,7 @@ private:
     std::unique_ptr<PluginScanWindow> pluginScanWindow;
     std::unique_ptr<PianoRollWindow> pianoRollWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
+    std::unique_ptr<ExportWindow> exportWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

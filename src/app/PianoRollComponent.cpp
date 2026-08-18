@@ -24,6 +24,10 @@ namespace
     {
         return std::abs (std::remainder (beat, unit)) < 1.0e-6;
     }
+
+    // Start of the copied block, carried on the clipboard payload so that a
+    // paste can move the whole block as one.
+    const char* const originAttribute = "origin";
 } // namespace
 
 PianoRollComponent::PianoRollComponent (juce::UndoManager& um)
@@ -87,6 +91,7 @@ void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
 
     updateSize();
     notifyShortcutContext();
+    notifyNotesChanged();
     repaint();
 }
 
@@ -126,6 +131,7 @@ void PianoRollComponent::patternChanged()
     // this cheap enough to run for note edits too.
     pruneSelection();
     updateSize();
+    notifyNotesChanged();
     repaint();
 }
 
@@ -150,6 +156,11 @@ void PianoRollComponent::updateSize()
 double PianoRollComponent::getLengthBeats() const
 {
     return pattern ? pattern->getLengthBeats() : defaultLengthBeats;
+}
+
+std::vector<model::Note> PianoRollComponent::getNotes() const
+{
+    return pattern ? pattern->getNotes() : std::vector<model::Note>();
 }
 
 double PianoRollComponent::xToBeat (float x) const     { return (x - (float) keyboardWidth) / pixelsPerBeat; }
@@ -389,7 +400,7 @@ void PianoRollComponent::dragSelectionTo (double anchorStart, int anchorPitch)
     if (anchorNewPitch != dragLastPitch)
     {
         dragLastPitch = anchorNewPitch;
-        previewNote (anchorNewPitch, draggedNote ? draggedNote->getVelocity() : newNoteVelocity);
+        previewNote (anchorNewPitch, draggedNote ? draggedNote->getVelocity() : lastNoteVelocity);
     }
 }
 
@@ -428,6 +439,229 @@ void PianoRollComponent::updateRubberBand (juce::Point<float> position)
 
     setSelection (std::move (newSelection));
     repaint();   // the band itself moved even when the selection did not
+}
+
+//==============================================================================
+// Velocity
+
+bool PianoRollComponent::isVelocityEditable (const model::Note& note) const
+{
+    // See the header: a selection narrows the lane to it, no selection leaves
+    // the lane open to everything under the pointer.
+    return selectedNotes.empty() || isSelected (note.state);
+}
+
+void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
+{
+    // The floor is 1, not 0: velocity 0 is a note-off in MIDI, so a bar
+    // dragged all the way down has to mean "as quiet as it goes" rather than
+    // "silently gone".
+    velocity = juce::jlimit (1, 127, velocity);
+
+    // Remembered even when the write below turns out to be a no-op: the user
+    // aimed at this value, so it is the one the next drawn note should get.
+    lastNoteVelocity = velocity;
+
+    if (velocity != note.getVelocity())
+        model::Note (note.state).setVelocity (velocity, &undoManager);
+}
+
+//==============================================================================
+// Quantise
+
+void PianoRollComponent::setQuantiseSettings (double strength, double swing)
+{
+    quantiseStrength = juce::jlimit (0.0, 1.0, strength);
+    quantiseSwing = juce::jlimit (0.0, 1.0, swing);
+}
+
+void PianoRollComponent::quantiseNotes()
+{
+    if (! pattern)
+        return;
+
+    // The selection when there is one, the whole pattern when there is not:
+    // asking to fix the timing with nothing picked out means the pattern.
+    //
+    // Copied out either way, because every write calls our own listener back
+    // synchronously and that rewrites the selection underneath us.
+    std::vector<model::Note> notes;
+
+    if (! selectedNotes.empty())
+        for (const auto& state : selectedNotes)
+            notes.emplace_back (state);
+    else
+        notes = pattern->getNotes();
+
+    if (notes.empty())
+        return;
+
+    const auto unit = gridBeats;
+    const auto patternLength = pattern->getLengthBeats();
+
+    // One transaction for the whole operation, however many notes it moves.
+    undoManager.beginNewTransaction();
+
+    for (auto& note : notes)
+    {
+        const auto start = note.getStart();
+
+        // Which division of the grid the note belongs to. floor(x + 0.5)
+        // rather than round() so that a note lying exactly between two
+        // divisions always goes to the later one instead of away from zero.
+        const auto division = std::floor (start / unit + 0.5);
+
+        // Swing pushes every other division late. At 1.0 the off-beat lands a
+        // third of a division after the on-beat, which is the triplet feel a
+        // swung eighth is written as.
+        const auto swingOffset = std::fmod (division, 2.0) > 0.5 ? quantiseSwing * unit / 3.0 : 0.0;
+        const auto target = division * unit + swingOffset;
+
+        // Partial strength moves the note towards the grid rather than onto
+        // it, which is what leaves a played-in part still sounding played in.
+        auto newStart = juce::jmax (0.0, start + quantiseStrength * (target - start));
+
+        // A note that fitted inside the pattern stays inside it: swing on the
+        // last division would otherwise push it past the end, where it is
+        // never heard. A note already sitting outside is left alone rather
+        // than dragged back in behind the user's back.
+        const auto maxStart = juce::jmax (0.0, patternLength - note.getLength());
+
+        if (start <= maxStart)
+            newStart = juce::jmin (newStart, maxStart);
+
+        if (! juce::exactlyEqual (newStart, start))
+            note.setStart (newStart, &undoManager);
+    }
+}
+
+//==============================================================================
+// Clipboard
+
+bool PianoRollComponent::copySelection() const
+{
+    if (selectedNotes.empty())
+        return false;
+
+    juce::XmlElement xml (clipboardTag);
+
+    // Where the copied block began, so that a paste can put it down as a block
+    // rather than moving every note to the same place.
+    auto origin = model::Note (selectedNotes.front()).getStart();
+
+    for (const auto& state : selectedNotes)
+        origin = juce::jmin (origin, model::Note (state).getStart());
+
+    xml.setAttribute (originAttribute, origin);
+
+    // The NOTE trees as they stand: the payload is the model's own format, so
+    // the notes survive the round trip without a second description of them.
+    for (const auto& state : selectedNotes)
+        xml.addChildElement (state.createXml().release());
+
+    juce::SystemClipboard::copyTextToClipboard (xml.toString());
+    return true;
+}
+
+void PianoRollComponent::cutSelection()
+{
+    // Delete only once the copy is actually on the clipboard, so a cut that
+    // could not copy cannot lose the notes.
+    if (copySelection())
+        deleteSelection();
+}
+
+// Paste lands at the start of the bar under the pointer, and only while the
+// pointer is over the grid; otherwise the notes go back exactly where they
+// were copied from.
+//
+// The roll has no playhead to paste at -- a pattern sits at no particular
+// point in the song, so there is nothing for one to follow -- and the bar
+// under the pointer is the place the user is already looking at. A bar rather
+// than the exact beat because a paste is a block move: a bar of drums dropped
+// half a beat late is never what was meant, and the pasted notes stay selected
+// so nudging them from there is one drag away.
+double PianoRollComponent::getPasteTargetBeat (double originBeat) const
+{
+    if (! isMouseOver (true))
+        return originBeat;
+
+    const auto position = getMouseXYRelative().toFloat();
+
+    if (position.x < (float) keyboardWidth)
+        return originBeat;
+
+    const auto beatsPerBar = getBeatsPerBar();
+    return std::floor (juce::jmax (0.0, xToBeat (position.x)) / beatsPerBar) * beatsPerBar;
+}
+
+void PianoRollComponent::pasteNotes()
+{
+    if (! pattern)
+        return;
+
+    const auto xml = juce::parseXML (juce::SystemClipboard::getTextFromClipboard());
+
+    // Anything that is not ours -- plain text, XML from another program -- is
+    // left alone rather than guessed at.
+    if (xml == nullptr || ! xml->hasTagName (clipboardTag))
+        return;
+
+    struct PastedNote { double start, length; int pitch, velocity; };
+    std::vector<PastedNote> notes;
+
+    const auto noteTag = model::ids::NOTE.toString();
+
+    for (auto* child : xml->getChildIterator())
+    {
+        if (! child->hasTagName (noteTag))
+            continue;
+
+        // Clamped on the way in: this is text off a clipboard anyone can
+        // write to, so it is something to make sense of rather than to trust.
+        notes.push_back ({ juce::jmax (0.0, child->getDoubleAttribute (model::ids::start.toString())),
+                           juce::jmax (freeMinLengthBeats,
+                                       child->getDoubleAttribute (model::ids::length.toString())),
+                           juce::jlimit (lowestPitch, highestPitch,
+                                         child->getIntAttribute (model::ids::pitch.toString())),
+                           juce::jlimit (1, 127,
+                                         child->getIntAttribute (model::ids::velocity.toString(),
+                                                                 defaultNoteVelocity)) });
+    }
+
+    if (notes.empty())
+        return;
+
+    auto lowestStart = notes.front().start;
+    auto highestEnd = notes.front().start + notes.front().length;
+
+    for (const auto& note : notes)
+    {
+        lowestStart = juce::jmin (lowestStart, note.start);
+        highestEnd = juce::jmax (highestEnd, note.start + note.length);
+    }
+
+    const auto origin = xml->getDoubleAttribute (originAttribute, lowestStart);
+
+    // Clamp the block rather than each note, so it keeps its shape when it
+    // lands against an end of the pattern -- the rule a move drag follows.
+    // jmin/jmax around zero so that a block longer than the pattern cannot
+    // make the two limits cross over.
+    const auto offset = juce::jlimit (juce::jmin (0.0, -lowestStart),
+                                      juce::jmax (0.0, pattern->getLengthBeats() - highestEnd),
+                                      getPasteTargetBeat (origin) - origin);
+
+    undoManager.beginNewTransaction();
+
+    std::vector<juce::ValueTree> pasted;
+
+    for (const auto& note : notes)
+        pasted.push_back (pattern->addNote (note.start + offset, note.length,
+                                            note.pitch, note.velocity, &undoManager).state);
+
+    // The paste becomes the selection, so it can be dragged somewhere else or
+    // deleted again without having to be found first.
+    setSelection (std::move (pasted));
 }
 
 //==============================================================================
@@ -707,8 +941,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     const auto length = juce::jmax (minLengthBeats(),
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
-    draggedNote = pattern->addNote (start, length, pitch, newNoteVelocity, &undoManager);
-    previewNote (pitch, newNoteVelocity);
+    draggedNote = pattern->addNote (start, length, pitch, lastNoteVelocity, &undoManager);
+    previewNote (pitch, lastNoteVelocity);
 
     // The new note becomes the selection, so that the drag that follows moves
     // only it and Backspace takes it away again.
@@ -791,6 +1025,32 @@ bool PianoRollComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('e'))
     {
         setTool (Tool::select);
+        return true;
+    }
+
+    if (key == juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0))
+    {
+        copySelection();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('x', juce::ModifierKeys::commandModifier, 0))
+    {
+        cutSelection();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0))
+    {
+        pasteNotes();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('q'))
+    {
+        // Repeats whatever the panel was last left on, so that the panel is
+        // opened once to dial a feel in and then stays shut.
+        quantiseNotes();
         return true;
     }
 
@@ -909,6 +1169,203 @@ void PianoRollRuler::paint (juce::Graphics& g)
 
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, width);
+}
+
+//==============================================================================
+PianoRollVelocityLane::PianoRollVelocityLane (PianoRollComponent& rollToEdit)
+    : roll (rollToEdit)
+{
+}
+
+void PianoRollVelocityLane::setScrollOffset (int offsetX)
+{
+    if (offsetX != scrollOffset)
+    {
+        scrollOffset = offsetX;
+        repaint();
+    }
+}
+
+juce::Range<float> PianoRollVelocityLane::barSpan (const model::Note& note) const
+{
+    const auto x = roll.beatToX (note.getStart()) - (float) scrollOffset;
+
+    // A bar is as wide as its note, down to a floor: zoomed out, or on a very
+    // short note, the note's own width is less than a pixel and the bar would
+    // be neither visible nor hittable.
+    const auto width = juce::jmax (minBarWidth,
+                                   (float) (note.getLength() * roll.getPixelsPerBeat()) - 1.0f);
+
+    return { x, x + width };
+}
+
+juce::Rectangle<float> PianoRollVelocityLane::barBounds (const model::Note& note) const
+{
+    const auto span = barSpan (note);
+    const auto bottom = barsBottom();
+
+    // A minimum of two pixels so that the quietest note is still something to
+    // look at rather than a gap in the row of bars.
+    const auto height = juce::jmax (2.0f, (bottom - barsTop()) * (float) note.getVelocity() / 127.0f);
+
+    return { span.getStart(), bottom - height, span.getLength(), height };
+}
+
+int PianoRollVelocityLane::velocityAtY (float y) const
+{
+    const auto bottom = barsBottom();
+    const auto proportion = (bottom - y) / juce::jmax (1.0f, bottom - barsTop());
+
+    return juce::jlimit (1, 127, juce::roundToInt (proportion * 127.0f));
+}
+
+bool PianoRollVelocityLane::isOverEditableBar (juce::Point<float> position) const
+{
+    for (const auto& note : roll.getNotes())
+        if (roll.isVelocityEditable (note) && barSpan (note).contains (position.x))
+            return true;
+
+    return false;
+}
+
+void PianoRollVelocityLane::paint (juce::Graphics& g)
+{
+    const auto width = (float) getWidth();
+    const auto height = (float) getHeight();
+    const auto bottom = barsBottom();
+
+    g.fillAll (juce::Colour (0xff1f1f24));
+
+    g.setColour (juce::Colour (0xff3a3a40));
+    g.drawHorizontalLine (0, 0.0f, width);
+
+    // Everything left of beat 0 sits over the roll's keyboard column, which
+    // scrolls away with the content -- the same arrangement the ruler above
+    // the roll uses, so the two edges move together.
+    const auto originX = roll.beatToX (0.0) - (float) scrollOffset;
+
+    if (originX > 0.0f)
+    {
+        const auto gutter = juce::jmin (originX, width);
+
+        g.setColour (juce::Colour (0xff232327));
+        g.fillRect (0.0f, 1.0f, gutter, height - 1.0f);
+
+        g.setColour (juce::Colour (0xff707078));
+        g.setFont (9.0f);
+        g.drawText ("Vel", juce::Rectangle<float> (2.0f, 0.0f, gutter - 6.0f, height),
+                    juce::Justification::centredRight, false);
+    }
+
+    // Bar lines only: the lane is read against the grid above it rather than
+    // on its own, and beat lines at this height would be more noise than help.
+    const auto beatsPerBar = roll.getBeatsPerBar();
+    const auto lengthBeats = roll.getLengthBeats();
+
+    g.setColour (juce::Colour (0xff2f2f35));
+
+    for (int bar = 0; (double) bar * beatsPerBar <= lengthBeats; ++bar)
+    {
+        const auto x = roll.beatToX ((double) bar * beatsPerBar) - (float) scrollOffset;
+
+        if (x >= originX && x <= width)
+            g.drawVerticalLine ((int) x, 1.0f, height);
+    }
+
+    g.setColour (juce::Colour (0xff3a3a40));
+    g.fillRect (0.0f, bottom, width, baselineHeight);
+
+    for (const auto& note : roll.getNotes())
+    {
+        const auto bounds = barBounds (note);
+
+        if (bounds.getRight() < originX || bounds.getX() > width)
+            continue;
+
+        // Dimmed when a selection rules the note out, because then a drag in
+        // here will not touch it -- the lane says what it will do before it
+        // does it.
+        auto colour = juce::Colour (0xffe08a3c);
+
+        if (roll.isNoteSelected (note))
+            colour = colour.brighter (0.4f);
+
+        if (! roll.isVelocityEditable (note))
+            colour = colour.withAlpha (0.25f);
+
+        g.setColour (colour);
+        g.fillRect (bounds);
+
+        // A brighter cap, so a row of bars can be read as a shape rather than
+        // as a block of colour.
+        g.setColour (colour.brighter (0.5f));
+        g.fillRect (bounds.withHeight (1.5f));
+    }
+}
+
+void PianoRollVelocityLane::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (isOverEditableBar (e.position) ? juce::MouseCursor::UpDownResizeCursor
+                                                   : juce::MouseCursor::NormalCursor);
+}
+
+void PianoRollVelocityLane::mouseDown (const juce::MouseEvent& e)
+{
+    // The gesture starts anywhere in the lane rather than only on a bar: a
+    // sweep across a phrase is usually begun just before the first note of it,
+    // and an empty transaction costs nothing.
+    roll.beginVelocityGesture();
+    dragging = true;
+    lastDragPosition = e.position;
+    applySweep (e.position, e.position);
+}
+
+void PianoRollVelocityLane::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! dragging)
+        return;
+
+    applySweep (lastDragPosition, e.position);
+    lastDragPosition = e.position;
+}
+
+void PianoRollVelocityLane::mouseUp (const juce::MouseEvent&)
+{
+    dragging = false;
+}
+
+void PianoRollVelocityLane::applySweep (juce::Point<float> from, juce::Point<float> to)
+{
+    const auto left = juce::jmin (from.x, to.x);
+    const auto right = juce::jmax (from.x, to.x);
+
+    // Where the pointer was when it passed over a given x. Mouse events arrive
+    // far apart during a fast drag, and giving every note the segment swept
+    // the same velocity would flatten the ramp the user just drew.
+    const auto yAt = [from, to] (float x)
+    {
+        if (std::abs (to.x - from.x) < 1.0f)
+            return to.y;
+
+        return from.y + (to.y - from.y) * juce::jlimit (0.0f, 1.0f, (x - from.x) / (to.x - from.x));
+    };
+
+    // Copied out before anything is written: each write calls the roll's own
+    // listener back synchronously, and that may rewrite the selection.
+    const auto notes = roll.getNotes();
+
+    for (const auto& note : notes)
+    {
+        if (! roll.isVelocityEditable (note))
+            continue;
+
+        const auto span = barSpan (note);
+
+        if (span.getEnd() < left || span.getStart() > right)
+            continue;
+
+        roll.setNoteVelocity (note, velocityAtY (yAt (span.getStart())));
+    }
 }
 
 } // namespace carve::app

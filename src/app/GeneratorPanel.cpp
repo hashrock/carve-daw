@@ -1,5 +1,7 @@
 #include "GeneratorPanel.h"
 
+#include "model/MidiPatternIO.h"
+
 namespace carve::app
 {
 
@@ -17,6 +19,9 @@ namespace
 
 PatternSlotGrid::PatternSlotGrid()
 {
+    // So Cmd+D reaches us once a slot has been clicked. Anything else still
+    // bubbles up to the host, which owns Space and undo globally.
+    setWantsKeyboardFocus (true);
     clearSlots();
 }
 
@@ -107,11 +112,43 @@ void PatternSlotGrid::paint (juce::Graphics& g)
     }
 }
 
+juce::Rectangle<int> PatternSlotGrid::getSlotScreenArea (const model::PatternSlot& slot) const
+{
+    return localAreaToGlobal (getSlotBounds (slot));
+}
+
 void PatternSlotGrid::mouseDown (const juce::MouseEvent& e)
 {
-    if (auto slot = getSlotAt (e.getPosition()))
-        if (onSlotClicked)
-            onSlotClicked (*slot);
+    auto slot = getSlotAt (e.getPosition());
+
+    if (! slot)
+        return;
+
+    grabKeyboardFocus();   // so Cmd+D duplicates the slot that was just picked
+
+    // A right click acts on the slot without selecting it: the menu names the
+    // slot it opened on, so moving the selection under it would only surprise.
+    if (e.mods.isPopupMenu())
+    {
+        if (onSlotMenuRequested)
+            onSlotMenuRequested (*slot);
+        return;
+    }
+
+    if (onSlotClicked)
+        onSlotClicked (*slot);
+}
+
+bool PatternSlotGrid::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
+    {
+        if (onDuplicateRequested)
+            onDuplicateRequested();
+        return true;
+    }
+
+    return false;
 }
 
 //==============================================================================
@@ -160,6 +197,8 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
     patternHeader.setJustificationType (juce::Justification::centredLeft);
 
     slotGrid.onSlotClicked = [this] (model::PatternSlot slot) { slotClicked (slot); };
+    slotGrid.onSlotMenuRequested = [this] (model::PatternSlot slot) { showSlotMenu (slot); };
+    slotGrid.onDuplicateRequested = [this] { duplicateSelectedPattern(); };
 
     padGrid.onPadClicked = [this] (int pad) { padClicked (pad); };
     padGrid.onFilesDropped = [this] (int pad, const juce::StringArray& files) { padFilesDropped (pad, files); };
@@ -594,6 +633,236 @@ void GeneratorPanel::discardUntouchedPattern (const juce::String& patternId,
     generator->removePattern (*pattern, &undoManager);
     refresh();
 }
+
+//==============================================================================
+// The slot menu: duplicate, copy to another generator, MIDI in and out
+
+void GeneratorPanel::showSlotMenu (model::PatternSlot slot)
+{
+    auto generator = getSelectedGenerator();
+
+    // An audio generator has no patterns at all, and the grid is hidden for
+    // one -- but a stale click could still arrive while it is being swapped.
+    if (! generator || generator->isAudio())
+        return;
+
+    const auto generatorId = generator->getId();
+    const auto pattern = generator->findPatternInSlot (slot);
+
+    // Which generators the pattern could be copied to, in list order, so the
+    // menu ids below index straight into this.
+    juce::StringArray otherGeneratorIds;
+    juce::PopupMenu copyToMenu;
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Slot " + slot.getKey());
+
+    if (pattern)
+    {
+        const auto free = generator->findFreeSlot (slot);
+
+        menu.addItem (1, free ? "Duplicate to " + free->getKey() + "  (Cmd+D)"
+                              : juce::String ("Duplicate (all slots full)"),
+                      free.has_value());
+
+        for (const auto& other : song.getGenerators())
+        {
+            if (other.getId() == generatorId || other.isAudio() || ! other.findFreeSlot())
+                continue;
+
+            otherGeneratorIds.add (other.getId());
+            copyToMenu.addItem (100 + otherGeneratorIds.size() - 1, other.getName());
+        }
+
+        if (copyToMenu.getNumItems() > 0)
+            menu.addSubMenu ("Copy to generator", copyToMenu);
+
+        menu.addSeparator();
+        menu.addItem (2, "Export " + pattern->getName() + " as MIDI...");
+    }
+
+    // Import is offered on an empty slot too: an unused slot is exactly where
+    // an imported file wants to land.
+    menu.addItem (3, pattern && ! pattern->isEmpty() ? "Import MIDI (replaces " + slot.getKey() + ")..."
+                                                     : "Import MIDI...");
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetComponent (slotGrid)
+                            .withTargetScreenArea (slotGrid.getSlotScreenArea (slot)),
+                        [this, generatorId, slot, otherGeneratorIds] (int result)
+    {
+        if (result == 1)
+            duplicatePattern (generatorId, slot, generatorId);
+        else if (result == 2)
+            exportPatternToMidi (generatorId, slot);
+        else if (result == 3)
+            importMidiIntoSlot (generatorId, slot);
+        else if (result >= 100 && result < 100 + otherGeneratorIds.size())
+            duplicatePattern (generatorId, slot, otherGeneratorIds[result - 100]);
+    });
+}
+
+void GeneratorPanel::duplicateSelectedPattern()
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator)
+        return;
+
+    // Only a pattern that sits in a slot: one from the box below the grid has
+    // no slot to duplicate "next to", and the grid is what the shortcut is on.
+    auto pattern = generator->findPattern (selectedPatternId);
+
+    if (! pattern)
+        return;
+
+    if (auto slot = pattern->getSlot())
+        duplicatePattern (generator->getId(), *slot, generator->getId());
+}
+
+void GeneratorPanel::duplicatePattern (const juce::String& generatorId, model::PatternSlot slot,
+                                       const juce::String& destinationGeneratorId)
+{
+    auto source = song.findGenerator (generatorId);
+    auto destination = song.findGenerator (destinationGeneratorId);
+
+    if (! source || ! destination)
+        return;
+
+    auto pattern = source->findPatternInSlot (slot);
+
+    if (! pattern)
+        return;
+
+    // Within one generator the copy goes to the first free slot after the
+    // original, so a chain of duplicates reads left to right; into another it
+    // takes that generator's first free slot instead.
+    const auto free = destination->findFreeSlot (destination->getId() == generatorId
+                                                     ? std::optional<model::PatternSlot> (slot)
+                                                     : std::nullopt);
+
+    if (! free)
+        return;
+
+    undoManager.beginNewTransaction();
+    auto copy = destination->duplicatePattern (*pattern, *free, &undoManager);
+
+    // Land on the copy: duplicating is the middle of "make one, clone it, vary
+    // it", so the next edit belongs to the new slot. The id is set first
+    // because selecting a generator otherwise falls back to its first pattern.
+    selectedPatternId = copy.getId();
+    selectGenerator (destination->getId());
+    refresh();
+    fireSelectionChanged();
+}
+
+void GeneratorPanel::exportPatternToMidi (const juce::String& generatorId, model::PatternSlot slot)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    auto pattern = generator->findPatternInSlot (slot);
+
+    if (! pattern)
+        return;
+
+    // Named after both, because a folder of files called "A1.mid" says nothing
+    // a week later about which instrument each one was for.
+    const auto suggested = juce::File::createLegalFileName (
+        generator->getName() + " - " + pattern->getName() + ".mid");
+
+    midiChooser = std::make_unique<juce::FileChooser> (
+        "Export pattern as MIDI",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile (suggested),
+        model::midiio::fileWildcard);
+
+    midiChooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                  | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [this, generatorId, slot] (const juce::FileChooser& chooser)
+    {
+        auto destination = chooser.getResult();
+
+        if (destination == juce::File())
+            return;
+
+        if (destination.getFileExtension().isEmpty())
+            destination = destination.withFileExtension ("mid");
+
+        // Looked up again rather than captured: the chooser is asynchronous,
+        // and the song may have been replaced while it stood open.
+        auto generator = song.findGenerator (generatorId);
+
+        if (! generator)
+            return;
+
+        auto pattern = generator->findPatternInSlot (slot);
+
+        if (! pattern)
+            return;
+
+        // The song's tempo and meter, not the pattern's: a pattern has neither,
+        // and these are what it is being played at here.
+        if (! model::midiio::writePattern (*pattern, destination, song.getTempo(),
+                                           song.getTimeSigAt (0.0)))
+            juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                         "Export failed",
+                                                         "Could not write " + destination.getFullPathName());
+    });
+}
+
+void GeneratorPanel::importMidiIntoSlot (const juce::String& generatorId, model::PatternSlot slot)
+{
+    midiChooser = std::make_unique<juce::FileChooser> (
+        "Import MIDI into slot " + slot.getKey(),
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+        model::midiio::fileWildcard);
+
+    midiChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectFiles,
+                              [this, generatorId, slot] (const juce::FileChooser& chooser)
+    {
+        const auto source = chooser.getResult();
+
+        if (! source.existsAsFile())
+            return;
+
+        const auto imported = model::midiio::readFile (source);
+
+        if (! imported)
+        {
+            juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                         "Import failed",
+                                                         "Could not read " + source.getFileName()
+                                                             + " as a MIDI file.");
+            return;
+        }
+
+        auto generator = song.findGenerator (generatorId);
+
+        if (! generator)
+            return;
+
+        undoManager.beginNewTransaction();
+
+        auto pattern = generator->getOrCreatePatternInSlot (slot, &undoManager, newPatternLengthBeats());
+
+        // A slot the user never named takes the file's name, so the header
+        // says what was imported; one they did name keeps theirs.
+        if (pattern.hasDefaultSlotName() && imported->name.isNotEmpty())
+            pattern.setName (imported->name, &undoManager);
+
+        model::midiio::applyToPattern (*imported, pattern, newPatternLengthBeats(), &undoManager);
+
+        selectedPatternId = pattern.getId();
+        refresh();
+        fireSelectionChanged();
+    });
+}
+
+//==============================================================================
 
 void GeneratorPanel::ensureValidPatternSelection()
 {

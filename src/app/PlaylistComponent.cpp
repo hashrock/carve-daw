@@ -18,6 +18,18 @@ namespace
     // test needs a little slack.
     constexpr double beatTolerance = 1.0e-9;
 
+    // The clipboard payload's root, named for this app: the system clipboard is
+    // shared with every other program on the machine, so a paste has to be able
+    // to tell that what it found is not ours and leave it alone.
+    const juce::Identifier clipboardType ("CARVECLIPS");
+    const juce::Identifier clipboardVersion ("version");
+    constexpr int clipboardFormatVersion = 1;
+
+    // Written next to each copied clip so a paste into a song where the
+    // original generator has gone still has something to match on.
+    const juce::Identifier clipboardGeneratorName ("generatorName");
+    const juce::Identifier clipboardPatternName ("patternName");
+
     // JUCE has no eraser cursor, so draw one: a red cross with a dark halo so
     // it stays readable over both the grid and a bright clip. Drawn at 2x so it
     // stays sharp on a retina display.
@@ -592,7 +604,13 @@ void PlaylistComponent::updateShortcutHelp()
     {
         entries.push_back ({ "Cmd+D", "duplicate" });
         entries.push_back ({ "Delete", "remove" });
+        entries.push_back ({ "Cmd+C / Cmd+X", "copy / cut" });
     }
+
+    // Paste is worth listing whenever there is something to paste, selection or
+    // not -- it is the half of the clipboard that works on an empty grid.
+    if (readClipboardPayload().isValid())
+        entries.push_back ({ "Cmd+V", "paste at pointer" });
 
     entries.push_back ({ "drop audio", "place on a track" });
 
@@ -1294,6 +1312,226 @@ void PlaylistComponent::deleteSelection()
         removePlacement (state);
 
     clearSelection();
+}
+
+//==============================================================================
+// Clipboard
+
+juce::ValueTree PlaylistComponent::makeClipboardPayload() const
+{
+    // Everything is measured from the earliest clip in the selection, so the
+    // payload holds the shape of the group and nothing about where it was.
+    double anchor = std::numeric_limits<double>::max();
+
+    for (const auto& state : selectedClips)
+        if (auto placement = placementFor (state))
+            anchor = std::min (anchor, placement->start);
+
+    if (anchor == std::numeric_limits<double>::max())
+        return {};
+
+    juce::ValueTree payload (clipboardType);
+    payload.setProperty (clipboardVersion, clipboardFormatVersion, nullptr);
+
+    for (const auto& state : selectedClips)
+    {
+        auto placement = placementFor (state);
+        auto generator = song.findGenerator (state[model::ids::generatorId].toString());
+
+        if (! placement || ! generator)
+            continue;
+
+        // A copy of the node itself rather than a hand-written list of
+        // properties: a CLIP that grows another one later travels without
+        // anyone having to remember this.
+        auto entry = state.createCopy();
+        entry.setProperty (model::ids::start, placement->start - anchor, nullptr);
+
+        // An audio placement's id names *this* placement -- EditSync matches a
+        // live wave clip by it -- so a copy must not carry it. Pasting mints a
+        // fresh one.
+        entry.removeProperty (model::ids::id, nullptr);
+
+        // The relative path is worked out against whichever .carve the song is
+        // saved to, so it means nothing outside the document it came from; the
+        // absolute one in `file` is what a paste resolves.
+        entry.removeProperty (model::ids::relPath, nullptr);
+
+        entry.setProperty (clipboardGeneratorName, generator->getName(), nullptr);
+
+        if (entry.hasType (model::ids::CLIP))
+            if (auto pattern = generator->findPattern (model::PlaylistClip (state).getPatternId()))
+                entry.setProperty (clipboardPatternName, pattern->getName(), nullptr);
+
+        payload.appendChild (entry, nullptr);
+    }
+
+    return payload.getNumChildren() > 0 ? payload : juce::ValueTree();
+}
+
+juce::ValueTree PlaylistComponent::readClipboardPayload()
+{
+    const auto text = juce::SystemClipboard::getTextFromClipboard();
+
+    // Anything at all can be on the clipboard, so every step here has to be
+    // able to say "not ours" rather than assume: no XML, the wrong root, or a
+    // version written by something newer all read as nothing.
+    if (! text.trimStart().startsWith ("<"))
+        return {};
+
+    auto xml = juce::parseXML (text);
+
+    if (xml == nullptr || ! xml->hasTagName (clipboardType.toString()))
+        return {};
+
+    auto payload = juce::ValueTree::fromXml (*xml);
+
+    if (! payload.isValid() || (int) payload.getProperty (clipboardVersion, 0) != clipboardFormatVersion)
+        return {};
+
+    return payload;
+}
+
+double PlaylistComponent::pasteTargetBeat() const
+{
+    // The pointer when there is one over a row -- pasting where you are
+    // looking is what every grid does -- and the playhead otherwise, which is
+    // what a paste driven from the keyboard alone can only mean.
+    if (mouseIsOver && hoverRow >= 0)
+        return hoverStartBeats;
+
+    return snapToBar (playheadBeats);
+}
+
+std::optional<model::Generator> PlaylistComponent::generatorForClipboardEntry (const juce::ValueTree& entry) const
+{
+    if (auto generator = song.findGenerator (entry[model::ids::generatorId].toString()))
+        return generator;
+
+    // Only reached by a paste into a different document, where the ids are all
+    // someone else's. A name is the one thing the user would recognise, so it
+    // is what the fallback matches on -- and if nothing matches, the clip is
+    // dropped rather than guessed at.
+    const auto name = entry[clipboardGeneratorName].toString();
+
+    if (name.isNotEmpty())
+        for (const auto& generator : song.getGenerators())
+            if (generator.getName() == name)
+                return generator;
+
+    return std::nullopt;
+}
+
+void PlaylistComponent::copySelection()
+{
+    if (auto payload = makeClipboardPayload(); payload.isValid())
+        juce::SystemClipboard::copyTextToClipboard (payload.toXmlString());
+}
+
+void PlaylistComponent::cutSelection()
+{
+    if (selectedClips.empty())
+        return;
+
+    copySelection();
+    deleteSelection();   // one transaction of its own, so undo puts the clips back
+}
+
+void PlaylistComponent::pasteClips()
+{
+    const auto payload = readClipboardPayload();
+
+    if (! payload.isValid())
+        return;
+
+    const auto target = pasteTargetBeat();
+
+    undoManager.beginNewTransaction();
+
+    auto playlist = song.getPlaylist();
+    std::vector<juce::ValueTree> pasted;
+
+    for (const auto& entry : payload)
+    {
+        auto generator = generatorForClipboardEntry (entry);
+
+        if (! generator)
+            continue;
+
+        const auto start = std::max (0.0, target + (double) entry[model::ids::start]);
+
+        if (entry.hasType (model::ids::AUDIOCLIP))
+        {
+            const model::AudioClip source (entry);
+            const auto file = source.getFile();
+
+            if (! file.existsAsFile())
+                continue;   // the copy was made somewhere this song cannot reach
+
+            // Seconds are what an audio placement is measured in, but the grid
+            // it must not overlap on is in beats, so the length is converted
+            // at the beat it would actually land on.
+            const auto length = song.beatsFromSeconds (song.secondsFromBeats (start)
+                                                           + source.getLengthSeconds()) - start;
+
+            // Never stack: the same rule painting, dragging and duplicating
+            // all follow, so a paste onto an occupied bar drops that clip
+            // rather than burying what is already there.
+            if (! isRangeFree (*generator, start, length))
+                continue;
+
+            auto copy = playlist.addAudioClip (*generator, file, start,
+                                               source.getLengthSeconds(), &undoManager);
+
+            if (source.getOffsetSeconds() > 0.0)
+                copy.setOffsetSeconds (source.getOffsetSeconds(), &undoManager);
+
+            pasted.push_back (copy.state);
+            continue;
+        }
+
+        const model::PlaylistClip source (entry);
+        auto pattern = generator->findPattern (source.getPatternId());
+
+        // Same fallback as the generator's, and for the same reason: a paste
+        // into another document knows the pattern only by what it was called.
+        if (! pattern)
+            if (const auto name = entry[clipboardPatternName].toString(); name.isNotEmpty())
+                for (const auto& candidate : generator->getPatterns())
+                    if (candidate.getName() == name)
+                    {
+                        pattern = candidate;
+                        break;
+                    }
+
+        if (! pattern)
+            continue;
+
+        const auto length = source.getLength (pattern->getLengthBeats());
+
+        if (! isRangeFree (*generator, start, length))
+            continue;
+
+        auto copy = playlist.addClip (*generator, *pattern, start, &undoManager);
+
+        // A fresh clip is pattern-length and untransposed, so both only have to
+        // be written when the original said otherwise -- which keeps a pasted
+        // clip's XML identical to the one it was copied from.
+        if (source.hasOwnLength())
+            copy.setLength (length, &undoManager);
+        if (source.getTranspose() != 0)
+            copy.setTranspose (source.getTranspose(), &undoManager);
+
+        pasted.push_back (copy.state);
+    }
+
+    // Select what landed: it is what the user will want to move, and it makes
+    // clear which of the copied clips actually fitted.
+    if (! pasted.empty())
+    {
+        selectedClips = std::move (pasted);
+        selectionChanged();
+    }
 }
 
 void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
@@ -2047,6 +2285,24 @@ bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
     {
         duplicateSelection();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0))
+    {
+        copySelection();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('x', juce::ModifierKeys::commandModifier, 0))
+    {
+        cutSelection();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0))
+    {
+        pasteClips();
         return true;
     }
 

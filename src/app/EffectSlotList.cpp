@@ -48,25 +48,152 @@ namespace
 
         return result;
     }
+
+    juce::String getSlotName (const model::Effect& effect)
+    {
+        if (effect.isExternal())
+        {
+            if (auto description = effect.getPluginDescription())
+                return description->name;
+
+            return "Plugin";
+        }
+
+        const auto type = effect.getType();
+
+        for (const auto& internal : internalEffects)
+            if (type == internal.type)
+                return internal.shortName;
+
+        // Something the menu never offered -- an older song, or a type added
+        // later. Its xmlTypeName is at least recognisable.
+        return type;
+    }
 } // namespace
 
 //==============================================================================
-EffectSlotList::EffectSlotList (model::Generator generatorToShow, te::Engine& e,
-                                juce::UndoManager& um)
-    : generator (std::move (generatorToShow)), engine (e), undoManager (um)
+EffectChain makeGeneratorEffectChain (model::Generator generatorToShow, juce::UndoManager& undoManager)
 {
-    effects = generator.getEffects();
+    EffectChain chain;
+
+    chain.getSlots = [generator = generatorToShow]
+    {
+        std::vector<EffectSlot> result;
+
+        for (const auto& effect : generator.getEffects())
+            result.push_back ({ effect.getId(), getSlotName (effect), effect.isEnabled() });
+
+        return result;
+    };
+
+    chain.add = [generator = generatorToShow, &undoManager]
+                (const juce::String& type, const juce::PluginDescription* description) mutable
+    {
+        undoManager.beginNewTransaction();
+        generator.addEffect (type, description, &undoManager);
+    };
+
+    chain.setEnabled = [generator = generatorToShow, &undoManager]
+                       (const juce::String& id, bool enabled)
+    {
+        if (auto effect = generator.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            effect->setEnabled (enabled, &undoManager);
+        }
+    };
+
+    chain.remove = [generator = generatorToShow, &undoManager] (const juce::String& id) mutable
+    {
+        if (auto effect = generator.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            generator.removeEffect (*effect, &undoManager);
+        }
+    };
+
+    chain.move = [generator = generatorToShow, &undoManager] (const juce::String& id, int newIndex) mutable
+    {
+        if (auto effect = generator.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            generator.moveEffect (*effect, newIndex, &undoManager);
+        }
+    };
+
+    return chain;
+}
+
+//==============================================================================
+// The master chain is the generator chain with a different owner: same EFFECT
+// nodes, same ids, same undo. Only the node they hang off differs.
+EffectChain makeMasterEffectChain (model::MasterBus busToShow, juce::UndoManager& undoManager)
+{
+    EffectChain chain;
+
+    chain.getSlots = [bus = busToShow]
+    {
+        std::vector<EffectSlot> result;
+
+        for (const auto& effect : bus.getEffects())
+            result.push_back ({ effect.getId(), getSlotName (effect), effect.isEnabled() });
+
+        return result;
+    };
+
+    chain.add = [bus = busToShow, &undoManager] (const juce::String& type,
+                                                 const juce::PluginDescription* description) mutable
+    {
+        undoManager.beginNewTransaction();
+        bus.addEffect (type, description, &undoManager);
+    };
+
+    chain.setEnabled = [bus = busToShow, &undoManager] (const juce::String& id, bool enabled) mutable
+    {
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            effect->setEnabled (enabled, &undoManager);
+        }
+    };
+
+    chain.remove = [bus = busToShow, &undoManager] (const juce::String& id) mutable
+    {
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            bus.removeEffect (*effect, &undoManager);
+        }
+    };
+
+    chain.move = [bus = busToShow, &undoManager] (const juce::String& id, int newIndex) mutable
+    {
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            bus.moveEffect (*effect, newIndex, &undoManager);
+        }
+    };
+
+    return chain;
+}
+
+//==============================================================================
+EffectSlotList::EffectSlotList (EffectChain chainToShow, te::Engine& e)
+    : chain (std::move (chainToShow)), engine (e)
+{
+    slots = chain.getSlots();
 }
 
 int EffectSlotList::getPreferredHeight() const
 {
-    return ((int) effects.size() + 1) * rowHeight;
+    return ((int) slots.size() + 1) * rowHeight;
 }
 
-void EffectSlotList::updateFromModel()
+void EffectSlotList::refreshFromChain()
 {
     const auto previousHeight = getPreferredHeight();
-    effects = generator.getEffects();
+    slots = chain.getSlots();
 
     // A drag whose rows moved under it has lost its meaning; drop it rather
     // than committing a move the user can no longer see.
@@ -89,7 +216,7 @@ int EffectSlotList::getRowAt (int y) const
         return -1;
 
     const int row = y / rowHeight;
-    return row <= (int) effects.size() ? row : -1;
+    return row <= (int) slots.size() ? row : -1;
 }
 
 juce::Rectangle<int> EffectSlotList::getRowBounds (int row) const
@@ -103,10 +230,10 @@ void EffectSlotList::paint (juce::Graphics& g)
 
     const auto font = juce::FontOptions (10.0f);
 
-    for (size_t i = 0; i < effects.size(); ++i)
+    for (size_t i = 0; i < slots.size(); ++i)
     {
-        const auto& effect = effects[i];
-        const bool enabled = effect.isEnabled();
+        const auto& slot = slots[i];
+        const bool enabled = slot.enabled;
         auto row = getRowBounds ((int) i).reduced (0, 1).withTrimmedRight (1);
 
         g.setColour (juce::Colour ((int) i == hoveredRow ? 0xff3d3d46 : 0xff32323a));
@@ -125,14 +252,14 @@ void EffectSlotList::paint (juce::Graphics& g)
 
         g.setColour (enabled ? juce::Colour (0xffd8d8dc) : juce::Colour (0xff76767e));
         g.setFont (font);
-        g.drawFittedText (getSlotName (effect), row.reduced (2, 0),
+        g.drawFittedText (slot.name, row.reduced (2, 0),
                           juce::Justification::centredLeft, 1, 0.75f);
     }
 
     // The add row, drawn as an outline so it reads as an empty slot rather
     // than another effect.
-    auto addRow = getRowBounds ((int) effects.size()).reduced (0, 1).withTrimmedRight (1);
-    const bool addHovered = hoveredRow == (int) effects.size();
+    auto addRow = getRowBounds ((int) slots.size()).reduced (0, 1).withTrimmedRight (1);
+    const bool addHovered = hoveredRow == (int) slots.size();
 
     g.setColour (juce::Colour (addHovered ? 0xff3d3d46 : 0xff2a2a31));
     g.fillRect (addRow);
@@ -213,7 +340,7 @@ void EffectSlotList::mouseDrag (const juce::MouseEvent& e)
 
     // Round to the nearest gap between rows, so the marker sits where the slot
     // will end up.
-    dropIndex = juce::jlimit (0, (int) effects.size(),
+    dropIndex = juce::jlimit (0, (int) slots.size(),
                               (e.y + rowHeight / 2) / rowHeight);
     repaint();
 }
@@ -229,13 +356,13 @@ void EffectSlotList::mouseUp (const juce::MouseEvent&)
     dropIndex = -1;
     repaint();
 
-    if (row < 0 || row >= (int) effects.size())
+    if (row < 0 || row >= (int) slots.size())
         return;
 
     if (! wasDragging)
     {
         if (onOpenEffectEditor != nullptr)
-            onOpenEffectEditor (effects[(size_t) row]);
+            onOpenEffectEditor (slots[(size_t) row].id);
 
         return;
     }
@@ -275,7 +402,7 @@ void EffectSlotList::showAddMenu()
 
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (this)
-                            .withTargetScreenArea (localAreaToGlobal (getRowBounds ((int) effects.size()))),
+                            .withTargetScreenArea (localAreaToGlobal (getRowBounds ((int) slots.size()))),
                         [safe = juce::Component::SafePointer (this), plugins] (int result)
     {
         if (safe == nullptr || result == 0)
@@ -284,29 +411,29 @@ void EffectSlotList::showAddMenu()
         if (result >= externalMenuIdBase && result < externalMenuIdBase + plugins.size())
         {
             const auto& description = plugins.getReference (result - externalMenuIdBase);
-            safe->addEffect (model::Effect::externalType, &description);
+            safe->chain.add (model::Effect::externalType, &description);
         }
         else if (result >= internalMenuIdBase && result < internalMenuIdBase + numInternalEffects)
         {
-            safe->addEffect (internalEffects[result - internalMenuIdBase].type, nullptr);
+            safe->chain.add (internalEffects[result - internalMenuIdBase].type, nullptr);
         }
     });
 }
 
 void EffectSlotList::showSlotMenu (int row)
 {
-    if (row < 0 || row >= (int) effects.size())
+    if (row < 0 || row >= (int) slots.size())
         return;
 
-    const auto effect = effects[(size_t) row];
+    const auto slot = slots[(size_t) row];
 
     juce::PopupMenu menu;
-    menu.addSectionHeader (getSlotName (effect));
+    menu.addSectionHeader (slot.name);
     menu.addItem (1, "Open Editor");
-    menu.addItem (2, "Bypass", true, ! effect.isEnabled());
+    menu.addItem (2, "Bypass", true, ! slot.enabled);
     menu.addSeparator();
     menu.addItem (3, "Move Up", row > 0);
-    menu.addItem (4, "Move Down", row < (int) effects.size() - 1);
+    menu.addItem (4, "Move Down", row < (int) slots.size() - 1);
     menu.addSeparator();
     menu.addItem (5, "Remove");
 
@@ -319,14 +446,14 @@ void EffectSlotList::showSlotMenu (int row)
             return;
 
         // The chain may have changed while the menu was open.
-        if (row >= (int) safe->effects.size())
+        if (row >= (int) safe->slots.size())
             return;
 
         switch (result)
         {
             case 1:
                 if (safe->onOpenEffectEditor != nullptr)
-                    safe->onOpenEffectEditor (safe->effects[(size_t) row]);
+                    safe->onOpenEffectEditor (safe->slots[(size_t) row].id);
                 break;
             case 2:  safe->toggleBypass (row); break;
             case 3:  safe->moveEffect (row, row - 1); break;
@@ -337,70 +464,37 @@ void EffectSlotList::showSlotMenu (int row)
     });
 }
 
-void EffectSlotList::addEffect (const juce::String& type, const juce::PluginDescription* description)
-{
-    undoManager.beginNewTransaction();
-    generator.addEffect (type, description, &undoManager);
-}
-
 void EffectSlotList::toggleBypass (int row)
 {
-    if (row < 0 || row >= (int) effects.size())
+    if (row < 0 || row >= (int) slots.size())
         return;
 
-    // By value: the model write calls back into updateFromModel(), which
-    // replaces the vector this row came out of.
-    auto effect = effects[(size_t) row];
-
-    undoManager.beginNewTransaction();
-    effect.setEnabled (! effect.isEnabled(), &undoManager);
+    // By value: the edit calls back into refreshFromChain(), which replaces
+    // the vector this row came out of.
+    const auto slot = slots[(size_t) row];
+    chain.setEnabled (slot.id, ! slot.enabled);
 }
 
 void EffectSlotList::removeEffect (int row)
 {
-    if (row < 0 || row >= (int) effects.size())
+    if (row < 0 || row >= (int) slots.size())
         return;
 
-    auto effect = effects[(size_t) row];
+    const auto id = slots[(size_t) row].id;
 
     // The editor window holds the plugin this is about to delete.
     if (onEffectAboutToBeRemoved != nullptr)
-        onEffectAboutToBeRemoved (effect);
+        onEffectAboutToBeRemoved (id);
 
-    undoManager.beginNewTransaction();
-    generator.removeEffect (effect, &undoManager);
+    chain.remove (id);
 }
 
 void EffectSlotList::moveEffect (int row, int newIndex)
 {
-    if (row < 0 || row >= (int) effects.size())
+    if (row < 0 || row >= (int) slots.size())
         return;
 
-    auto effect = effects[(size_t) row];
-
-    undoManager.beginNewTransaction();
-    generator.moveEffect (effect, newIndex, &undoManager);
-}
-
-juce::String EffectSlotList::getSlotName (const model::Effect& effect) const
-{
-    if (effect.isExternal())
-    {
-        if (auto description = effect.getPluginDescription())
-            return description->name;
-
-        return "Plugin";
-    }
-
-    const auto type = effect.getType();
-
-    for (const auto& internal : internalEffects)
-        if (type == internal.type)
-            return internal.shortName;
-
-    // Something the menu never offered -- an older song, or a type added
-    // later. Its xmlTypeName is at least recognisable.
-    return type;
+    chain.move (slots[(size_t) row].id, newIndex);
 }
 
 } // namespace carve::app
