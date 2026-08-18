@@ -50,6 +50,14 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*generatorPanel);
     addAndMakeVisible (playlistViewport);
+    addAndMakeVisible (helpBar);
+
+    // The playlist re-sets these as the tool and selection change; this is what
+    // is true before anything has been touched.
+    helpBar.setEntries ({ { "Space", "play/stop" },
+                          { "Cmd+S", "save" },
+                          { "Cmd+Z", "undo" },
+                          { "Shift+Cmd+Z", "redo" } });
 
     loadSong (model::buildDemoSong());
 
@@ -379,6 +387,7 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
     transportBar->setBounds (area.removeFromTop (44));
+    helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     generatorPanel->setBounds (area.removeFromLeft (220));
     playlistViewport.setBounds (area);
 }

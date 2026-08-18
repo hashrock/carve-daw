@@ -69,7 +69,8 @@ target_sources(orionish-te PRIVATE
     src/app/PianoRollWindow.h
     src/app/PluginWindows.h
     src/app/PlaylistComponent.h
-    src/app/PlaylistComponent.cpp)
+    src/app/PlaylistComponent.cpp
+    src/app/ShortcutHelpBar.h)
 orionish_configure_target(orionish-te)
 
 # --- Headless renderer CLI ---

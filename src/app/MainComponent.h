@@ -6,6 +6,7 @@
 #include "MixerWindow.h"
 #include "PianoRollWindow.h"
 #include "PlaylistComponent.h"
+#include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
 #include "TransportBar.h"
 #include "model/SongModel.h"
@@ -69,6 +70,7 @@ private:
     std::unique_ptr<GeneratorPanel> generatorPanel;
     PlaylistComponent playlist { undoManager };
     juce::Viewport playlistViewport;
+    ShortcutHelpBar helpBar;
 
     juce::String selectedGeneratorId, selectedPatternId;
 
