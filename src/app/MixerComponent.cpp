@@ -684,22 +684,6 @@ private:
 MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     : edit (editToShow), undoManager (um)
 {
-    masterStrip = std::make_unique<MasterStrip> (edit, song.getMasterBus(), undoManager);
-
-    // The slot list knows nothing about where its plugins live, so the mixer
-    // hands it the things that need to know.
-    auto& masterSlots = masterStrip->getEffectSlots();
-    masterSlots.onOpenEffectEditor = [this] (const juce::String& effectId)
-    {
-        openEffectEditor ({}, effectId);
-    };
-    masterSlots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
-    {
-        closeEffectWindow (effectId);
-    };
-
-    addAndMakeVisible (*masterStrip);
-
     addReturnButton.onClick = [this]
     {
         undoManager.beginNewTransaction();
@@ -825,6 +809,28 @@ void MixerComponent::effectListChanged (const juce::ValueTree& parent)
 void MixerComponent::rebuildStrips()
 {
     cancelPendingUpdate();
+
+    // The master strip binds to the song's master bus at construction the way
+    // a channel strip binds to its generator, so a new song -- and setSong
+    // always follows construction -- needs a new strip. Building it against
+    // the placeholder song left the fader writing into a tree EditSync never
+    // saw, which is why it used to do nothing.
+    masterStrip = std::make_unique<MasterStrip> (edit, song.getMasterBus(), undoManager);
+
+    // The slot list knows nothing about where its plugins live, so the mixer
+    // hands it the things that need to know.
+    auto& masterSlots = masterStrip->getEffectSlots();
+    masterSlots.onOpenEffectEditor = [this] (const juce::String& effectId)
+    {
+        openEffectEditor ({}, effectId);
+    };
+    masterSlots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
+    {
+        closeEffectWindow (effectId);
+    };
+
+    addAndMakeVisible (*masterStrip);
+
     strips.clear();
 
     for (const auto& generator : song.getGenerators())
@@ -899,12 +905,12 @@ te::Plugin* MixerComponent::findEffectPlugin (const juce::String& generatorId,
     if (effectId.isEmpty())
         return nullptr;
 
-    // No generator means the master chain, where a plugin is addressed by its
-    // own EditItemID: there is no model Effect to carry an id of ours.
+    // No generator means the master chain. Its plugins are stamped with their
+    // model Effect's id by EditSync, exactly like a track's insert chain.
     if (generatorId.isEmpty())
     {
         for (auto plugin : edit.getMasterPluginList().getPlugins())
-            if (plugin->itemID.toString() == effectId)
+            if (plugin->state.getProperty (effectIdProperty).toString() == effectId)
                 return plugin;
 
         return nullptr;
