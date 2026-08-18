@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -46,6 +47,35 @@ namespace
     {
         return juce::File (path).hasFileExtension ("wav;aiff;aif;flac;ogg;mp3;m4a;caf");
     }
+
+    // "140" rather than "140.00", because a marker is only a few characters
+    // wide -- but a tempo that really has a fraction in it still shows it.
+    juce::String formatBpm (double bpm)
+    {
+        if (std::abs (bpm - std::round (bpm)) < 0.005)
+            return juce::String ((int) std::round (bpm));
+
+        return juce::String (bpm, 2).trimCharactersAtEnd ("0");
+    }
+
+    juce::String formatTimeSig (model::TimeSignature sig)
+    {
+        return juce::String (sig.numerator) + "/" + juce::String (sig.denominator);
+    }
+
+    // The colours the two kinds of change carry everywhere they are drawn: on
+    // the lane, and as the line down the grid where they take effect.
+    constexpr juce::uint32 tempoColour = 0xff4fa3c7, timeSigColour = 0xff9b7fd4;
+
+    // What the signature menu offers. Anything else needs a text field for two
+    // numbers, which is a lot of dialog for a case this rare.
+    constexpr model::TimeSignature commonTimeSignatures[] = {
+        { 4, 4 }, { 3, 4 }, { 2, 4 }, { 5, 4 }, { 6, 4 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 }
+    };
+
+    // Built where it is used rather than kept: a Font at namespace scope would
+    // be constructed before the graphics side of JUCE is ready for it.
+    juce::Font markerFont()  { return juce::Font (juce::FontOptions (10.0f)); }
 } // namespace
 
 PlaylistComponent::PlaylistComponent (juce::UndoManager& um)
@@ -227,6 +257,97 @@ void PlaylistComponent::layOutToolStrip()
     selectToolButton.setBounds (paintToolButton.getRight(), origin.y + 4, 54, h);
     zoomOutButton.setBounds (selectToolButton.getRight() + 12, origin.y + 4, 24, h);
     zoomInButton.setBounds (zoomOutButton.getRight(), origin.y + 4, 24, h);
+}
+
+//==============================================================================
+// Bars
+//
+// Every bar line in the component comes from here, so a song that changes time
+// signature part way through draws, snaps and numbers its bars the same way in
+// the ruler, the grid and every gesture.
+
+double PlaylistComponent::snapToBar (double beat) const
+{
+    if (beat <= 0.0)
+        return 0.0;
+
+    return song.beatOfBar (song.toBarsAndBeats (beat).bar);
+}
+
+double PlaylistComponent::nextBarAfter (double beat) const
+{
+    // beatOfBar of the following bar is always past this beat, wherever in its
+    // bar the beat sits, so there is no special case for a beat on a bar line.
+    return song.beatOfBar ((beat <= 0.0 ? 0 : song.toBarsAndBeats (beat).bar) + 1);
+}
+
+double PlaylistComponent::nearestBar (double beat, const juce::ValueTree& ignore) const
+{
+    if (beat <= 0.0)
+        return 0.0;
+
+    // The bar grid restarts at every change, so the last one at or before the
+    // beat is the only one that decides where the bar lines around it fall.
+    model::TimeSignature signature;
+    double from = 0.0;
+
+    for (const auto& change : song.getTimeSigChanges())
+    {
+        if (change.state == ignore)
+            continue;
+
+        if (change.getStartBeat() > beat)
+            break;
+
+        from = change.getStartBeat();
+        signature = change.getSignature();
+    }
+
+    const auto beatsPerBar = std::max (0.25, signature.getBeatsPerBar());
+    const auto before = from + std::floor ((beat - from) / beatsPerBar + beatTolerance) * beatsPerBar;
+    const auto after = before + beatsPerBar;
+
+    return beat - before < after - beat ? before : after;
+}
+
+double PlaylistComponent::barLengthAt (double beat) const
+{
+    const auto start = snapToBar (beat);
+    return std::max (0.25, nextBarAfter (start) - start);
+}
+
+void PlaylistComponent::forEachBar (double untilBeat,
+                                    const std::function<void (int, double, double)>& fn) const
+{
+    const auto changes = song.getTimeSigChanges();
+    model::TimeSignature signature;
+    size_t next = 0;
+    double beat = 0.0;
+
+    // A change is only picked up on the bar line at or after it starts: the
+    // lane snaps every one it writes to a bar line, and rounding a hand-written
+    // one up is better than drawing a bar the model would not agree exists.
+    for (int bar = 0; beat <= untilBeat; ++bar)
+    {
+        while (next < changes.size() && changes[next].getStartBeat() <= beat + beatTolerance)
+            signature = changes[next++].getSignature();
+
+        const auto length = std::max (0.25, signature.getBeatsPerBar());
+        fn (bar, beat, length);
+        beat += length;
+    }
+}
+
+double PlaylistComponent::shortestBar() const
+{
+    // 4/4 until the first change, so a song whose changes are all longer bars
+    // still thins its lines against the four beats it opens with.
+    auto shortest = model::TimeSignature().getBeatsPerBar();
+
+    for (const auto& change : song.getTimeSigChanges())
+        shortest = std::min (shortest, change.getSignature().getBeatsPerBar());
+
+    return std::max (0.25, shortest);
 }
 
 //==============================================================================
@@ -442,7 +563,16 @@ void PlaylistComponent::updateShortcutHelp()
     std::vector<ShortcutHelpBar::Entry> entries;
     const auto mods = juce::ModifierKeys::getCurrentModifiers();
 
-    if (mods.isAltDown())
+    // Over the tempo lane nothing the tools offer applies, so it gets the bar
+    // to itself: none of these gestures exist anywhere else.
+    if (hoverMarkerLane)
+    {
+        entries.push_back ({ "drag", "move tempo / time sig" });
+        entries.push_back ({ "double click", "edit, or add a tempo change" });
+        entries.push_back ({ "right click", "add or remove" });
+        entries.push_back ({ "Alt+click", "remove" });
+    }
+    else if (mods.isAltDown())
     {
         // Alt takes the drag over from whichever tool is active, so leading
         // with the tool's own drag here would be a lie.
@@ -588,6 +718,92 @@ void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioCli
                 juce::Justification::centredLeft);
 }
 
+std::vector<PlaylistComponent::Marker> PlaylistComponent::markers() const
+{
+    const auto lane = markerLaneBounds();
+    const auto font = markerFont();
+    std::vector<Marker> result;
+
+    // A marker's left edge sits on its beat and its label runs to the right of
+    // it, so the thing that marks the position is the edge the eye lines up
+    // with the bar line under it.
+    auto add = [&] (const juce::ValueTree& state, double beat, const juce::String& text)
+    {
+        const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 10.0f;
+        result.push_back ({ state, beat, text,
+                            { beatToX (beat), lane.getY() + 2.0f, width, lane.getHeight() - 4.0f } });
+    };
+
+    for (const auto& change : song.getTempoChanges())
+        add (change.state, change.getStartBeat(), formatBpm (change.getBpm()));
+
+    for (const auto& change : song.getTimeSigChanges())
+        add (change.state, change.getStartBeat(), formatTimeSig (change.getSignature()));
+
+    return result;
+}
+
+std::optional<PlaylistComponent::Marker> PlaylistComponent::markerAt (juce::Point<float> position) const
+{
+    const auto all = markers();
+
+    // In reverse, so whichever marker is drawn on top of an overlapping pair is
+    // also the one that gets clicked.
+    for (auto i = all.rbegin(); i != all.rend(); ++i)
+        if (i->bounds.contains (position))
+            return *i;
+
+    return std::nullopt;
+}
+
+void PlaylistComponent::paintMarkerLane (juce::Graphics& g)
+{
+    const auto lane = markerLaneBounds();
+
+    g.setColour (juce::Colour (0xff1e1e23));
+    g.fillRect (lane);
+    g.setColour (juce::Colour (0xff2f2f36));
+    g.drawHorizontalLine ((int) lane.getBottom() - 1, 0.0f, (float) getWidth());
+
+    // The label cell says what the lane is: nothing else here names it, and an
+    // empty strip would otherwise read as padding.
+    g.setFont (9.0f);
+    g.setColour (juce::Colour (0xff6a6a74));
+    g.drawText ("TEMPO / SIG", 8, (int) lane.getY(), labelWidth - 12, (int) lane.getHeight(),
+                juce::Justification::centredLeft);
+
+    // What the song opens with, dim and untouchable, so the lane says what it
+    // holds in a song that never changes either. Dropped as soon as a change
+    // of either kind sits on beat 0, which is where this would be drawn.
+    if (! hasChangeAt (true, 0.0) && ! hasChangeAt (false, 0.0))
+    {
+        const auto opening = formatBpm (song.getTempo()) + " " + formatTimeSig (song.getTimeSigAt (0.0));
+
+        g.setFont (markerFont());
+        g.setColour (juce::Colour (0xff5c5c66));
+        g.drawText (opening, (int) beatToX (0.0) + 4, (int) lane.getY(), 90, (int) lane.getHeight(),
+                    juce::Justification::centredLeft);
+    }
+
+    for (const auto& marker : markers())
+    {
+        const auto colour = juce::Colour (marker.isTempo() ? tempoColour : timeSigColour);
+        const bool dragging = dragMarker.isValid() && dragMarker == marker.state;
+
+        g.setColour (colour.withAlpha (dragging ? 0.95f : 0.75f));
+        g.fillRoundedRectangle (marker.bounds, 2.0f);
+
+        // The tick is the marker's actual position; the block behind the label
+        // only hangs off it.
+        g.fillRect (marker.bounds.getX() - 1.0f, lane.getY(), 2.0f, lane.getHeight());
+
+        g.setFont (markerFont());
+        g.setColour (juce::Colours::black.withAlpha (0.85f));
+        g.drawText (marker.text, marker.bounds.reduced (4.0f, 0.0f).toNearestInt(),
+                    juce::Justification::centredLeft);
+    }
+}
+
 void PlaylistComponent::paintRuler (juce::Graphics& g)
 {
     const auto ruler = rulerBounds();
@@ -609,25 +825,31 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
     }
 
     // Bar numbers, thinned to whatever power-of-two step keeps the labels from
-    // colliding at this zoom.
-    const auto barWidth = snapBeats * pixelsPerBeat;
+    // colliding at this zoom. Measured against the shortest bar in the song, so
+    // the step that clears a 3/4 bar clears every other one too.
+    const auto narrowestBarWidth = shortestBar() * pixelsPerBeat;
     int labelStep = 1;
-    while ((double) labelStep * barWidth < 46.0)
+    while ((double) labelStep * narrowestBarWidth < 46.0)
         labelStep *= 2;
 
-    const auto lengthBeats = getContentLengthBeats();
     g.setFont (10.0f);
 
-    for (int bar = 0; (double) bar * snapBeats <= lengthBeats; bar += labelStep)
+    forEachBar (getContentLengthBeats(), [&] (int bar, double startBeat, double lengthBeats)
     {
-        const auto x = beatToX ((double) bar * snapBeats);
+        if (bar % labelStep != 0)
+            return;
+
+        const auto x = beatToX (startBeat);
         g.setColour (juce::Colour (0xff4a4a52));
         g.drawVerticalLine ((int) x, ruler.getY() + 6.0f, ruler.getBottom());
         g.setColour (juce::Colour (0xff9a9aa4));
+
+        // Bars are 0-based in the model and 1-based on screen, like every
+        // other DAW.
         g.drawText (juce::String (bar + 1), (int) x + 3, (int) ruler.getY(),
-                    juce::roundToInt ((double) labelStep * barWidth), rulerHeight,
+                    juce::roundToInt ((double) labelStep * lengthBeats * pixelsPerBeat), rulerHeight,
                     juce::Justification::centredLeft);
-    }
+    });
 
     // Playhead marker, so the ruler shows where playback is even when the rows
     // are scrolled out of view.
@@ -650,17 +872,15 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
     // Vertical grid, thinned as we zoom out: beat lines only while a beat is
     // still a few pixels wide, then every 2nd / 4th / ... bar, so the lines
-    // never close up into a solid block.
-    const auto barWidth = snapBeats * pixelsPerBeat;
+    // never close up into a solid block. Thinned against the shortest bar in
+    // the song, for the same reason the ruler's labels are.
     const bool drawBeats = pixelsPerBeat >= 7.0;
     int barStep = 1;
-    while ((double) barStep * barWidth < 9.0)
+    while ((double) barStep * shortestBar() * pixelsPerBeat < 9.0)
         barStep *= 2;
 
-    for (int bar = 0; (double) bar * snapBeats <= lengthBeats; ++bar)
+    forEachBar (lengthBeats, [&] (int bar, double barStart, double barLength)
     {
-        const auto barStart = (double) bar * snapBeats;
-
         if (bar % barStep == 0)
         {
             g.setColour (juce::Colour (0xff4a4a52));
@@ -670,9 +890,18 @@ void PlaylistComponent::paint (juce::Graphics& g)
         if (drawBeats)
         {
             g.setColour (juce::Colour (0xff2c2c31));
-            for (double beat = 1.0; beat < snapBeats; beat += 1.0)
+            for (double beat = 1.0; beat < barLength - beatTolerance; beat += 1.0)
                 g.drawVerticalLine ((int) beatToX (barStart + beat), gridTop, (float) getHeight());
         }
+    });
+
+    // Where the song changes tempo or meter, drawn the full height of the grid
+    // so the change reads as applying to everything from there on rather than
+    // being a note in the header band.
+    for (const auto& marker : markers())
+    {
+        g.setColour (juce::Colour (marker.isTempo() ? tempoColour : timeSigColour).withAlpha (0.25f));
+        g.drawVerticalLine ((int) beatToX (marker.beat), gridTop, (float) getHeight());
     }
 
     // The loop range washes over the whole grid, not just the ruler, so it
@@ -796,7 +1025,8 @@ void PlaylistComponent::paint (juce::Graphics& g)
     // anywhere else says so, because the drop makes a generator first.
     if (fileDropTarget)
     {
-        const auto r = slotBounds (fileDropTarget->ghostRow, fileDropTarget->startBeats, snapBeats);
+        const auto r = slotBounds (fileDropTarget->ghostRow, fileDropTarget->startBeats,
+                                   barLengthAt (fileDropTarget->startBeats));
 
         g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.20f));
         g.fillRoundedRectangle (r, 3.0f);
@@ -830,6 +1060,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
     const auto header = headerBounds();
     g.setColour (juce::Colour (0xff1b1b1f));
     g.fillRect (toolbarBounds());
+    paintMarkerLane (g);
     paintRuler (g);
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
@@ -982,7 +1213,16 @@ void PlaylistComponent::duplicateSelection()
     if (spanEnd <= spanStart)
         return;
 
-    const auto offset = std::max (snapBeats, std::ceil ((spanEnd - spanStart) / snapBeats) * snapBeats);
+    // A whole number of bars, and at least one, measured from the bar the
+    // selection starts in -- so the copies land on the grid however the meter
+    // changes across them.
+    const auto from = snapToBar (spanStart);
+    auto to = nextBarAfter (from);
+
+    while (to < spanEnd - beatTolerance)
+        to = nextBarAfter (to);
+
+    const auto offset = to - from;
 
     undoManager.beginNewTransaction();
 
@@ -1120,7 +1360,7 @@ void PlaylistComponent::dragLoopTo (double beat)
 {
     // Loop edges land on the nearest bar, not the one before, so the range
     // follows the pointer in both directions.
-    const auto snapped = std::max (0.0, std::round (beat / snapBeats) * snapBeats);
+    const auto snapped = nearestBar (beat);
     const auto start = std::min (loopAnchorBeats, snapped);
     const auto end = std::max (loopAnchorBeats, snapped);
 
@@ -1135,6 +1375,263 @@ void PlaylistComponent::dragLoopTo (double beat)
         return;
 
     song.setLoopRange (start, end, &undoManager);
+}
+
+//==============================================================================
+// The tempo lane
+//
+// A tempo change may sit on any beat -- a fill that speeds up does not care
+// where the bar line is -- but a time signature change may only sit on a bar
+// line, because a bar that changes meter part way through is not a bar. The
+// model deliberately enforces neither, so this is where both rules live.
+
+bool PlaylistComponent::hasChangeAt (bool tempo, double beat, const juce::ValueTree& ignore) const
+{
+    auto sitsOn = [&] (const juce::ValueTree& state, double at)
+    {
+        return state != ignore && std::abs (at - beat) < beatTolerance;
+    };
+
+    if (tempo)
+    {
+        for (const auto& change : song.getTempoChanges())
+            if (sitsOn (change.state, change.getStartBeat()))
+                return true;
+
+        return false;
+    }
+
+    for (const auto& change : song.getTimeSigChanges())
+        if (sitsOn (change.state, change.getStartBeat()))
+            return true;
+
+    return false;
+}
+
+void PlaylistComponent::addTempoChangeAt (double beat, double bpm)
+{
+    beat = std::max (0.0, beat);
+
+    // Two changes of a kind on one beat would fight over which of them wins,
+    // so the second is simply not made; the first is still there to edit.
+    if (hasChangeAt (true, beat))
+        return;
+
+    undoManager.beginNewTransaction();
+    song.addTempoChange (beat, bpm, &undoManager);
+}
+
+void PlaylistComponent::addTimeSigChangeAt (double beat, model::TimeSignature signature)
+{
+    beat = nearestBar (std::max (0.0, beat));
+
+    if (hasChangeAt (false, beat))
+        return;
+
+    undoManager.beginNewTransaction();
+    song.addTimeSigChange (beat, signature, &undoManager);
+}
+
+void PlaylistComponent::removeMarker (const juce::ValueTree& state)
+{
+    undoManager.beginNewTransaction();
+
+    if (state.hasType (model::ids::TEMPO))
+        song.removeTempoChange (model::TempoChange (state), &undoManager);
+    else
+        song.removeTimeSigChange (model::TimeSigChange (state), &undoManager);
+}
+
+void PlaylistComponent::dragMarkerTo (double beat)
+{
+    if (! dragMarker.isValid())
+        return;
+
+    const bool tempo = dragMarker.hasType (model::ids::TEMPO);
+
+    // A tempo change lands on the nearest beat, the same coarseness an audio
+    // trim uses: fine enough to put one anywhere the grid means anything, and
+    // coarse enough that a drag writes once per beat rather than once per
+    // pixel. A time signature change lands on the nearest bar line of the song
+    // as it would be without this change in it -- the bars it defines itself
+    // travel with it, so measuring against those would let it end up between
+    // the bar lines everything else is drawn on.
+    const auto target = tempo ? std::max (0.0, std::round (beat))
+                              : nearestBar (std::max (0.0, beat), dragMarker);
+
+    if (std::abs (target - markerLastBeat) < beatTolerance || hasChangeAt (tempo, target, dragMarker))
+        return;   // nothing to write, or another change already owns that beat
+
+    markerLastBeat = target;
+
+    // Held by value: the write calls back into refresh() synchronously.
+    const auto state = dragMarker;
+
+    if (tempo)
+        model::TempoChange (state).setStartBeat (target, &undoManager);
+    else
+        model::TimeSigChange (state).setStartBeat (target, &undoManager);
+}
+
+void PlaylistComponent::editTempoValue (juce::ValueTree existing, double beatForNew)
+{
+    const auto beat = existing.isValid() ? model::TempoChange (existing).getStartBeat() : beatForNew;
+    const auto current = existing.isValid() ? model::TempoChange (existing).getBpm()
+                                            : song.getTempoAt (beat);
+    const auto bars = song.toBarsAndBeats (beat);
+
+    auto* window = new juce::AlertWindow ("Tempo change",
+                                          "Tempo in BPM from bar " + juce::String (bars.bar + 1),
+                                          juce::MessageBoxIconType::NoIcon, this);
+    window->addTextEditor ("bpm", formatBpm (current), "BPM");
+    window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    // The dialog is asynchronous, so nothing captured here may be dereferenced
+    // without checking that we - and the change - are still around. The window
+    // itself outlives the callback: it is deleted after the callbacks run.
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safeThis, window, existing, beat] (int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            const auto bpm = window->getTextEditorContents ("bpm").getDoubleValue();
+
+            if (bpm <= 0.0)
+                return;   // not a number, or nonsense: leave the song alone
+
+            if (existing.isValid())
+            {
+                // It may have been dragged, undone or deleted while the dialog
+                // was up, so a change that has left the song writes nothing
+                // rather than being resurrected.
+                if (existing.isAChildOf (safeThis->song.state))
+                {
+                    safeThis->undoManager.beginNewTransaction();
+                    model::TempoChange (existing).setBpm (bpm, &safeThis->undoManager);
+                }
+
+                return;
+            }
+
+            safeThis->addTempoChangeAt (beat, bpm);
+        }), true);
+}
+
+void PlaylistComponent::chooseTimeSigValue (juce::ValueTree existing, double beatForNew,
+                                            juce::Rectangle<float> targetArea)
+{
+    const auto beat = existing.isValid() ? model::TimeSigChange (existing).getStartBeat() : beatForNew;
+    const auto current = existing.isValid() ? model::TimeSigChange (existing).getSignature()
+                                            : song.getTimeSigAt (beat);
+
+    juce::PopupMenu menu;
+    for (int i = 0; i < (int) std::size (commonTimeSignatures); ++i)
+        menu.addItem (i + 1, formatTimeSig (commonTimeSignatures[i]), true,
+                      commonTimeSignatures[i] == current);
+
+    const auto options = juce::PopupMenu::Options()
+                             .withTargetComponent (this)
+                             .withTargetScreenArea (localAreaToGlobal (targetArea.toNearestInt()));
+
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+
+    menu.showMenuAsync (options, [safeThis, existing, beat] (int result)
+    {
+        if (safeThis == nullptr || result <= 0 || result > (int) std::size (commonTimeSignatures))
+            return;
+
+        const auto chosen = commonTimeSignatures[result - 1];
+
+        if (! existing.isValid())
+        {
+            safeThis->addTimeSigChangeAt (beat, chosen);
+            return;
+        }
+
+        if (! existing.isAChildOf (safeThis->song.state))
+            return;
+
+        safeThis->undoManager.beginNewTransaction();
+        model::TimeSigChange (existing).setSignature (chosen, &safeThis->undoManager);
+    });
+}
+
+void PlaylistComponent::showMarkerMenu (const Marker& marker)
+{
+    juce::PopupMenu menu;
+    menu.addItem (1, marker.isTempo() ? "Edit tempo..." : "Change signature...");
+    menu.addItem (2, "Remove");
+
+    const auto options = juce::PopupMenu::Options()
+                             .withTargetComponent (this)
+                             .withTargetScreenArea (localAreaToGlobal (marker.bounds.toNearestInt()));
+
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+    const auto state = marker.state;
+    const auto bounds = marker.bounds;
+
+    menu.showMenuAsync (options, [safeThis, state, bounds] (int result)
+    {
+        if (safeThis == nullptr || result <= 0 || ! state.isAChildOf (safeThis->song.state))
+            return;
+
+        if (result == 2)
+        {
+            safeThis->removeMarker (state);
+            return;
+        }
+
+        if (state.hasType (model::ids::TEMPO))
+            safeThis->editTempoValue (state, 0.0);
+        else
+            safeThis->chooseTimeSigValue (state, 0.0, bounds);
+    });
+}
+
+void PlaylistComponent::showLaneMenu (double beat, juce::Point<float> position)
+{
+    // The two kinds land differently, so the beats are worked out here and the
+    // menu says which bar each one would go on.
+    const auto tempoBeat = std::max (0.0, std::round (beat));
+    const auto sigBeat = nearestBar (std::max (0.0, beat));
+
+    juce::PopupMenu signatures;
+    for (int i = 0; i < (int) std::size (commonTimeSignatures); ++i)
+        signatures.addItem (10 + i, formatTimeSig (commonTimeSignatures[i]));
+
+    juce::PopupMenu menu;
+    menu.addItem (1, "Add tempo change at bar " + juce::String (song.toBarsAndBeats (tempoBeat).bar + 1) + "...");
+    menu.addSubMenu ("Add time signature at bar " + juce::String (song.toBarsAndBeats (sigBeat).bar + 1),
+                     signatures);
+
+    const auto options = juce::PopupMenu::Options()
+                             .withTargetComponent (this)
+                             .withTargetScreenArea (localAreaToGlobal (juce::Rectangle<int> ((int) position.x,
+                                                                                             (int) position.y,
+                                                                                             1, 1)));
+
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+
+    menu.showMenuAsync (options, [safeThis, tempoBeat, sigBeat] (int result)
+    {
+        if (safeThis == nullptr || result <= 0)
+            return;
+
+        if (result == 1)
+        {
+            safeThis->editTempoValue ({}, tempoBeat);
+            return;
+        }
+
+        const auto index = result - 10;
+
+        if (index >= 0 && index < (int) std::size (commonTimeSignatures))
+            safeThis->addTimeSigChangeAt (sigBeat, commonTimeSignatures[index]);
+    });
 }
 
 void PlaylistComponent::updateRubberBand (juce::Point<float> position)
@@ -1168,6 +1665,10 @@ void PlaylistComponent::updateRubberBand (juce::Point<float> position)
 juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
                                                 juce::ModifierKeys mods) const
 {
+    if (markerLaneBounds().contains (position))
+        return markerAt (position) ? juce::MouseCursor::DraggingHandCursor   // drag moves the change
+                                   : juce::MouseCursor::NormalCursor;
+
     if (rulerBounds().contains (position))
         return juce::MouseCursor::PointingHandCursor;   // drag sets the loop range
 
@@ -1214,6 +1715,14 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
     lastMousePosition = position;
     setMouseCursor (cursorFor (position, juce::ModifierKeys::getCurrentModifiers()));
 
+    // The lane has gestures of its own, so entering or leaving it changes what
+    // the help bar has to say.
+    if (const bool inLane = markerLaneBounds().contains (position); inLane != hoverMarkerLane)
+    {
+        hoverMarkerLane = inLane;
+        updateShortcutHelp();
+    }
+
     const int row = position.x >= (float) labelWidth && ! headerBounds().contains (position)
                         ? yToRow (position.y) : -1;
     const auto start = snapToBar (xToBeat (position.x));
@@ -1236,6 +1745,8 @@ void PlaylistComponent::mouseExit (const juce::MouseEvent&)
 {
     mouseIsOver = false;
     hoverRow = -1;
+    hoverMarkerLane = false;
+    updateShortcutHelp();
     repaint();
 }
 
@@ -1259,13 +1770,49 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     dragMode = DragMode::none;
 
+    if (markerLaneBounds().contains (e.position))
+    {
+        const auto marker = markerAt (e.position);
+
+        // Alt erases on the grid, so it erases here too.
+        if (marker && e.mods.isAltDown() && ! e.mods.isPopupMenu())
+        {
+            removeMarker (marker->state);
+            return;
+        }
+
+        if (e.mods.isPopupMenu())
+        {
+            if (marker)
+                showMarkerMenu (*marker);
+            else
+                showLaneMenu (xToBeat (e.position.x), e.position);
+
+            return;
+        }
+
+        // A press on empty lane does nothing: adding is a double click or the
+        // menu, so a stray click here cannot litter the song with changes.
+        if (marker)
+        {
+            dragMode = DragMode::marker;
+            dragMarker = marker->state;
+            markerGrabOffsetBeats = xToBeat (e.position.x) - marker->beat;
+            markerLastBeat = marker->beat;
+            undoManager.beginNewTransaction();
+            repaint();
+        }
+
+        return;
+    }
+
     if (rulerBounds().contains (e.position) && ! e.mods.isRightButtonDown())
     {
         // Drag the ruler to set the loop range. Grabbing within a few pixels of
         // an existing edge drags that edge (the other one becomes the anchor);
         // anywhere else starts a fresh range from that bar. A click that never
         // leaves its bar clears the range - see mouseUp.
-        loopAnchorBeats = std::max (0.0, std::round (xToBeat (e.position.x) / snapBeats) * snapBeats);
+        loopAnchorBeats = nearestBar (xToBeat (e.position.x));
         loopDragMoved = false;
 
         if (song.hasLoopRange())
@@ -1410,6 +1957,10 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             dragLoopTo (xToBeat (e.position.x));
             break;
 
+        case DragMode::marker:
+            dragMarkerTo (xToBeat (e.position.x) - markerGrabOffsetBeats);
+            break;
+
         case DragMode::rubberBand:
             updateRubberBand (e.position);
             break;
@@ -1428,6 +1979,7 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 
     dragMode = DragMode::none;
     dragOriginStarts.clear();
+    dragMarker = {};
     trimClip = {};
     rubberBand = {};
     rubberBandBaseSelection.clear();
@@ -1451,8 +2003,30 @@ void PlaylistComponent::mouseWheelMove (const juce::MouseEvent& e,
 
 void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (e.mods.isRightButtonDown() || e.position.x < (float) labelWidth
-            || headerBounds().contains (e.position))
+    if (e.mods.isPopupMenu())
+        return;   // the press already opened a menu
+
+    if (markerLaneBounds().contains (e.position))
+    {
+        if (auto marker = markerAt (e.position))
+        {
+            if (marker->isTempo())
+                editTempoValue (marker->state, 0.0);
+            else
+                chooseTimeSigValue (marker->state, 0.0, marker->bounds);
+        }
+        else
+        {
+            // Empty lane adds a tempo change, because that is the kind that can
+            // go where it was clicked; a time signature has to be picked from
+            // the menu, which is also where it is told which bar it lands on.
+            editTempoValue ({}, std::max (0.0, std::round (xToBeat (e.position.x))));
+        }
+
+        return;
+    }
+
+    if (e.position.x < (float) labelWidth || headerBounds().contains (e.position))
         return;
 
     const int row = yToRow (e.position.y);
@@ -1621,14 +2195,16 @@ void PlaylistComponent::filesDropped (const juce::StringArray& files, int x, int
         // Never stack, the same rule painting follows: slide past whatever the
         // row already holds rather than burying it.
         while (! isRangeFree (*generator, start, lengthInBeats (start)))
-            start += snapBeats;
+            start = nextBarAfter (start);
 
         const auto length = lengthInBeats (start);
         placed.push_back (playlist.addAudioClip (*generator, file, start, seconds, &undoManager).state);
 
         // Several files dropped at once lay out end to end, rounded up to the
         // bar so the next one still lands on the grid.
-        start += std::ceil (length / snapBeats) * snapBeats;
+        const auto end = start + length;
+        while (start < end - beatTolerance)
+            start = nextBarAfter (start);
     }
 
     // Select what was placed: it is what the user will want to move or trim,
