@@ -4,6 +4,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "plugins/DistortionPlugin.h"
+
 namespace te = tracktion;
 
 namespace orionish
@@ -68,9 +70,15 @@ struct HeadlessUIBehaviour : te::UIBehaviour
 inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour> uiBehaviour = nullptr,
                                                  bool scanPluginsOutOfProcess = false)
 {
-    return std::make_unique<te::Engine> (
+    auto engine = std::make_unique<te::Engine> (
         applicationName, std::move (uiBehaviour),
         std::make_unique<PlaybackOnlyEngineBehaviour> (scanPluginsOutOfProcess));
+
+    // Our own effects, registered like tracktion's own internal ones so they
+    // are created from a song by type name and need no plugin scan.
+    engine->getPluginManager().createBuiltInType<plugins::DistortionPlugin>();
+
+    return engine;
 }
 
 } // namespace orionish

@@ -29,7 +29,9 @@ set(ORIONISH_CORE_SOURCES
     src/model/DemoSong.h
     src/model/DemoSong.cpp
     src/sync/EditSync.h
-    src/sync/EditSync.cpp)
+    src/sync/EditSync.cpp
+    src/plugins/DistortionPlugin.h
+    src/plugins/DistortionPlugin.cpp)
 
 function(orionish_configure_target target)
     target_sources(${target} PRIVATE ${ORIONISH_CORE_SOURCES})
