@@ -161,6 +161,10 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
 
     slotGrid.onSlotClicked = [this] (model::PatternSlot slot) { slotClicked (slot); };
 
+    padGrid.onPadClicked = [this] (int pad) { padClicked (pad); };
+    padGrid.onFilesDropped = [this] (int pad, const juce::StringArray& files) { padFilesDropped (pad, files); };
+    padGrid.isInterestedInFiles = [this] (const juce::StringArray& files) { return isInterestedInFileDrag (files); };
+
     patternBox.onChange = [this]
     {
         if (isRefreshing)
@@ -189,6 +193,9 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
              &editPatternButton, &patternHeader, &slotGrid, &patternBox })
         addAndMakeVisible (c);
 
+    // Only a drum kit has pads; refresh below shows the grid if one is selected.
+    addChildComponent (padGrid);
+
     song.state.addListener (this);
     refresh();
 
@@ -207,6 +214,7 @@ void GeneratorPanel::showAddGeneratorMenu()
     juce::PopupMenu menu;
     menu.addItem (1, "4OSC (internal synth)");
     menu.addItem (3, "Sampler (choose a sample)...");
+    menu.addItem (4, "Drum Kit (16 pads)");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> instruments;
@@ -241,6 +249,13 @@ void GeneratorPanel::showAddGeneratorMenu()
             // The sample comes first so the generator can be named after it;
             // a cancelled chooser leaves no empty sampler behind.
             launchSampleChooser ([this] (const juce::File& sample) { addSamplerGenerator (sample); });
+        }
+        else if (result == 4)
+        {
+            // The other way round from a sampler: the kit is created empty and
+            // filled a pad at a time, so there is nothing to name it after.
+            addGenerator ("Drum Kit " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::drumKitType, nullptr);
         }
         else if (result >= 100 && result < 100 + instruments.size())
         {
@@ -296,7 +311,9 @@ void GeneratorPanel::addSamplerGenerator (const juce::File& sample)
 
 void GeneratorPanel::assignSample (model::Generator generator, const juce::File& sample)
 {
-    if (! generator.isSampler())
+    // A drum kit is a sampler too, but its sounds are its pads: one sample
+    // stretched over the keyboard would silently delete the whole kit.
+    if (! generator.isSampler() || generator.isDrumKit())
         return;
 
     undoManager.beginNewTransaction();
@@ -306,6 +323,132 @@ void GeneratorPanel::assignSample (model::Generator generator, const juce::File&
     generator.setSingleSound (sample, &undoManager);
     refresh();
 }
+
+//==============================================================================
+// Drum pads
+
+void GeneratorPanel::padClicked (int pad)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isDrumKit())
+        return;
+
+    const auto generatorId = generator->getId();
+
+    // The generator is looked up again inside every callback: the chooser and
+    // the menu are asynchronous, and the song may have been replaced by then.
+    auto chooseSample = [this, generatorId, pad]
+    {
+        launchSampleChooser ([this, generatorId, pad] (const juce::File& sample)
+        {
+            if (auto target = song.findGenerator (generatorId))
+                assignPadSample (*target, pad, sample);
+        });
+    };
+
+    if (! drumkit::findSoundForPad (*generator, pad))
+    {
+        chooseSample();
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addItem (1, "Replace sample...");
+    menu.addItem (2, "Clear pad");
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetComponent (padGrid)
+                            .withTargetScreenArea (padGrid.localAreaToGlobal (padGrid.getPadBounds (pad))),
+                        [this, generatorId, pad, chooseSample] (int result)
+    {
+        if (result == 1)
+            chooseSample();
+        else if (result == 2)
+            if (auto target = song.findGenerator (generatorId))
+                clearPad (*target, pad);
+    });
+}
+
+void GeneratorPanel::setPadSound (model::Generator& generator, int pad, const juce::File& sample)
+{
+    if (pad < 0 || pad >= drumkit::numPads)
+        return;
+
+    // Whatever the pad had goes: two sounds on one note would both fire, which
+    // is never what assigning a sample to a pad means.
+    if (auto existing = drumkit::findSoundForPad (generator, pad))
+        generator.removeSound (*existing, &undoManager);
+
+    const int note = drumkit::getNoteForPad (pad);
+    auto sound = generator.addSound (sample, &undoManager);
+
+    // Root note == the pad's note, so the sample plays back untransposed, and
+    // a one-note key range, so it answers to this pad and nothing else.
+    sound.setRootNote (note, &undoManager);
+    sound.setKeyRange (note, note, &undoManager);
+}
+
+void GeneratorPanel::assignPadSample (model::Generator generator, int pad, const juce::File& sample)
+{
+    if (! generator.isDrumKit())
+        return;
+
+    undoManager.beginNewTransaction();
+    setPadSound (generator, pad, sample);
+    refresh();
+}
+
+void GeneratorPanel::clearPad (model::Generator generator, int pad)
+{
+    auto sound = drumkit::findSoundForPad (generator, pad);
+
+    if (! sound)
+        return;
+
+    undoManager.beginNewTransaction();
+    generator.removeSound (*sound, &undoManager);
+    refresh();
+}
+
+void GeneratorPanel::padFilesDropped (int startPad, const juce::StringArray& files)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isDrumKit())
+        return;
+
+    // One transaction for the whole drop: dropping a handful of one-shots at
+    // once is a single gesture, and undo should take the whole kit back.
+    undoManager.beginNewTransaction();
+
+    int pad = startPad;
+
+    for (const auto& path : files)
+    {
+        if (pad >= drumkit::numPads)
+            break;
+
+        const juce::File sample (path);
+
+        if (engine.getAudioFileFormatManager().canOpen (sample))
+            setPadSound (*generator, pad++, sample);
+    }
+
+    refresh();
+}
+
+void GeneratorPanel::assignToFirstFreePad (model::Generator generator, const juce::File& sample)
+{
+    for (int pad = 0; pad < drumkit::numPads; ++pad)
+        if (! drumkit::findSoundForPad (generator, pad))
+        {
+            assignPadSample (generator, pad, sample);
+            return;
+        }
+}
+
+//==============================================================================
 
 std::optional<model::Generator> GeneratorPanel::getGeneratorAt (juce::Point<int> position) const
 {
@@ -339,9 +482,15 @@ void GeneratorPanel::filesDropped (const juce::StringArray& files, int x, int y)
         if (! engine.getAudioFileFormatManager().canOpen (sample))
             continue;
 
-        // Dropping onto a sampler swaps its sample; anywhere else -- another
-        // generator, or the empty space below the list -- makes a new one.
-        if (auto generator = getGeneratorAt ({ x, y }); generator && generator->isSampler())
+        // Dropping onto a sampler swaps its sample; onto a drum kit it fills
+        // the next free pad, because swapping would throw the kit away.
+        // Anywhere else -- another generator, or the empty space below the
+        // list -- makes a new sampler.
+        auto generator = getGeneratorAt ({ x, y });
+
+        if (generator && generator->isDrumKit())
+            assignToFirstFreePad (*generator, sample);
+        else if (generator && generator->isSampler())
             assignSample (*generator, sample);
         else
             addSamplerGenerator (sample);
@@ -500,7 +649,50 @@ void GeneratorPanel::refresh()
     generatorList.updateContent();
     generatorList.repaint();
     rebuildSlotGrid();
+    rebuildPadGrid();
     rebuildPatternBox();
+}
+
+void GeneratorPanel::rebuildPadGrid()
+{
+    auto generator = getSelectedGenerator();
+    const bool isDrumKit = generator && generator->isDrumKit();
+
+    if (isDrumKit)
+    {
+        // Which pads the pattern being edited plays, so the kit and the piano
+        // roll line up without opening the roll. A pattern holds few enough
+        // notes that walking them once per refresh costs nothing.
+        std::array<bool, (size_t) drumkit::numPads> used {};
+
+        if (auto pattern = generator->findPattern (selectedPatternId))
+            for (const auto& note : pattern->getNotes())
+                if (auto pad = drumkit::getPadForNote (note.getPitch()))
+                    used[(size_t) *pad] = true;
+
+        for (int pad = 0; pad < drumkit::numPads; ++pad)
+        {
+            const auto sound = drumkit::findSoundForPad (*generator, pad);
+            padGrid.setPadState (pad, sound ? sound->getName() : juce::String(),
+                                 used[(size_t) pad]);
+        }
+    }
+    else
+    {
+        padGrid.clearPads();
+    }
+
+    // The instrument button is the plain sampler's "one sample across the
+    // keyboard" chooser, which is exactly what a kit must never be given: its
+    // pads are the only way samples get in.
+    if (isDrumKit != padGrid.isVisible())
+    {
+        padGrid.setVisible (isDrumKit);
+        instrumentButton.setVisible (! isDrumKit);
+        resized();
+    }
+
+    padGrid.repaint();
 }
 
 void GeneratorPanel::rebuildSlotGrid()
@@ -578,12 +770,29 @@ void GeneratorPanel::resized()
     const int gridHeight = PatternSlotGrid::getPreferredHeight();
     const int otherPatternsHeight = patternBox.isVisible() ? 34 : 0;
 
-    auto bottom = area.removeFromBottom (6 + 28 + 6 + 22 + gridHeight + 6 + otherPatternsHeight + 28);
+    // The pads take the room the instrument button gives up, plus some of the
+    // generator list's: a kit needs both its pads and its pattern slots.
+    const int padsHeight = padGrid.isVisible() ? DrumPadGrid::getPreferredHeight() + 6 : 0;
+    const int instrumentHeight = instrumentButton.isVisible() ? 28 + 6 : 0;
+
+    auto bottom = area.removeFromBottom (6 + padsHeight + instrumentHeight + 22
+                                          + gridHeight + 6 + otherPatternsHeight + 28);
     generatorList.setBounds (area);
 
     bottom.removeFromTop (6);
-    instrumentButton.setBounds (bottom.removeFromTop (28));
-    bottom.removeFromTop (6);
+
+    if (padGrid.isVisible())
+    {
+        padGrid.setBounds (bottom.removeFromTop (DrumPadGrid::getPreferredHeight()));
+        bottom.removeFromTop (6);
+    }
+
+    if (instrumentButton.isVisible())
+    {
+        instrumentButton.setBounds (bottom.removeFromTop (28));
+        bottom.removeFromTop (6);
+    }
+
     patternHeader.setBounds (bottom.removeFromTop (22));
     slotGrid.setBounds (bottom.removeFromTop (gridHeight));
     bottom.removeFromTop (6);

@@ -4,6 +4,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "DrumPadGrid.h"
 #include "model/SongModel.h"
 
 namespace te = tracktion;
@@ -101,6 +102,7 @@ private:
     void refresh();
     void rebuildPatternBox();
     void rebuildSlotGrid();
+    void rebuildPadGrid();
     void fireSelectionChanged();
     void showAddGeneratorMenu();
     model::Generator addGenerator (const juce::String& name, const juce::String& type,
@@ -113,6 +115,19 @@ private:
     void addSamplerGenerator (const juce::File& sample);
     void assignSample (model::Generator, const juce::File& sample);
     std::optional<model::Generator> getGeneratorAt (juce::Point<int>) const;
+
+    // The drum-kit side of the panel. A kit is the same sampler with one sound
+    // per pad, so all of this is addSound/removeSound with the key range
+    // pinned to the pad's note -- see DrumPadGrid.h for the note layout.
+    void padClicked (int pad);
+    void padFilesDropped (int startPad, const juce::StringArray& files);
+    void assignPadSample (model::Generator, int pad, const juce::File& sample);
+    void clearPad (model::Generator, int pad);
+    void assignToFirstFreePad (model::Generator, const juce::File& sample);
+
+    // The model half of the above, without a transaction or a refresh, so a
+    // multi-file drop lands as one undoable gesture.
+    void setPadSound (model::Generator&, int pad, const juce::File& sample);
 
     std::optional<model::Generator> getSelectedGenerator() const;
     void ensureValidPatternSelection();
@@ -129,6 +144,7 @@ private:
     juce::TextButton instrumentButton { "Instrument UI" };
     juce::TextButton editPatternButton { "Edit Pattern" };
     juce::Label patternHeader;
+    DrumPadGrid padGrid;         // visible only while a drum kit is selected
     PatternSlotGrid slotGrid;
     juce::ComboBox patternBox;   // only the patterns outside the slot grid
 

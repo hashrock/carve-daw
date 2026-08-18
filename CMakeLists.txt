@@ -66,6 +66,8 @@ target_sources(carve PRIVATE
     src/app/EffectParameterWindow.h
     src/app/EffectSlotList.h
     src/app/EffectSlotList.cpp
+    src/app/DrumPadGrid.h
+    src/app/DrumPadGrid.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
     src/app/MixerComponent.h
