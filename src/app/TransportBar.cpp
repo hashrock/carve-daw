@@ -82,9 +82,16 @@ void TransportBar::togglePlay()
         return;
     }
 
-    const auto lengthBeats = std::max (4.0, getSongLengthBeats());
-    transport.setLoopRange (edit.tempoSequence.toTime (
-        te::BeatRange (te::BeatPosition(), te::BeatPosition::fromBeats (lengthBeats))));
+    // The playlist ruler can set an explicit loop range; without one, loop the
+    // whole song as playback always did.
+    const auto loop = song.hasLoopRange()
+                          ? te::BeatRange (te::BeatPosition::fromBeats (song.getLoopStart()),
+                                           te::BeatPosition::fromBeats (song.getLoopEnd()))
+                          : te::BeatRange (te::BeatPosition(),
+                                           te::BeatPosition::fromBeats (
+                                               std::max (4.0, getSongLengthBeats())));
+
+    transport.setLoopRange (edit.tempoSequence.toTime (loop));
     transport.looping = loopButton.getToggleState();
     transport.ensureContextAllocated();
     transport.play (false);

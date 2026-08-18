@@ -157,6 +157,16 @@ public:
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
     void setTempo (double bpm, juce::UndoManager* um)            { state.setProperty (ids::tempo, bpm, um); }
 
+    // Playback loop range in beats, set from the playlist ruler. An empty
+    // range means "loop the whole song", which is what playback did before
+    // the range existed, so older songs keep their behaviour.
+    double getLoopStart() const  { return state.getProperty (ids::loopStart, 0.0); }
+    double getLoopEnd() const    { return state.getProperty (ids::loopEnd, 0.0); }
+    bool hasLoopRange() const    { return getLoopEnd() > getLoopStart(); }
+
+    void setLoopRange (double startBeats, double endBeats, juce::UndoManager*);
+    void clearLoopRange (juce::UndoManager*);
+
     int getNumGenerators() const;
     Generator getGenerator (int index) const;
     std::vector<Generator> getGenerators() const;

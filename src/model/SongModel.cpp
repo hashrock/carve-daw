@@ -204,6 +204,22 @@ bool Song::saveToFile (const juce::File& file) const
     return file.replaceWithText (toXmlString());
 }
 
+void Song::setLoopRange (double startBeats, double endBeats, juce::UndoManager* um)
+{
+    // Normalise so a right-to-left drag on the ruler still gives a valid range.
+    const auto start = std::max (0.0, std::min (startBeats, endBeats));
+    const auto end = std::max (startBeats, endBeats);
+
+    state.setProperty (ids::loopStart, start, um);
+    state.setProperty (ids::loopEnd, end, um);
+}
+
+void Song::clearLoopRange (juce::UndoManager* um)
+{
+    state.removeProperty (ids::loopStart, um);
+    state.removeProperty (ids::loopEnd, um);
+}
+
 int Song::getNumGenerators() const
 {
     return state.getChildWithName (ids::GENERATORS).getNumChildren();

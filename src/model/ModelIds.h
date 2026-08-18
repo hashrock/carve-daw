@@ -4,7 +4,7 @@
 
 // ValueTree schema:
 //
-// SONG {name, tempo}
+// SONG {name, tempo, loopStart, loopEnd}
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
 // │     │                                  type: "internal-synth" | "plugin"
@@ -47,6 +47,8 @@ ORIONISH_DECLARE_ID (generatorId)
 ORIONISH_DECLARE_ID (patternId)
 ORIONISH_DECLARE_ID (desc)
 ORIONISH_DECLARE_ID (state)
+ORIONISH_DECLARE_ID (loopStart)
+ORIONISH_DECLARE_ID (loopEnd)
 ORIONISH_DECLARE_ID (volumeDb)
 ORIONISH_DECLARE_ID (pan)
 ORIONISH_DECLARE_ID (mute)
