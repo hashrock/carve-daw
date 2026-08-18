@@ -40,7 +40,8 @@ public:
                               { "click", "open FX editor" },
                               { "drag", "reorder FX" },
                               { "dot", "bypass" },
-                              { "right-click", "FX menu" } });
+                              { "right-click", "FX menu" },
+                              { "master", "not saved yet" } });
 
         content.setSize (mixer.getWidth(), defaultHeight + ShortcutHelpBar::preferredHeight);
 

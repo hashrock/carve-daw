@@ -66,6 +66,9 @@ target_sources(carve PRIVATE
     src/app/EffectParameterWindow.h
     src/app/EffectSlotList.h
     src/app/EffectSlotList.cpp
+    src/app/ExportComponent.h
+    src/app/ExportComponent.cpp
+    src/app/ExportWindow.h
     src/app/DrumPadGrid.h
     src/app/DrumPadGrid.cpp
     src/app/FourOscEditor.h
