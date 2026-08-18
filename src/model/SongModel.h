@@ -205,6 +205,20 @@ public:
 
     void setEnabled (bool e, juce::UndoManager* um)  { state.setProperty (ids::enabled, e, um); }
 
+    // Which generator's audio feeds this effect's sidechain input, for effects
+    // that have one (the compressor). Empty means none. Stored as a generator
+    // id rather than anything engine-side, so it survives a reload; EditSync
+    // resolves it to the live track each sync.
+    juce::String getSidechainSourceId() const  { return state[ids::sidechainSource]; }
+
+    void setSidechainSourceId (const juce::String& generatorId, juce::UndoManager* um)
+    {
+        if (generatorId.isEmpty())
+            state.removeProperty (ids::sidechainSource, um);
+        else
+            state.setProperty (ids::sidechainSource, generatorId, um);
+    }
+
     // For an external effect: which plugin, and its last captured state.
     void setPlugin (const juce::PluginDescription&, juce::UndoManager*);
     std::optional<juce::PluginDescription> getPluginDescription() const;

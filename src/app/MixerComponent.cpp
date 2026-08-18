@@ -693,7 +693,45 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const ju
     }
     else
     {
-        window = std::make_unique<EffectParameterWindow> (*plugin, std::move (onClose));
+        // The compressor has a sidechain input; the picker lets the user feed
+        // another generator into it. The choice is written to the model, so it
+        // saves and undoes like everything else; EditSync routes the audio.
+        std::optional<SidechainPicker> picker;
+
+        if (dynamic_cast<te::CompressorPlugin*> (plugin) != nullptr)
+        {
+            if (auto generator = song.findGenerator (generatorId))
+            {
+                if (auto effect = generator->findEffect (effectId))
+                {
+                    SidechainPicker built;
+                    built.currentSourceId = effect->getSidechainSourceId();
+
+                    // Every generator but the one this compressor sits on: a
+                    // track feeding its own compressor's trigger is just
+                    // ordinary compression with extra steps.
+                    for (const auto& source : song.getGenerators())
+                        if (source.getId() != generatorId)
+                            built.sources.push_back ({ source.getId(), source.getName() });
+
+                    built.onSourceChanged = [this, generatorId, effectId] (const juce::String& sourceId)
+                    {
+                        if (auto g = song.findGenerator (generatorId))
+                        {
+                            if (auto e = g->findEffect (effectId))
+                            {
+                                undoManager.beginNewTransaction();
+                                e->setSidechainSourceId (sourceId, &undoManager);
+                            }
+                        }
+                    };
+
+                    picker = std::move (built);
+                }
+            }
+        }
+
+        window = std::make_unique<EffectParameterWindow> (*plugin, std::move (onClose), std::move (picker));
     }
 
     if (window != nullptr)

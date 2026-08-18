@@ -549,6 +549,63 @@ namespace
         return index == midiClips.size();
     }
 
+    // Applies the model's sidechain routing to the live effect plugins.
+    //
+    // The engine does the heavy lifting: any plugin whose sidechainSourceID
+    // names a track makes the node builder tap that track post-fader and feed
+    // the plugin's third channel onward -- nothing is inserted anywhere. This
+    // only has to keep three plugin-state values in step with one model
+    // property, compare-before-set so a steady-state resync touches nothing.
+    void syncSidechains (const model::Song& song, te::Edit& edit,
+                         const juce::Array<te::AudioTrack*>& tracks)
+    {
+        const auto generators = song.getGenerators();
+
+        auto trackIdFor = [&] (const juce::String& generatorId) -> te::EditItemID
+        {
+            for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+                if (generators[(size_t) i].getId() == generatorId)
+                    return tracks[i]->itemID;
+
+            return {};
+        };
+
+        static const juce::Identifier sidechainTriggerId ("sidechainTrigger");
+
+        for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        {
+            for (const auto& effect : generators[(size_t) i].getEffects())
+            {
+                auto* plugin = findEffectPlugin (*tracks[i], effect.getId());
+                if (plugin == nullptr)
+                    continue;
+
+                // A source that no longer resolves (the generator was deleted)
+                // reads the same as none: the live side is cleared and the
+                // compressor falls back to compressing its own input.
+                const auto wanted = trackIdFor (effect.getSidechainSourceId());
+
+                if (plugin->getSidechainSourceID() != wanted)
+                {
+                    plugin->setSidechainSourceID (wanted);
+
+                    // 0->0, 1->1 pass the track through; 2->2 (and 3->2 for a
+                    // stereo source) feed the tap into the trigger channel.
+                    if (wanted.isValid() && plugin->getNumWires() == 0)
+                        plugin->guessSidechainRouting();
+                }
+
+                if (auto compressor = dynamic_cast<te::CompressorPlugin*> (plugin))
+                {
+                    const bool trigger = wanted.isValid();
+
+                    if (compressor->useSidechainTrigger.get() != trigger)
+                        compressor->state.setProperty (sidechainTriggerId, trigger, nullptr);
+                }
+            }
+        }
+    }
+
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track)
     {
@@ -703,6 +760,8 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
             rebuildClips (song, generator, edit, track);
     }
 
+    syncSidechains (song, edit, tracks);
+
 }
 
 void flushSamplerLoads (te::Edit& edit)
@@ -741,7 +800,14 @@ void EditSync::captureLivePluginState()
             }
             else
             {
-                effect.setInternalState (plugin->state, nullptr);
+                // sidechainSourceID is an EditItemID, unique only within this
+                // session -- saved as-is it could collide with a different
+                // track's id after a reload. The model's own sidechainSource
+                // property is the durable form, and the sync above rebuilds
+                // the live value from it.
+                auto captured = plugin->state.createCopy();
+                captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
+                effect.setInternalState (captured, nullptr);
             }
         }
 

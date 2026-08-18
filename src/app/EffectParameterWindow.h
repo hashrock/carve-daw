@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -95,21 +97,34 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectParameterPanel)
 };
 
+// What the sidechain picker needs to know and do. Supplied by the owner for
+// effects that have a sidechain input (the compressor); the window itself
+// knows nothing about generators or the model.
+struct SidechainPicker
+{
+    // {generatorId, display name}, in mixer order.
+    std::vector<std::pair<juce::String, juce::String>> sources;
+    juce::String currentSourceId;
+    std::function<void (const juce::String&)> onSourceChanged;   // empty = none
+};
+
 // The panel above in a floating window, matching PluginEditorWindow's
 // behaviour so the mixer can own both through one pointer.
 class EffectParameterWindow : public juce::DocumentWindow
 {
 public:
-    EffectParameterWindow (te::Plugin& plugin, std::function<void()> onCloseCallback)
+    EffectParameterWindow (te::Plugin& plugin, std::function<void()> onCloseCallback,
+                           std::optional<SidechainPicker> sidechainPicker = std::nullopt)
         : juce::DocumentWindow (plugin.getName(),
                                 juce::Colour (0xff232327),
                                 juce::DocumentWindow::closeButton),
           onClose (std::move (onCloseCallback)),
-          content (plugin)
+          content (plugin, std::move (sidechainPicker))
     {
         const auto panelHeight = juce::jlimit (60, maxHeight, content.getPanelHeight());
 
-        content.setSize (EffectParameterPanel::width, panelHeight + PresetBar::height);
+        content.setSize (EffectParameterPanel::width,
+                         panelHeight + PresetBar::height + content.getExtraRowsHeight());
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
@@ -135,9 +150,41 @@ private:
     class Content : public juce::Component
     {
     public:
-        explicit Content (te::Plugin& plugin)
+        Content (te::Plugin& plugin, std::optional<SidechainPicker> picker)
             : presetBar (plugin)
         {
+            if (picker)
+            {
+                sidechain = std::move (picker);
+
+                sidechainBox = std::make_unique<juce::ComboBox>();
+                sidechainBox->addItem ("Sidechain: none", 1);
+
+                int itemId = 2, selected = 1;
+
+                for (const auto& [id, name] : sidechain->sources)
+                {
+                    sidechainBox->addItem ("Sidechain: " + name, itemId);
+                    if (id == sidechain->currentSourceId)
+                        selected = itemId;
+                    ++itemId;
+                }
+
+                sidechainBox->setSelectedId (selected, juce::dontSendNotification);
+                sidechainBox->onChange = [this]
+                {
+                    const auto index = sidechainBox->getSelectedId() - 2;
+                    const auto& sources = sidechain->sources;
+
+                    if (sidechain->onSourceChanged)
+                        sidechain->onSourceChanged (index >= 0 && index < (int) sources.size()
+                                                        ? sources[(size_t) index].first
+                                                        : juce::String());
+                };
+
+                addAndMakeVisible (*sidechainBox);
+            }
+
             auto panel = std::make_unique<EffectParameterPanel> (plugin);
             panelHeight = panel->getHeight();
 
@@ -149,11 +196,18 @@ private:
         }
 
         int getPanelHeight() const  { return panelHeight; }
+        int getExtraRowsHeight() const  { return sidechainBox != nullptr ? sidechainRowHeight : 0; }
+
+        static constexpr int sidechainRowHeight = 28;
 
         void resized() override
         {
             auto area = getLocalBounds();
             presetBar.setBounds (area.removeFromTop (PresetBar::height));
+
+            if (sidechainBox != nullptr)
+                sidechainBox->setBounds (area.removeFromTop (sidechainRowHeight).reduced (6, 3));
+
             viewport.setBounds (area);
 
             // The panel is as tall as its parameter list; only the viewport
@@ -164,6 +218,8 @@ private:
 
     private:
         PresetBar presetBar;
+        std::optional<SidechainPicker> sidechain;
+        std::unique_ptr<juce::ComboBox> sidechainBox;
         juce::Viewport viewport;
         int panelHeight = 0;
     };

@@ -29,7 +29,9 @@
 // │     │        Everything but the paths is optional; see SamplerSound for
 // │     │        the defaults (whole keyboard, root C3, unity gain).
 // │     ├─ EFFECTS
-// │     │  └─ EFFECT {id, type, desc, state, enabled}
+// │     │  └─ EFFECT {id, type, desc, state, enabled, sidechainSource}
+// │     │        sidechainSource: id of the generator whose audio feeds the
+// │     │        effect's sidechain input (compressor). Absent = none.
 // │     │        type: a tracktion internal plugin's xmlTypeName, or "plugin"
 // │     │        for an external one (then desc/state describe it)
 // │     └─ PATTERNS
@@ -104,6 +106,7 @@ CARVE_DECLARE_ID (desc)
 CARVE_DECLARE_ID (state)
 CARVE_DECLARE_ID (transpose)
 CARVE_DECLARE_ID (enabled)
+CARVE_DECLARE_ID (sidechainSource)
 CARVE_DECLARE_ID (loopStart)
 CARVE_DECLARE_ID (loopEnd)
 CARVE_DECLARE_ID (volumeDb)
