@@ -2,20 +2,23 @@
 
 #include <cmath>
 #include <iterator>
+#include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "PianoRollComponent.h"
+#include "ShortcutHelpBar.h"
 
 namespace orionish::app
 {
 
-// Content of the pattern editor window: a toolbar over a scrolling piano roll.
+// Content of the pattern editor window: a toolbar over a scrolling piano roll,
+// with a shortcut help bar along the bottom.
 //
 // The toolbar mixes two kinds of setting. The pattern name and length belong to
-// the song, so they go through the model and the UndoManager; the grid unit and
-// the snap toggle are view state that only the roll cares about, so they never
-// touch the model and are not undoable.
+// the song, so they go through the model and the UndoManager; the tool, the
+// zoom, the grid unit and the snap toggle are view state that only the roll
+// cares about, so they never touch the model and are not undoable.
 class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
@@ -28,11 +31,16 @@ public:
         nameLabel.setColour (juce::Label::outlineColourId, juce::Colour (0xff3a3a40));
         nameLabel.onTextChange = [this] { applyName(); };
 
-        lengthLabel.setEditable (false, true, false);
-        lengthLabel.setJustificationType (juce::Justification::centred);
-        lengthLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2c2c31));
-        lengthLabel.setColour (juce::Label::outlineColourId, juce::Colour (0xff3a3a40));
-        lengthLabel.onTextChange = [this] { applyLength(); };
+        // Steppers rather than a plain field: nudging the pattern a bar longer
+        // is the common edit, and typing a number is the rare one.
+        lengthSlider.setSliderStyle (juce::Slider::IncDecButtons);
+        lengthSlider.setIncDecButtonsMode (juce::Slider::incDecButtonsDraggable_Vertical);
+        lengthSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 30, 22);
+        lengthSlider.setRange (1.0, maxBars, 1.0);
+        lengthSlider.setNumDecimalPlacesToDisplay (0);
+        lengthSlider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff2c2c31));
+        lengthSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a40));
+        lengthSlider.onValueChange = [this] { applyLength(); };
 
         lengthHeader.setText ("Bars", juce::dontSendNotification);
         lengthHeader.setJustificationType (juce::Justification::centredRight);
@@ -53,6 +61,39 @@ public:
         snapButton.setToggleState (pianoRoll.isSnapEnabled(), juce::dontSendNotification);
         snapButton.onClick = [this] { pianoRoll.setSnapEnabled (snapButton.getToggleState()); };
 
+        drawToolButton.setTooltip ("Draw (D): click empty grid to add a note");
+        selectToolButton.setTooltip ("Select (E): rubber-band notes, then move or delete them");
+        zoomOutButton.setTooltip ("Zoom out (- key, or cmd-scroll)");
+        zoomInButton.setTooltip ("Zoom in (= key, or cmd-scroll)");
+
+        for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton })
+        {
+            b->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
+            b->setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            // Buttons never take focus themselves: the roll owns the tool keys
+            // and Backspace, and clicking one must not steal the keyboard.
+            b->setWantsKeyboardFocus (false);
+        }
+
+        drawToolButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+        selectToolButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+        zoomOutButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+        zoomInButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+
+        drawToolButton.onClick = [this] { pianoRoll.setTool (PianoRollComponent::Tool::draw); };
+        selectToolButton.onClick = [this] { pianoRoll.setTool (PianoRollComponent::Tool::select); };
+        zoomOutButton.onClick = [this] { pianoRoll.zoomBy (1.0 / 1.5); };
+        zoomInButton.onClick = [this] { pianoRoll.zoomBy (1.5); };
+
+        // The tool can also change from the keyboard, and the modifiers change
+        // without any click at all, so the strip and the help bar are refreshed
+        // from the roll rather than from whatever was pressed.
+        pianoRoll.onShortcutContextChanged = [this] { updateToolStrip(); updateShortcutBar(); };
+
+        // Zooming rescales the roll under the ruler, and nothing else tells the
+        // ruler that the arithmetic it copies has changed.
+        pianoRoll.onViewChanged = [this] { updateRuler(); ruler.repaint(); };
+
         // select the entry matching the roll's own default rather than
         // assuming an index, so the two cannot drift apart
         for (int i = 0; i < numGridOptions; ++i)
@@ -64,10 +105,12 @@ public:
         viewport.onVisibleAreaChanged = [this] { updateRuler(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {
-                 &nameLabel, &lengthHeader, &lengthLabel, &gridHeader, &gridBox,
-                 &snapButton, &ruler, &viewport })
+                 &nameLabel, &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
+                 &lengthHeader, &lengthSlider, &gridHeader, &gridBox,
+                 &snapButton, &ruler, &viewport, &shortcutBar })
             addAndMakeVisible (c);
 
+        updateToolStrip();
         refreshFromPattern();
     }
 
@@ -107,6 +150,14 @@ public:
         viewport.setViewPosition (0, juce::jmax (0, pianoRoll.getHeight() / 2 - 200));
     }
 
+    // The roll owns the tool keys, Backspace and the zoom keys, so it starts
+    // with the keyboard rather than making the user click the grid first.
+    // Only works once the window is on screen.
+    void focusRoll()
+    {
+        pianoRoll.grabKeyboardFocus();
+    }
+
     void paint (juce::Graphics& g) override
     {
         g.setColour (juce::Colour (0xff2a2a2f));
@@ -117,6 +168,7 @@ public:
     {
         auto area = getLocalBounds();
         auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 5);
+        shortcutBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
         area.removeFromTop (PianoRollRuler::preferredHeight);
         viewport.setBounds (area);
         updateRuler();
@@ -128,8 +180,12 @@ public:
         };
 
         place (nameLabel, 180, 18);
+        place (drawToolButton, 52, 0);
+        place (selectToolButton, 52, 12);
+        place (zoomOutButton, 24, 0);
+        place (zoomInButton, 24, 18);
         place (lengthHeader, 34, 4);
-        place (lengthLabel, 54, 18);
+        place (lengthSlider, 64, 18);
         place (gridHeader, 34, 4);
         place (gridBox, 74, 18);
         place (snapButton, 70);
@@ -201,30 +257,80 @@ private:
 
         const auto hasPattern = pattern.has_value();
         nameLabel.setEnabled (hasPattern);
-        lengthLabel.setEnabled (hasPattern);
+        lengthSlider.setEnabled (hasPattern);
+        updateShortcutBar();
 
         if (! hasPattern)
         {
             nameLabel.setText ("(no pattern)", juce::dontSendNotification);
-            lengthLabel.setText ("-", juce::dontSendNotification);
             return;
         }
 
-        // dontSendNotification so writing the text back does not re-enter
+        // dontSendNotification so writing the value back does not re-enter
         // applyName()/applyLength()
         if (! nameLabel.isBeingEdited())
             nameLabel.setText (pattern->getName(), juce::dontSendNotification);
 
-        if (! lengthLabel.isBeingEdited())
-            lengthLabel.setText (formatBars (pattern->getLengthBeats() / beatsPerBar),
-                                 juce::dontSendNotification);
+        // A length the spinner cannot represent (an old off-bar pattern) shows
+        // rounded; it is only rewritten if the user actually nudges it.
+        lengthSlider.setValue (pattern->getLengthBeats() / beatsPerBar, juce::dontSendNotification);
     }
 
-    static juce::String formatBars (double bars)
+    void updateToolStrip()
     {
-        // keep whole bars (the normal case) free of a pointless ".00"
-        return juce::exactlyEqual (bars, std::floor (bars)) ? juce::String ((int) bars)
-                                                            : juce::String (bars, 2);
+        const auto tool = pianoRoll.getTool();
+        drawToolButton.setToggleState (tool == PianoRollComponent::Tool::draw, juce::dontSendNotification);
+        selectToolButton.setToggleState (tool == PianoRollComponent::Tool::select, juce::dontSendNotification);
+    }
+
+    // The help bar describes what works *here, now*: the entries change with
+    // the tool, with the selection, and with a modifier the user is already
+    // holding, because that modifier decides what the next drag will do.
+    void updateShortcutBar()
+    {
+        if (! pattern)
+        {
+            shortcutBar.setEntries ({ { "double click", "a playlist clip to edit its pattern" } });
+            return;
+        }
+
+        const auto mods = juce::ModifierKeys::getCurrentModifiers();
+        const bool extending = mods.isCommandDown() || mods.isShiftDown();
+        const bool selectTool = pianoRoll.getTool() == PianoRollComponent::Tool::select;
+
+        std::vector<ShortcutHelpBar::Entry> entries;
+
+        if (mods.isAltDown())
+        {
+            // alt beats the tool: whichever one is active, the drag erases
+            entries.push_back ({ "drag", "erase notes" });
+        }
+        else if (selectTool)
+        {
+            entries.push_back ({ "drag", extending ? "add to selection" : "select notes" });
+            entries.push_back ({ "click note", extending ? "add / remove" : "select" });
+            entries.push_back ({ "drag note", "move selection" });
+        }
+        else
+        {
+            entries.push_back ({ "click", "add note" });
+            entries.push_back ({ "drag note", extending ? "extend selection" : "move" });
+        }
+
+        if (! mods.isAltDown())
+            entries.push_back ({ "drag edge", "resize" });
+
+        if (pianoRoll.getNumSelectedNotes() > 0)
+            entries.push_back ({ "Backspace", "delete selected" });
+
+        entries.push_back ({ selectTool ? "D" : "E", selectTool ? "draw tool" : "select tool" });
+
+        if (! mods.isAltDown())
+            entries.push_back ({ "Alt+drag", "erase" });
+
+        entries.push_back ({ "Cmd+scroll", "zoom" });
+
+        shortcutBar.setEntries (std::move (entries));
     }
 
     void applyName()
@@ -251,19 +357,18 @@ private:
         if (! pattern)
             return;
 
-        const auto bars = lengthLabel.getText().getDoubleValue();
+        // The slider clamps to its own range, so anything that arrives here is
+        // already a legal bar count.
+        const auto beats = lengthSlider.getValue() * beatsPerBar;
 
         // Shrinking leaves notes past the new end in the pattern: they are kept
         // deliberately, so that undoing a mistaken shorten restores everything.
-        if (bars > 0.0 && bars <= maxBars)
+        // One transaction per step of the spinner, so each nudge undoes on its
+        // own rather than joining whatever gesture came before it.
+        if (! juce::exactlyEqual (beats, pattern->getLengthBeats()))
         {
-            const auto beats = bars * beatsPerBar;
-
-            if (! juce::exactlyEqual (beats, pattern->getLengthBeats()))
-            {
-                undoManager.beginNewTransaction();
-                pattern->setLengthBeats (beats, &undoManager);
-            }
+            undoManager.beginNewTransaction();
+            pattern->setLengthBeats (beats, &undoManager);
         }
 
         refreshFromPattern();
@@ -272,12 +377,16 @@ private:
     juce::UndoManager& undoManager;
     std::optional<model::Pattern> pattern;
 
-    juce::Label nameLabel, lengthHeader, lengthLabel, gridHeader;
+    juce::Label nameLabel, lengthHeader, gridHeader;
+    juce::Slider lengthSlider;
     juce::ComboBox gridBox;
     juce::ToggleButton snapButton { "Snap" };
+    juce::TextButton drawToolButton { "Draw" }, selectToolButton { "Select" };
+    juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" };
     RollViewport viewport;
     PianoRollComponent pianoRoll;
     PianoRollRuler ruler { pianoRoll };
+    ShortcutHelpBar shortcutBar;
 };
 
 // Floating pattern editor (Orion-style): the playlist stays in the main
@@ -297,8 +406,9 @@ public:
           content (um)
     {
         content.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
-        // the extra height is the ruler, so the roll itself keeps its old size
-        content.setSize (860, 554 + PianoRollRuler::preferredHeight);
+        // the extra height is the ruler and the help bar, so the roll itself
+        // keeps its old size
+        content.setSize (860, 554 + PianoRollRuler::preferredHeight + ShortcutHelpBar::preferredHeight);
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
@@ -308,6 +418,7 @@ public:
         toFront (true);
 
         content.scrollToMiddleOfPitchRange();
+        content.focusRoll();
     }
 
     void setPreviewNoteCallback (std::function<void (int, int)> callback)
