@@ -77,6 +77,48 @@ namespace
         return juce::String (sig.numerator) + "/" + juce::String (sig.denominator);
     }
 
+    // "0.65" rather than "0.650000", and whole numbers without the point: the
+    // readout is glanced at mid-drag, not studied.
+    juce::String formatAutoValue (float value)
+    {
+        if (std::abs (value - std::round (value)) < 0.005f)
+            return juce::String ((int) std::round (value));
+
+        return juce::String (value, 2).trimCharactersAtEnd ("0");
+    }
+
+    // The curve's value at a beat. Segments are straight lines here -- the
+    // model's bend value is deliberately ignored this pass -- and the curve is
+    // flat before the first point and after the last, which is also how the
+    // engine plays it.
+    float curveValueAtBeat (const std::vector<model::AutomationPoint>& points, double beat)
+    {
+        if (points.empty())
+            return 0.0f;
+
+        if (beat <= points.front().getBeat())
+            return points.front().getValue();
+
+        for (size_t i = 1; i < points.size(); ++i)
+        {
+            const auto b0 = points[i - 1].getBeat(), b1 = points[i].getBeat();
+
+            if (beat <= b1)
+            {
+                // Two points on one beat make a step; the later one wins from
+                // that beat on, which is what dividing by ~zero would not say.
+                if (b1 - b0 < beatTolerance)
+                    return points[i].getValue();
+
+                const auto t = (beat - b0) / (b1 - b0);
+                return points[i - 1].getValue()
+                         + (float) t * (points[i].getValue() - points[i - 1].getValue());
+            }
+        }
+
+        return points.back().getValue();
+    }
+
     // The colours the two kinds of change carry everywhere they are drawn: on
     // the lane, and as the line down the grid where they take effect.
     constexpr juce::uint32 tempoColour = 0xff4fa3c7, timeSigColour = 0xff9b7fd4;
@@ -142,8 +184,15 @@ void PlaylistComponent::setSong (model::Song newSong)
 
     dragMode = DragMode::none;
     trimClip = {};
+    dragAutoPoint = {};
+    dragAutoRow = -1;
     rubberBand = {};
     fileDropTarget.reset();
+
+    // UI state keyed by generator id, so a different song's ids mean nothing
+    // to it -- start it afresh the way the selection is.
+    expandedGenerators.clear();
+    laneParamChoices.clear();
 
     // Keyed by path, so it would still be correct across songs -- but nothing
     // shrinks it otherwise, and a new song rarely wants the old one's files.
@@ -208,7 +257,70 @@ void PlaylistComponent::updateSize()
     if (auto* viewport = getViewport())
         width = juce::jmax (width, viewport->getMaximumVisibleWidth());
 
-    setSize (width, headerHeight + juce::jmax (1, song.getNumGenerators()) * rowHeight);
+    // Row heights vary now: an expanded row is its clip band plus its lane.
+    int rowsHeight = 0;
+    for (int row = 0; row < song.getNumGenerators(); ++row)
+        rowsHeight += rowTotalHeight (row);
+
+    setSize (width, headerHeight + juce::jmax (rowHeight, rowsHeight));
+}
+
+//==============================================================================
+// Row geometry
+//
+// Rows are stacked, so a row's top is the sum of every row above it: an
+// expanded row pushes everything below it down by its lane. O(rows) per call,
+// which for the handful of generators a song holds is cheaper than keeping a
+// cache correct across every model edit.
+
+int PlaylistComponent::rowTotalHeight (int row) const
+{
+    return rowHeight + (isRowExpanded (row) ? automationLaneHeight : 0);
+}
+
+float PlaylistComponent::rowY (int row) const
+{
+    int y = headerHeight;
+    for (int r = 0; r < row; ++r)
+        y += rowTotalHeight (r);
+    return (float) y;
+}
+
+int PlaylistComponent::rowAt (float y) const
+{
+    if (y < (float) headerHeight)
+        return -1;
+
+    const int numRows = song.getNumGenerators();
+    float bottom = (float) headerHeight;
+
+    for (int row = 0; row < numRows; ++row)
+    {
+        bottom += (float) rowTotalHeight (row);
+        if (y < bottom)
+            return row;
+    }
+
+    // Below the last row, like the old fixed-height division used to say.
+    return numRows;
+}
+
+int PlaylistComponent::clipRowAt (float y) const
+{
+    const int row = rowAt (y);
+    if (row < 0 || row >= song.getNumGenerators())
+        return row;
+
+    return y < rowY (row) + (float) rowHeight ? row : -1;
+}
+
+int PlaylistComponent::laneRowAt (float y) const
+{
+    const int row = rowAt (y);
+    if (row < 0 || row >= song.getNumGenerators() || ! isRowExpanded (row))
+        return -1;
+
+    return y >= rowY (row) + (float) rowHeight ? row : -1;
 }
 
 juce::Viewport* PlaylistComponent::getViewport() const
@@ -581,6 +693,15 @@ void PlaylistComponent::updateShortcutHelp()
         entries.push_back ({ "right click", "add or remove" });
         entries.push_back ({ "Alt+click", "remove" });
     }
+    else if (hoverLaneRow >= 0)
+    {
+        // Same treatment for an automation lane: its gestures exist nowhere
+        // else, so the bar lists them alone while the pointer is over one.
+        entries.push_back ({ "click", "add automation point" });
+        entries.push_back ({ "drag", "move point" });
+        entries.push_back ({ "Alt+click", "delete point" });
+        entries.push_back ({ "double click", "add point on the line" });
+    }
     else if (mods.isAltDown())
     {
         // Alt takes the drag over from whichever tool is active, so leading
@@ -731,6 +852,99 @@ void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioCli
     g.drawText (clip.getName(),
                 r.withTrimmedRight (trimHandleWidth).reduced (4.0f, 0.0f).toNearestInt(),
                 juce::Justification::centredLeft);
+}
+
+void PlaylistComponent::paintAutomationLane (juce::Graphics& g, int row,
+                                            const model::Generator& generator, juce::Colour rowColour)
+{
+    const auto lane = automationLaneBounds (row);
+    if (lane.isEmpty())
+        return;
+
+    // A tint rather than an opaque fill, so the bar lines painted under it
+    // still show through: they are what the points snap near.
+    g.setColour (juce::Colours::black.withAlpha (0.25f));
+    g.fillRect (lane.withTrimmedLeft ((float) labelWidth));
+    g.setColour (juce::Colour (0xff2f2f36));
+    g.drawHorizontalLine ((int) lane.getY(), 0.0f, (float) getWidth());
+
+    // The lane's label cell holds the parameter selector; opening it is the
+    // only gesture the cell offers.
+    g.setColour (juce::Colour (0xff26262c));
+    g.fillRect (0.0f, lane.getY() + 1.0f, (float) labelWidth - 2.0f, lane.getHeight() - 1.0f);
+
+    const auto info = displayedParamFor (generator.getId());
+    const auto selector = laneSelectorBounds (row);
+
+    g.setColour (juce::Colour (0xff35353d));
+    g.fillRoundedRectangle (selector, 3.0f);
+    g.setColour (juce::Colour (0xffb8b8c0));
+    g.setFont (11.0f);
+    g.drawText (info.label, selector.reduced (6.0f, 0.0f).withTrimmedRight (10.0f).toNearestInt(),
+                juce::Justification::centredLeft);
+
+    juce::Path chevron;
+    const auto c = juce::Point<float> (selector.getRight() - 9.0f, selector.getCentreY());
+    chevron.startNewSubPath (c.x - 3.0f, c.y - 1.5f);
+    chevron.lineTo (c.x, c.y + 2.0f);
+    chevron.lineTo (c.x + 3.0f, c.y - 1.5f);
+    g.setColour (juce::Colour (0xff9a9aa4));
+    g.strokePath (chevron, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+
+    // The curve, clipped to its own band so a point dragged to beat 0 does not
+    // paint into the labels.
+    const auto curveArea = automationCurveBounds (row);
+    juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (curveArea.toNearestInt());
+
+    const auto curveColour = rowColour.brighter (0.2f);
+    auto maybeLane = displayedLaneFor (generator);
+    const auto points = maybeLane ? maybeLane->getPoints() : std::vector<model::AutomationPoint>();
+
+    if (points.empty())
+    {
+        // Where the parameter sits until a point says otherwise, plus a hint:
+        // an empty strip would not say it is editable.
+        const auto y = valueToLaneY (info.defaultValue, info, curveArea);
+        g.setColour (curveColour.withAlpha (0.25f));
+        g.drawHorizontalLine ((int) y, curveArea.getX(), curveArea.getRight());
+
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.setFont (10.0f);
+        g.drawText ("click to add a point", curveArea.toNearestInt().reduced (8, 0),
+                    juce::Justification::centredLeft);
+        return;
+    }
+
+    // Straight segments -- the model's bend value is ignored for drawing this
+    // pass -- flat to the edges beyond the first and last points, which is
+    // also how the engine plays the curve.
+    juce::Path path;
+    path.startNewSubPath (curveArea.getX(),
+                          valueToLaneY (points.front().getValue(), info, curveArea));
+
+    for (const auto& point : points)
+        path.lineTo (beatToX (point.getBeat()), valueToLaneY (point.getValue(), info, curveArea));
+
+    path.lineTo (curveArea.getRight(), valueToLaneY (points.back().getValue(), info, curveArea));
+
+    g.setColour (curveColour.withAlpha (0.9f));
+    g.strokePath (path, juce::PathStrokeType (1.6f));
+
+    for (const auto& point : points)
+    {
+        const auto x = beatToX (point.getBeat());
+        const auto y = valueToLaneY (point.getValue(), info, curveArea);
+        const bool dragging = dragAutoPoint.isValid() && dragAutoPoint == point.state;
+
+        g.setColour (dragging ? juce::Colours::white : curveColour);
+        g.fillEllipse (x - autoPointRadius, y - autoPointRadius,
+                       autoPointRadius * 2.0f, autoPointRadius * 2.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.drawEllipse (x - autoPointRadius, y - autoPointRadius,
+                       autoPointRadius * 2.0f, autoPointRadius * 2.0f, 1.0f);
+    }
 }
 
 std::vector<PlaylistComponent::Marker> PlaylistComponent::markers() const
@@ -947,8 +1161,33 @@ void PlaylistComponent::paint (juce::Graphics& g)
         g.fillRect (0.0f, y + 1.0f, (float) labelWidth - 2.0f, (float) rowHeight - 1.0f);
         g.setColour (isSelectedRow ? juce::Colours::white : juce::Colour (0xffb8b8c0));
         g.setFont (13.0f);
-        g.drawText (generator.getName(), 8, (int) y, labelWidth - 12, rowHeight,
+        // Trimmed on the right so a long name never runs under the disclosure.
+        g.drawText (generator.getName(), 8, (int) y, labelWidth - 30, rowHeight,
                     juce::Justification::centredLeft);
+
+        // Disclosure for the row's automation lane: a chevron pointing right
+        // when closed and down at the lane when open.
+        {
+            const auto d = disclosureBounds (row).getCentre();
+            juce::Path tri;
+
+            if (isRowExpanded (row))
+            {
+                tri.startNewSubPath (d.x - 3.5f, d.y - 2.0f);
+                tri.lineTo (d.x, d.y + 2.0f);
+                tri.lineTo (d.x + 3.5f, d.y - 2.0f);
+            }
+            else
+            {
+                tri.startNewSubPath (d.x - 2.0f, d.y - 3.5f);
+                tri.lineTo (d.x + 2.0f, d.y);
+                tri.lineTo (d.x - 2.0f, d.y + 3.5f);
+            }
+
+            g.setColour (juce::Colour (0xff8a8a94));
+            g.strokePath (tri, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+        }
 
         // clips
         const auto rowColour = juce::Colour::fromHSV (0.08f + 0.13f * (float) row, 0.55f, 0.75f, 1.0f);
@@ -1017,6 +1256,9 @@ void PlaylistComponent::paint (juce::Graphics& g)
                                                              juce::PathStrokeType::rounded));
             }
         }
+
+        if (isRowExpanded (row))
+            paintAutomationLane (g, row, generator, rowColour);
     }
 
     // ghost of the bar the paint tool would fill, so the tool's effect is
@@ -1068,6 +1310,38 @@ void PlaylistComponent::paint (juce::Graphics& g)
         g.fillRect (rubberBand);
         g.setColour (juce::Colours::white.withAlpha (0.5f));
         g.drawRect (rubberBand, 1.0f);
+    }
+
+    // The value under the pointer while an automation point is dragged: the
+    // readout is the only place the actual number shows, the curve itself is
+    // only a shape.
+    if (dragMode == DragMode::autoPoint && dragAutoPoint.isValid())
+    {
+        const model::AutomationPoint point (dragAutoPoint);
+        const auto curveArea = automationCurveBounds (dragAutoRow);
+
+        if (! curveArea.isEmpty())
+        {
+            const auto x = beatToX (point.getBeat());
+            const auto y = valueToLaneY (point.getValue(), dragAutoInfo, curveArea);
+            const auto text = dragAutoInfo.label + ": " + formatAutoValue (point.getValue());
+            const auto textWidth = juce::GlyphArrangement::getStringWidth (
+                                       juce::Font (juce::FontOptions (10.0f)), text) + 10.0f;
+
+            auto box = juce::Rectangle<float> (x + 8.0f, y - 22.0f, textWidth, 15.0f);
+
+            // Keep it readable when the point sits at the very top or right.
+            if (box.getRight() > (float) getWidth())
+                box.setX (x - 8.0f - textWidth);
+            if (box.getY() < curveArea.getY())
+                box.setY (y + 8.0f);
+
+            g.setColour (juce::Colours::black.withAlpha (0.8f));
+            g.fillRoundedRectangle (box, 3.0f);
+            g.setColour (juce::Colours::white);
+            g.setFont (10.0f);
+            g.drawText (text, box.toNearestInt(), juce::Justification::centred);
+        }
     }
 
     // Header band last and opaque: it is pinned to the visible area, so it
@@ -1869,6 +2143,250 @@ void PlaylistComponent::showLaneMenu (double beat, juce::Point<float> position)
     });
 }
 
+//==============================================================================
+// Automation lanes
+//
+// One lane per expanded generator row, showing one parameter's curve at a
+// time; the selector in the lane's label cell switches which. Points are the
+// model's own values against the parameter's own range -- the lane maps
+// linearly between the two and never has to know what the number means.
+
+bool PlaylistComponent::isGeneratorExpanded (const juce::String& generatorId) const
+{
+    return std::find (expandedGenerators.begin(), expandedGenerators.end(), generatorId)
+               != expandedGenerators.end();
+}
+
+bool PlaylistComponent::isRowExpanded (int row) const
+{
+    return row >= 0 && row < song.getNumGenerators()
+               && isGeneratorExpanded (song.getGenerator (row).getId());
+}
+
+void PlaylistComponent::toggleRowExpanded (int row)
+{
+    if (row < 0 || row >= song.getNumGenerators())
+        return;
+
+    const auto id = song.getGenerator (row).getId();
+
+    if (isGeneratorExpanded (id))
+        std::erase (expandedGenerators, id);
+    else
+        expandedGenerators.push_back (id);
+
+    // Pure UI state, like the selection: expanding a lane must not dirty the
+    // document or touch the undo history.
+    updateSize();
+    repaint();
+}
+
+juce::Rectangle<float> PlaylistComponent::disclosureBounds (int row) const
+{
+    // The right end of the row's label cell, where the pattern chevron sits on
+    // a clip: the same corner meaning "there is more here" in both places.
+    return { (float) labelWidth - 20.0f, rowY (row) + (float) rowHeight * 0.5f - 7.0f,
+             14.0f, 14.0f };
+}
+
+juce::Rectangle<float> PlaylistComponent::automationLaneBounds (int row) const
+{
+    if (! isRowExpanded (row))
+        return {};
+
+    return { 0.0f, rowY (row) + (float) rowHeight, (float) getWidth(), (float) automationLaneHeight };
+}
+
+juce::Rectangle<float> PlaylistComponent::automationCurveBounds (int row) const
+{
+    return automationLaneBounds (row).withTrimmedLeft ((float) labelWidth);
+}
+
+juce::Rectangle<float> PlaylistComponent::laneSelectorBounds (int row) const
+{
+    const auto lane = automationLaneBounds (row);
+    if (lane.isEmpty())
+        return {};
+
+    return { 6.0f, lane.getCentreY() - 9.0f, (float) labelWidth - 14.0f, 18.0f };
+}
+
+std::vector<PlaylistComponent::AutomatableParamInfo> PlaylistComponent::automatableParamsFor (const juce::String& generatorId) const
+{
+    if (getAutomatableParams)
+        if (auto params = getAutomatableParams (generatorId); ! params.empty())
+            return params;
+
+    // No host wired up, or nothing live to describe: volume and pan exist on
+    // every track no matter what it hosts. Volume is the fader position, which
+    // is why its default is 0.65 rather than a dB figure.
+    return { { model::AutomationLane::volumeTarget, {}, "Volume", 0.0f, 1.0f, 0.65f },
+             { model::AutomationLane::panTarget, {}, "Pan", -1.0f, 1.0f, 0.0f } };
+}
+
+PlaylistComponent::AutomatableParamInfo PlaylistComponent::displayedParamFor (const juce::String& generatorId) const
+{
+    const auto params = automatableParamsFor (generatorId);
+
+    if (const auto choice = laneParamChoices.find (generatorId); choice != laneParamChoices.end())
+        for (const auto& info : params)
+            if (info.target == choice->second.first && info.param == choice->second.second)
+                return info;
+
+    // No choice yet, or the chosen parameter's plugin has gone: the first
+    // offered parameter, which the fallback list makes volume.
+    return params.front();
+}
+
+std::optional<model::AutomationLane> PlaylistComponent::displayedLaneFor (const model::Generator& generator) const
+{
+    const auto info = displayedParamFor (generator.getId());
+    return generator.findAutomationLane (info.target, info.param);
+}
+
+float PlaylistComponent::valueToLaneY (float value, const AutomatableParamInfo& info,
+                                       juce::Rectangle<float> curveArea) const
+{
+    const auto range = std::max (1.0e-6f, info.maxValue - info.minValue);
+    const auto proportion = juce::jlimit (0.0f, 1.0f, (value - info.minValue) / range);
+    const auto top = curveArea.getY() + autoLaneValuePad;
+    const auto bottom = curveArea.getBottom() - autoLaneValuePad;
+    return bottom - proportion * (bottom - top);
+}
+
+float PlaylistComponent::laneYToValue (float y, const AutomatableParamInfo& info,
+                                       juce::Rectangle<float> curveArea) const
+{
+    const auto top = curveArea.getY() + autoLaneValuePad;
+    const auto bottom = curveArea.getBottom() - autoLaneValuePad;
+    const auto proportion = juce::jlimit (0.0f, 1.0f, (bottom - y) / std::max (1.0f, bottom - top));
+    return info.minValue + proportion * (info.maxValue - info.minValue);
+}
+
+std::optional<model::AutomationPoint> PlaylistComponent::autoPointAt (int row,
+                                                                     juce::Point<float> position) const
+{
+    if (row < 0 || row >= song.getNumGenerators())
+        return std::nullopt;
+
+    auto generator = song.getGenerator (row);
+    auto lane = displayedLaneFor (generator);
+    if (! lane)
+        return std::nullopt;
+
+    const auto info = displayedParamFor (generator.getId());
+    const auto curveArea = automationCurveBounds (row);
+    const auto points = lane->getPoints();
+
+    // In reverse, so of two points drawn on top of each other the one drawn
+    // last is also the one that gets grabbed -- same rule as clips and markers.
+    for (auto i = points.rbegin(); i != points.rend(); ++i)
+    {
+        const juce::Point<float> centre (beatToX (i->getBeat()),
+                                         valueToLaneY (i->getValue(), info, curveArea));
+        if (centre.getDistanceFrom (position) <= autoPointHitRadius)
+            return *i;
+    }
+
+    return std::nullopt;
+}
+
+bool PlaylistComponent::isNearCurveSegment (int row, juce::Point<float> position) const
+{
+    if (row < 0 || row >= song.getNumGenerators())
+        return false;
+
+    auto generator = song.getGenerator (row);
+    auto lane = displayedLaneFor (generator);
+    if (! lane || lane->getNumPoints() == 0)
+        return false;
+
+    const auto info = displayedParamFor (generator.getId());
+    const auto curveArea = automationCurveBounds (row);
+    const auto value = curveValueAtBeat (lane->getPoints(), xToBeat (position.x));
+
+    return std::abs (valueToLaneY (value, info, curveArea) - position.y) <= autoSegmentHitDistance;
+}
+
+void PlaylistComponent::showLaneParamMenu (int row)
+{
+    if (row < 0 || row >= song.getNumGenerators())
+        return;
+
+    auto generator = song.getGenerator (row);
+    const auto generatorId = generator.getId();
+    const auto params = automatableParamsFor (generatorId);
+    const auto current = displayedParamFor (generatorId);
+
+    juce::PopupMenu menu;
+    for (int i = 0; i < (int) params.size(); ++i)
+    {
+        const auto& info = params[(size_t) i];
+
+        // A star on whatever already has points, so the parameters with
+        // automation on them can be found without flipping through the list.
+        auto lane = generator.findAutomationLane (info.target, info.param);
+        const bool automated = lane && lane->getNumPoints() > 0;
+
+        menu.addItem (i + 1, info.label + (automated ? " *" : ""), true,
+                      info.target == current.target && info.param == current.param);
+    }
+
+    const auto options = juce::PopupMenu::Options()
+                             .withTargetComponent (this)
+                             .withTargetScreenArea (localAreaToGlobal (laneSelectorBounds (row).toNearestInt()));
+
+    // The menu is asynchronous, so nothing captured here may be dereferenced
+    // without checking that we are still around.
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+
+    menu.showMenuAsync (options, [safeThis, generatorId, params] (int result)
+    {
+        if (safeThis == nullptr || result <= 0 || result > (int) params.size())
+            return;
+
+        const auto& chosen = params[(size_t) (result - 1)];
+
+        // The choice is UI state: the AUTOCURVE itself is only made once a
+        // point lands on it, so browsing parameters leaves the song alone.
+        safeThis->laneParamChoices[generatorId] = { chosen.target, chosen.param };
+        safeThis->repaint();
+    });
+}
+
+void PlaylistComponent::dragAutoPointTo (juce::Point<float> position)
+{
+    if (! dragAutoPoint.isValid())
+        return;
+
+    const auto curveArea = automationCurveBounds (dragAutoRow);
+    if (curveArea.isEmpty())
+        return;
+
+    // Beats land on the grid the way a tempo change does: the nearest beat is
+    // fine enough for a curve and coarse enough that a drag writes once per
+    // beat -- and point writes take EditSync's cheap path anyway. The value is
+    // never snapped; the mapping clamps it to the parameter's range instead.
+    const auto beat = std::max (0.0, std::round (xToBeat (position.x)));
+    const auto value = laneYToValue (position.y, dragAutoInfo, curveArea);
+
+    model::AutomationPoint point (dragAutoPoint);
+
+    if (std::abs (beat - autoPointLastBeat) > beatTolerance)
+    {
+        point.setBeat (beat, &undoManager);
+        autoPointLastBeat = beat;
+    }
+
+    const auto valueTolerance = 1.0e-4f * std::abs (dragAutoInfo.maxValue - dragAutoInfo.minValue);
+
+    if (std::abs (value - autoPointLastValue) > valueTolerance)
+    {
+        point.setValue (value, &undoManager);
+        autoPointLastValue = value;
+    }
+}
+
 void PlaylistComponent::updateRubberBand (juce::Point<float> position)
 {
     rubberBand = juce::Rectangle<float> (rubberBandAnchor, position);
@@ -1907,10 +2425,34 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
     if (rulerBounds().contains (position))
         return juce::MouseCursor::PointingHandCursor;   // drag sets the loop range
 
+    // An automation lane's gestures are its own, so its cursors are too.
+    if (const int laneRow = laneRowAt (position.y); laneRow >= 0 && ! headerBounds().contains (position))
+    {
+        if (laneSelectorBounds (laneRow).contains (position))
+            return juce::MouseCursor::PointingHandCursor;
+
+        if (position.x < (float) labelWidth)
+            return juce::MouseCursor::NormalCursor;
+
+        const auto point = autoPointAt (laneRow, position);
+
+        if (mods.isRightButtonDown() || mods.isAltDown())
+            return point ? eraseCursor : juce::MouseCursor::NormalCursor;
+
+        return point ? juce::MouseCursor::DraggingHandCursor
+                     : juce::MouseCursor::CrosshairCursor;
+    }
+
+    if (const int overRow = rowAt (position.y);
+        overRow >= 0 && overRow < song.getNumGenerators()
+            && ! headerBounds().contains (position)
+            && disclosureBounds (overRow).contains (position))
+        return juce::MouseCursor::PointingHandCursor;   // toggles the lane
+
     if (position.x < (float) labelWidth || headerBounds().contains (position))
         return juce::MouseCursor::NormalCursor;
 
-    const int row = yToRow (position.y);
+    const int row = clipRowAt (position.y);
     if (row < 0 || row >= song.getNumGenerators())
         return juce::MouseCursor::NormalCursor;
 
@@ -1958,8 +2500,18 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
         updateShortcutHelp();
     }
 
+    // An automation lane has gestures of its own too, so the help bar follows
+    // the pointer into one the same way it follows it into the tempo lane.
+    const int laneRow = position.x >= (float) labelWidth && ! headerBounds().contains (position)
+                            ? laneRowAt (position.y) : -1;
+    if (laneRow != hoverLaneRow)
+    {
+        hoverLaneRow = laneRow;
+        updateShortcutHelp();
+    }
+
     const int row = position.x >= (float) labelWidth && ! headerBounds().contains (position)
-                        ? yToRow (position.y) : -1;
+                        ? clipRowAt (position.y) : -1;
     const auto start = snapToBar (xToBeat (position.x));
 
     if (row != hoverRow || std::abs (start - hoverStartBeats) > beatTolerance)
@@ -1981,6 +2533,7 @@ void PlaylistComponent::mouseExit (const juce::MouseEvent&)
     mouseIsOver = false;
     hoverRow = -1;
     hoverMarkerLane = false;
+    hoverLaneRow = -1;
     updateShortcutHelp();
     repaint();
 }
@@ -2067,7 +2620,81 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
     if (headerBounds().contains (e.position))
         return;   // header band; the tool buttons handle their own clicks
 
-    const int row = yToRow (e.position.y);
+    // The disclosure and the automation lane both sit inside what used to be
+    // plain row space, so they get first claim on the press.
+    if (const int pressRow = rowAt (e.position.y);
+        pressRow >= 0 && pressRow < song.getNumGenerators()
+            && disclosureBounds (pressRow).contains (e.position))
+    {
+        toggleRowExpanded (pressRow);
+        return;
+    }
+
+    if (const int laneRow = laneRowAt (e.position.y); laneRow >= 0)
+    {
+        auto generator = song.getGenerator (laneRow);
+
+        if (laneSelectorBounds (laneRow).contains (e.position))
+        {
+            showLaneParamMenu (laneRow);
+            return;
+        }
+
+        if (e.position.x < (float) labelWidth)
+            return;   // the rest of the lane's label cell does nothing
+
+        const auto info = displayedParamFor (generator.getId());
+        const auto curveArea = automationCurveBounds (laneRow);
+        auto point = autoPointAt (laneRow, e.position);
+
+        // Alt or right-click deletes, the same gesture that erases clips. The
+        // empty AUTOCURVE is left behind on the last point: undo of the delete
+        // should put the point back, not have to resurrect the lane too.
+        if (e.mods.isRightButtonDown() || e.mods.isAltDown() || e.mods.isPopupMenu())
+        {
+            if (point)
+                if (auto lane = displayedLaneFor (generator))
+                {
+                    undoManager.beginNewTransaction();
+                    lane->removePoint (*point, &undoManager);
+                }
+
+            return;
+        }
+
+        // On the line itself a single click deliberately does nothing -- a
+        // double click inserts exactly on it (see mouseDoubleClick). Anywhere
+        // else it adds a point where it was aimed and picks it straight up, so
+        // add and place are one gesture and one undo.
+        if (! point && isNearCurveSegment (laneRow, e.position))
+            return;
+
+        undoManager.beginNewTransaction();
+
+        if (! point)
+        {
+            const auto beat = std::max (0.0, std::round (xToBeat (e.position.x)));
+            const auto value = laneYToValue (e.position.y, info, curveArea);
+
+            // The first point is what materialises the lane in the model.
+            auto lane = displayedLaneFor (generator);
+            if (! lane)
+                lane = generator.addAutomationLane (info.target, info.param, &undoManager);
+
+            point = lane->addPoint (beat, value, &undoManager);
+        }
+
+        dragMode = DragMode::autoPoint;
+        dragAutoPoint = point->state;
+        dragAutoInfo = info;
+        dragAutoRow = laneRow;
+        autoPointLastBeat = point->getBeat();
+        autoPointLastValue = point->getValue();
+        repaint();
+        return;
+    }
+
+    const int row = clipRowAt (e.position.y);
     if (row < 0 || row >= song.getNumGenerators())
         return;
 
@@ -2158,7 +2785,7 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 {
     lastMousePosition = e.position;
 
-    const int row = yToRow (e.position.y);
+    const int row = clipRowAt (e.position.y);
     const auto beat = xToBeat (e.position.x);
     const bool insideGrid = e.position.x >= (float) labelWidth
                                 && ! headerBounds().contains (e.position)
@@ -2196,6 +2823,10 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             dragMarkerTo (xToBeat (e.position.x) - markerGrabOffsetBeats);
             break;
 
+        case DragMode::autoPoint:
+            dragAutoPointTo (e.position);
+            break;
+
         case DragMode::rubberBand:
             updateRubberBand (e.position);
             break;
@@ -2215,6 +2846,8 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
     dragMode = DragMode::none;
     dragOriginStarts.clear();
     dragMarker = {};
+    dragAutoPoint = {};
+    dragAutoRow = -1;
     trimClip = {};
     rubberBand = {};
     rubberBandBaseSelection.clear();
@@ -2264,7 +2897,36 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
     if (e.position.x < (float) labelWidth || headerBounds().contains (e.position))
         return;
 
-    const int row = yToRow (e.position.y);
+    // A double click on an automation lane's line splits the segment: the new
+    // point takes the value the curve already has on that beat, so the shape
+    // does not jump. The press before this either grabbed a point (nothing
+    // more to do here) or was on the line, where a single click deliberately
+    // does nothing.
+    if (const int laneRow = laneRowAt (e.position.y); laneRow >= 0)
+    {
+        if (autoPointAt (laneRow, e.position))
+            return;
+
+        auto laneGenerator = song.getGenerator (laneRow);
+        auto lane = displayedLaneFor (laneGenerator);
+
+        if (! lane || ! isNearCurveSegment (laneRow, e.position))
+            return;
+
+        const auto beat = std::max (0.0, std::round (xToBeat (e.position.x)));
+
+        // The first click of this double click may already have added a point
+        // here; a second one on the same beat would only stack.
+        for (const auto& existing : lane->getPoints())
+            if (std::abs (existing.getBeat() - beat) < beatTolerance)
+                return;
+
+        undoManager.beginNewTransaction();
+        lane->addPoint (beat, curveValueAtBeat (lane->getPoints(), beat), &undoManager);
+        return;
+    }
+
+    const int row = clipRowAt (e.position.y);
     if (row < 0 || row >= song.getNumGenerators())
         return;
 
@@ -2353,7 +3015,10 @@ std::optional<PlaylistComponent::FileDropTarget> PlaylistComponent::fileDropTarg
         return std::nullopt;
 
     const auto numRows = song.getNumGenerators();
-    const auto row = yToRow (position.y);
+
+    // The whole row band, lane included: files aimed at an expanded audio
+    // row's lane still mean that row.
+    const auto row = rowAt (position.y);
 
     FileDropTarget target;
     target.startBeats = snapToBar (xToBeat (position.x));
