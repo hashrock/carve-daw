@@ -49,6 +49,13 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
 
     bool singleThreadedAudio = false;
 
+    // The piano roll previews notes through AudioTrack::playGuideNote, which
+    // is gated on this flag -- and its default is false, which silently
+    // swallowed every preview. The transport does not need to be rolling:
+    // guide notes ride the live MIDI path, which runs whenever a playback
+    // context exists (previewNote allocates one on demand).
+    bool shouldPlayMidiGuideNotes() override  { return true; }
+
     // Scan plugins in a child process. A scan loads arbitrary third-party code
     // and plenty of plugins crash on load or on destruction; in-process that
     // takes the whole app down mid-scan. The engine restarts the child, gives
