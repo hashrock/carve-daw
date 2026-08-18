@@ -1,5 +1,7 @@
 #include "EditSync.h"
 
+#include "EngineIds.h"
+
 namespace orionish::sync
 {
 
@@ -25,17 +27,10 @@ namespace
             track.setSolo (generator.isSoloed());
     }
 
-    // Stamped onto the tracktion plugin so a resync can match a live plugin to
-    // the model entry that asked for it, rather than rebuilding the chain and
-    // throwing away whatever the user has tweaked.
-    const juce::Identifier effectIdProperty ("orionishEffectId");
+    using sync::effectIdProperty;
+    using sync::getEffectId;
 
-    juce::String getEffectId (const te::Plugin& plugin)
-    {
-        return plugin.state.getProperty (effectIdProperty).toString();
-    }
-
-    bool isEffect (const te::Plugin& plugin)  { return getEffectId (plugin).isNotEmpty(); }
+    bool isEffect (const te::Plugin& plugin)  { return sync::isEffectPlugin (plugin); }
 
     // An insert effect can be an ExternalPlugin too, so the instrument is
     // whichever unstamped one comes first.
@@ -54,14 +49,7 @@ namespace
                 plugin->deleteFromParent();
     }
 
-    te::Plugin* findInstrument (te::AudioTrack& track)
-    {
-        for (auto plugin : track.pluginList.getPlugins())
-            if (isInstrument (*plugin))
-                return plugin;
-
-        return nullptr;
-    }
+    te::Plugin* findInstrument (te::AudioTrack& track)  { return sync::findInstrumentPlugin (track); }
 
     te::Plugin* findEffectPlugin (te::AudioTrack& track, const juce::String& effectId)
     {

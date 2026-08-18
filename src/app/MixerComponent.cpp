@@ -1,5 +1,7 @@
 #include "MixerComponent.h"
 
+#include "sync/EngineIds.h"
+
 namespace orionish::app
 {
 
@@ -20,7 +22,7 @@ namespace
     // Stamped on to the tracktion plugin by EditSync, and the only way back
     // from a model Effect to the live plugin that plays it. EditSync keeps its
     // own copy of the name; there is no shared header to put it in yet.
-    const juce::Identifier effectIdProperty ("orionishEffectId");
+    using sync::effectIdProperty;
 
     juce::String formatDb (float db)
     {
