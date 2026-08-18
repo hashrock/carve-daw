@@ -69,9 +69,11 @@ $BIN --plugin-demo DLS out.wav    # 名前でマッチした VSTi/AU でデモ�
 
 - [x] モデル層 + EditSync + パターン編集 GUI + 再生
 - [x] VST3/AU ホスティング (スキャン、Generator として選択、エディタ表示、状態の保存/復元)
-- [x] ミキサー (volume/pan/mute/solo + レベルメーター、ポップアップウィンドウ)
+- [x] ミキサー (volume/pan/mute/solo + レベルメーター、insert エフェクトスロット)
+- [x] サンプラー (Generator の 3 つ目の型)
+- [x] 内蔵エフェクト (tracktion の Compressor/EQ/Reverb/Delay 他 + 自前の Distortion)
 - [ ] 4OSC のパッチ編集 UI
-- [ ] ミキサーの insert エフェクトスロット
+- [ ] サイドチェイン (Rack が要る。TODO.md 参照)
 - [ ] オートメーション (AutomatableParameter + カーブ編集)
 - [ ] オーディオトラック・録音 (下記の注意点あり)
 
