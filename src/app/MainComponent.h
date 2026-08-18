@@ -5,6 +5,7 @@
 #include "GeneratorPanel.h"
 #include "MixerWindow.h"
 #include "PianoRollWindow.h"
+#include "ClipPropertiesPanel.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
@@ -53,6 +54,15 @@ private:
     void openPatternEditor();
     void openMixer();
     void previewNote (int pitch, int velocity);
+
+    // Shortcuts that work from anywhere, appended after whatever the focused
+    // view contributes.
+    static std::vector<ShortcutHelpBar::Entry> globalShortcutHelp()
+    {
+        return { { "Space", "play/stop" },
+                 { "Cmd+Z", "undo" },
+                 { "Cmd+S", "save" } };
+    }
     bool handleGlobalKey (const juce::KeyPress&);
 
     te::Engine& engine;
@@ -70,6 +80,7 @@ private:
     std::unique_ptr<GeneratorPanel> generatorPanel;
     PlaylistComponent playlist { undoManager };
     juce::Viewport playlistViewport;
+    ClipPropertiesPanel clipProperties { undoManager };
     ShortcutHelpBar helpBar;
 
     juce::String selectedGeneratorId, selectedPatternId;

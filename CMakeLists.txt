@@ -59,6 +59,8 @@ target_sources(orionish-te PRIVATE
     src/app/MainComponent.cpp
     src/app/TransportBar.h
     src/app/TransportBar.cpp
+    src/app/ClipPropertiesPanel.h
+    src/app/ClipPropertiesPanel.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
     src/app/MixerComponent.h
