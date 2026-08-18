@@ -2,6 +2,8 @@
 
 #include "sync/EngineIds.h"
 
+#include "FourOscEditor.h"
+
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 
@@ -255,26 +257,27 @@ void MainComponent::openPluginEditor (const juce::String& generatorId)
 
         // Not findFirstPluginOfType<ExternalPlugin>: an insert effect can be an
         // external plugin too, and this must open the instrument's editor.
-        if (auto external = dynamic_cast<te::ExternalPlugin*> (
-                sync::findInstrumentPlugin (*tracks[i])))
+        auto* instrument = sync::findInstrumentPlugin (*tracks[i]);
+
+        // destruction is deferred: the close callback runs inside the window's
+        // own member function
+        auto onClose = [safe = juce::Component::SafePointer (this), generatorId]
         {
-            if (auto instance = external->getAudioPluginInstance())
+            juce::MessageManager::callAsync ([safe, generatorId]
             {
-                // destruction is deferred: the close callback runs inside the
-                // window's own member function
-                auto onClose = [safe = juce::Component::SafePointer (this), generatorId]
-                {
-                    juce::MessageManager::callAsync ([safe, generatorId]
-                    {
-                        if (safe != nullptr)
-                            safe->pluginEditorWindows.erase (generatorId);
-                    });
-                };
-                pluginEditorWindows[generatorId] =
-                    std::make_unique<PluginEditorWindow> (*instance, std::move (onClose));
-            }
-        }
-        return;   // internal 4OSC has no editor window yet
+                if (safe != nullptr)
+                    safe->pluginEditorWindows.erase (generatorId);
+            });
+        };
+
+        if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
+            pluginEditorWindows[generatorId] =
+                std::make_unique<PluginEditorWindow> (*external, std::move (onClose));
+        else if (auto synth = dynamic_cast<te::FourOscPlugin*> (instrument))
+            pluginEditorWindows[generatorId] =
+                std::make_unique<FourOscEditorWindow> (*synth, std::move (onClose));
+
+        return;   // a sampler is edited from the generator panel, not here
     }
 }
 
