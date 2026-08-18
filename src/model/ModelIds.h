@@ -12,7 +12,10 @@
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
 // │     └─ PATTERNS
-// │        └─ PATTERN {id, name, lengthBeats}
+// │        └─ PATTERN {id, name, lengthBeats, slot}
+// │           │        slot: optional pattern-slot key, "A1".."D9". Patterns
+// │           │        without one (older songs, extras) are still listed.
+// │           │        Unused slots are absent from the tree entirely.
 // │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
 // ├─ PLAYLIST
 // │  └─ CLIP {generatorId, patternId, start}
@@ -39,6 +42,7 @@ ORIONISH_DECLARE_ID (name)
 ORIONISH_DECLARE_ID (tempo)
 ORIONISH_DECLARE_ID (type)
 ORIONISH_DECLARE_ID (lengthBeats)
+ORIONISH_DECLARE_ID (slot)
 ORIONISH_DECLARE_ID (start)
 ORIONISH_DECLARE_ID (length)
 ORIONISH_DECLARE_ID (pitch)
