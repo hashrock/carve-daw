@@ -63,6 +63,14 @@ private:
             return;
         }
 
+        // Dragging an automation point writes once per mouse move, and a
+        // curve rewrite touches only plugin state -- no graph rebuild.
+        if (tree.hasType (model::ids::PT) || tree.hasType (model::ids::AUTOCURVE))
+        {
+            applyAutomationOnly();
+            return;
+        }
+
         // Send knobs and return faders arrive continuously while dragged, and
         // only ever touch plugin parameters -- same cheap path as the mixer.
         if (tree.hasType (model::ids::SEND)
@@ -78,8 +86,18 @@ private:
             triggerAsyncUpdate();
     }
 
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override              { triggerAsyncUpdate(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { triggerAsyncUpdate(); }
+    void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree&) override       { childListChanged (parent); }
+    void valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree&, int) override { childListChanged (parent); }
+
+    // Adding or removing an automation point is a child event on its lane;
+    // everything else structural still takes the full resync.
+    void childListChanged (const juce::ValueTree& parent)
+    {
+        if (parent.hasType (model::ids::AUTOCURVE) || parent.hasType (model::ids::AUTOMATION))
+            applyAutomationOnly();
+        else
+            triggerAsyncUpdate();
+    }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { triggerAsyncUpdate(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
 
@@ -88,6 +106,7 @@ private:
     void applyMixerStateOnly();
     void applyTempoOnly();
     void applySendsAndReturnsOnly();
+    void applyAutomationOnly();
 
     model::Song song;
     te::Edit& edit;

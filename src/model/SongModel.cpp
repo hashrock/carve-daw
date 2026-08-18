@@ -744,6 +744,78 @@ MasterBus Song::getMasterBus() const
 }
 
 
+
+//==============================================================================
+// Automation
+
+int AutomationLane::getNumPoints() const
+{
+    return state.getNumChildren();
+}
+
+std::vector<AutomationPoint> AutomationLane::getPoints() const
+{
+    auto result = collectChildren<AutomationPoint> (state, ids::PT);
+
+    // Beat order is what every consumer assumes; the tree keeps insertion order.
+    std::sort (result.begin(), result.end(),
+               [] (const AutomationPoint& a, const AutomationPoint& b) { return a.getBeat() < b.getBeat(); });
+
+    return result;
+}
+
+AutomationPoint AutomationLane::addPoint (double beat, float value, juce::UndoManager* um)
+{
+    juce::ValueTree point (ids::PT);
+    state.appendChild (point, um);
+
+    AutomationPoint wrapper (point);
+    wrapper.setBeat (beat, um);
+    wrapper.setValue (value, um);
+    return wrapper;
+}
+
+void AutomationLane::removePoint (const AutomationPoint& point, juce::UndoManager* um)
+{
+    state.removeChild (point.state, um);
+}
+
+std::vector<AutomationLane> Generator::getAutomationLanes() const
+{
+    return collectChildren<AutomationLane> (state.getChildWithName (ids::AUTOMATION), ids::AUTOCURVE);
+}
+
+std::optional<AutomationLane> Generator::findAutomationLane (const juce::String& target,
+                                                             const juce::String& param) const
+{
+    for (const auto& lane : getAutomationLanes())
+        if (lane.getTarget() == target && lane.getParam() == param)
+            return lane;
+
+    return std::nullopt;
+}
+
+AutomationLane Generator::addAutomationLane (const juce::String& target,
+                                             const juce::String& param, juce::UndoManager* um)
+{
+    if (auto existing = findAutomationLane (target, param))
+        return *existing;
+
+    juce::ValueTree lane (ids::AUTOCURVE);
+    lane.setProperty (ids::target, target, nullptr);
+
+    if (param.isNotEmpty())
+        lane.setProperty (ids::param, param, nullptr);
+
+    getOrCreateChild (state, ids::AUTOMATION).appendChild (lane, um);
+    return AutomationLane (lane);
+}
+
+void Generator::removeAutomationLane (const AutomationLane& lane, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::AUTOMATION).removeChild (lane.state, um);
+}
+
 //==============================================================================
 // Sends and returns
 

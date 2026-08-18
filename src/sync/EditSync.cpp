@@ -752,7 +752,138 @@ namespace
         // form, and the sync rebuilds the live value from it.
         auto captured = plugin.state.createCopy();
         captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
+
+        // Curves are generated from the model's automation lanes; captured
+        // as-is they would come back twice, in seconds that a tempo change
+        // has already invalidated.
+        for (int i = captured.getNumChildren(); --i >= 0;)
+            if (captured.getChild (i).hasType (juce::Identifier ("AUTOMATIONCURVE")))
+                captured.removeChild (i, nullptr);
+
         effect.setInternalState (captured, nullptr);
+    }
+
+    // Applies the model's automation lanes to the live plugins' curves.
+    //
+    // Points go through AutomatableParameter::getCurve() rather than into the
+    // state tree directly: the parameter binds its curve child at construction
+    // and would never notice a tree appended behind its back -- the API's
+    // addPoint parents the curve node and wakes the parameter's listeners.
+    //
+    // The model stores beats, because a curve in seconds detaches from the
+    // music at the first tempo change; the conversion happens here, and again
+    // whenever the tempo map changes.
+    void syncAutomation (const model::Song& song, te::Edit& edit,
+                         const juce::Array<te::AudioTrack*>& tracks)
+    {
+        struct WantedPoint { double seconds; float value, curve; };
+
+        const auto generators = song.getGenerators();
+        juce::ignoreUnused (edit);
+
+        for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        {
+            const auto& generator = generators[(size_t) i];
+            auto& track = *tracks[i];
+
+            auto resolve = [&] (const model::AutomationLane& lane)
+                -> std::pair<te::Plugin*, juce::String>
+            {
+                const auto target = lane.getTarget();
+
+                if (target == model::AutomationLane::volumeTarget)
+                    return { track.getVolumePlugin(), "volume" };
+
+                if (target == model::AutomationLane::panTarget)
+                    return { track.getVolumePlugin(), "pan" };
+
+                if (target == model::AutomationLane::instrumentTarget)
+                    return { findInstrument (track), lane.getParam() };
+
+                return { findEffectPlugin (track, target), lane.getParam() };
+            };
+
+            std::map<te::AutomatableParameter*, std::vector<WantedPoint>> wanted;
+
+            for (const auto& lane : generator.getAutomationLanes())
+            {
+                auto [plugin, paramId] = resolve (lane);
+
+                if (plugin == nullptr || paramId.isEmpty())
+                    continue;
+
+                auto param = plugin->getAutomatableParameterByID (paramId);
+                if (param == nullptr)
+                    continue;
+
+                auto& points = wanted[param.get()];
+
+                for (const auto& point : lane.getPoints())
+                    points.push_back ({ song.secondsFromBeats (point.getBeat()),
+                                        point.getValue(), point.getCurve() });
+            }
+
+            // Every parameter automation can sit on: the fader pair, the
+            // instrument's, and each insert effect's.
+            std::vector<te::Plugin*> candidates;
+            candidates.push_back (track.getVolumePlugin());
+            candidates.push_back (findInstrument (track));
+
+            for (auto plugin : track.pluginList.getPlugins())
+                if (isEffect (*plugin))
+                    candidates.push_back (plugin);
+
+            for (auto plugin : candidates)
+            {
+                if (plugin == nullptr)
+                    continue;
+
+                for (auto param : plugin->getAutomatableParameters())
+                {
+                    const auto found = wanted.find (param);
+                    const auto* points = found != wanted.end() ? &found->second : nullptr;
+                    auto& curve = param->getCurve();
+
+                    // Compare before rewriting: a curve rebuild per resync
+                    // would re-trigger the parameter machinery constantly.
+                    const auto matches = [&]
+                    {
+                        const auto count = points != nullptr ? (int) points->size() : 0;
+
+                        if (curve.getNumPoints() != count)
+                            return false;
+
+                        for (int n = 0; n < count; ++n)
+                        {
+                            const auto& want = (*points)[(size_t) n];
+
+                            if (std::abs (curve.getPointTime (n).inSeconds() - want.seconds) > 1.0e-6
+                                 || std::abs (curve.getPointValue (n) - want.value) > 1.0e-6f
+                                 || std::abs (curve.getPointCurve (n) - want.curve) > 1.0e-6f)
+                                return false;
+                        }
+
+                        return true;
+                    }();
+
+                    if (matches)
+                        continue;
+
+                    curve.clear();
+
+                    if (points != nullptr)
+                        for (const auto& want : *points)
+                            curve.addPoint (te::TimePosition::fromSeconds (want.seconds),
+                                            want.value, want.curve);
+
+                    // Curve edits arm the parameter through a 10ms timer,
+                    // which never fires without a message loop -- the CLI
+                    // renders long before it would. This is the synchronous
+                    // version of the same update.
+                    param->updateStream();
+                }
+            }
+        }
     }
 
     void rebuildClips (const model::Song& song, const model::Generator& generator,
@@ -975,6 +1106,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
     }
 
     syncSidechains (song, edit, tracks);
+    syncAutomation (song, edit, tracks);
     syncReturns (song, edit);
 
 }
@@ -1072,6 +1204,10 @@ void EditSync::applyTempoOnly()
         // length is not. syncAudioClips already only writes what differs.
         syncAudioClips (song, generator, edit, *tracks[i]);
     }
+
+    // Automation curves are written to the engine in seconds, so a tempo
+    // change moves every point's wall-clock position.
+    applyAutomationOnly();
 }
 
 void EditSync::applySendsAndReturnsOnly()
@@ -1087,6 +1223,17 @@ void EditSync::applySendsAndReturnsOnly()
 
     for (int i = 0; i < (int) generators.size() && i < generatorTracks.size(); ++i)
         syncSends (song, edit, *generatorTracks[i], generators[(size_t) i]);
+}
+
+void EditSync::applyAutomationOnly()
+{
+    juce::Array<te::AudioTrack*> generatorTracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isReturnTrack (*track))
+            generatorTracks.add (track);
+
+    syncAutomation (song, edit, generatorTracks);
 }
 
 void EditSync::applyMixerStateOnly()

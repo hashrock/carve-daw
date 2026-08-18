@@ -32,6 +32,12 @@
 // │     │        exists, so a song moved with its samples plays elsewhere.
 // │     │        Everything but the paths is optional; see SamplerSound for
 // │     │        the defaults (whole keyboard, root C3, unity gain).
+// │     ├─ AUTOMATION
+// │     │  └─ AUTOCURVE {target, param}     target: "volume" | "pan" |
+// │     │     └─ PT {beat, value, curve}    "instrument" | an effect id.
+// │     │           beat: position in beats. value: the parameter's own
+// │     │           value (fader position for volume, -1..1 for pan).
+// │     │           curve: -1..1 bend, tracktion's own convention
 // │     ├─ SENDS
 // │     │  └─ SEND {returnId, gainDb}       at most one per return
 // │     ├─ EFFECTS
@@ -88,6 +94,8 @@ CARVE_DECLARE_ID (CLIP)
 CARVE_DECLARE_ID (AUDIOCLIP)
 CARVE_DECLARE_ID (RETURNS)
 CARVE_DECLARE_ID (RETURN)
+CARVE_DECLARE_ID (AUTOCURVE)
+CARVE_DECLARE_ID (PT)
 CARVE_DECLARE_ID (SENDS)
 CARVE_DECLARE_ID (SEND)
 CARVE_DECLARE_ID (MASTER)
@@ -118,6 +126,11 @@ CARVE_DECLARE_ID (transpose)
 CARVE_DECLARE_ID (enabled)
 CARVE_DECLARE_ID (sidechainSource)
 CARVE_DECLARE_ID (returnId)
+CARVE_DECLARE_ID (target)
+CARVE_DECLARE_ID (param)
+CARVE_DECLARE_ID (beat)
+CARVE_DECLARE_ID (value)
+CARVE_DECLARE_ID (curve)
 CARVE_DECLARE_ID (busNumber)
 CARVE_DECLARE_ID (gainDb)
 CARVE_DECLARE_ID (loopStart)

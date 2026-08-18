@@ -234,6 +234,52 @@ public:
     juce::ValueTree state;
 };
 
+
+// One point on an automation lane. The value is the parameter's own value --
+// fader position for volume, -1..1 for pan -- because that is what tracktion's
+// curves store, so nothing translates twice.
+class AutomationPoint
+{
+public:
+    explicit AutomationPoint (juce::ValueTree v) : state (std::move (v)) {}
+
+    double getBeat() const   { return state[ids::beat]; }
+    float getValue() const   { return state[ids::value]; }
+    float getCurve() const   { return state.getProperty (ids::curve, 0.0f); }
+
+    void setBeat (double beat, juce::UndoManager* um)   { state.setProperty (ids::beat, juce::jmax (0.0, beat), um); }
+    void setValue (float value, juce::UndoManager* um)  { state.setProperty (ids::value, value, um); }
+    void setCurve (float curve, juce::UndoManager* um)  { state.setProperty (ids::curve, juce::jlimit (-1.0f, 1.0f, curve), um); }
+
+    juce::ValueTree state;
+};
+
+// A parameter's automation over the whole song. Positions are beats -- the
+// engine wants seconds, but a curve stored in seconds would detach from the
+// music at the first tempo change; EditSync converts on the way in.
+class AutomationLane
+{
+public:
+    explicit AutomationLane (juce::ValueTree v) : state (std::move (v)) {}
+
+    // What the volume/pan targets are called; anything else is an effect id
+    // (or instrumentTarget), with getParam() naming the parameter.
+    static constexpr const char* volumeTarget = "volume";
+    static constexpr const char* panTarget = "pan";
+    static constexpr const char* instrumentTarget = "instrument";
+
+    juce::String getTarget() const  { return state[ids::target]; }
+    juce::String getParam() const   { return state[ids::param]; }
+
+    int getNumPoints() const;
+    std::vector<AutomationPoint> getPoints() const;   // beat order
+
+    AutomationPoint addPoint (double beat, float value, juce::UndoManager*);
+    void removePoint (const AutomationPoint&, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 class Send;
 class Return;
 
@@ -313,6 +359,13 @@ public:
     // whatever it had. This is what the panel's file chooser and file drops
     // do: the tree can hold a multi-sample kit, but nothing edits one yet.
     SamplerSound setSingleSound (const juce::File&, juce::UndoManager*);
+
+    // Automation lanes, one per automated parameter. findLane answers by
+    // (target, param); addLane materialises on first use.
+    std::vector<AutomationLane> getAutomationLanes() const;
+    std::optional<AutomationLane> findAutomationLane (const juce::String& target, const juce::String& param) const;
+    AutomationLane addAutomationLane (const juce::String& target, const juce::String& param, juce::UndoManager*);
+    void removeAutomationLane (const AutomationLane&, juce::UndoManager*);
 
     // Sends into return busses. findSend answers by return id; setSendGain
     // materialises the SEND node on first use, so an untouched send stays out
