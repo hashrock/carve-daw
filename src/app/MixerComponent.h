@@ -1,10 +1,14 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <vector>
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "EffectParameterWindow.h"
+#include "EffectSlotList.h"
+#include "PluginWindows.h"
 #include "model/SongModel.h"
 
 namespace te = tracktion;
@@ -12,8 +16,8 @@ namespace te = tracktion;
 namespace orionish::app
 {
 
-// One channel strip per Generator: post-fader level meter, volume fader, pan,
-// mute and solo.
+// One channel strip per Generator: insert effect slots, post-fader level meter,
+// volume fader, pan, mute and solo.
 //
 // Edits go through the song model, not straight at the tracktion track, so they
 // are undoable and saved in the .orion file like every other edit; EditSync
@@ -41,8 +45,23 @@ public:
 private:
     class ChannelStrip;
 
-    static constexpr int stripWidth = 92;
+    // Wider than a bare fader strip needs to be: the insert slots have to
+    // show enough of an effect's name to tell two of them apart.
+    static constexpr int stripWidth = 116;
     static constexpr int minHeight = 300;
+
+    // An open editor window, keyed by effect id. The Plugin::Ptr is a strong
+    // reference on purpose: removing the effect drops the track's own
+    // reference, and an external plugin's editor component would then be
+    // holding a freed AudioPluginInstance. Holding on keeps the plugin alive
+    // until the window has gone -- which is why `window` is declared last, so
+    // it is destroyed first.
+    struct OpenEffectWindow
+    {
+        juce::String generatorId;
+        te::Plugin::Ptr plugin;
+        std::unique_ptr<juce::DocumentWindow> window;
+    };
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree&) override;
@@ -58,12 +77,26 @@ private:
     // mixer property changes.
     void rebuildStrips();
     void generatorListChanged (const juce::ValueTree& parent);
+    void effectListChanged (const juce::ValueTree& parent);
+
+    // generator order == track order (EditSync invariant), then the plugin on
+    // that track stamped with the effect's id.
+    te::Plugin* findEffectPlugin (const juce::String& generatorId,
+                                  const juce::String& effectId) const;
+
+    void openEffectEditor (const juce::String& generatorId, const model::Effect&);
+    void closeEffectWindow (const juce::String& effectId);
+
+    // Drops any window whose plugin the model or EditSync has replaced or
+    // taken away behind our back (an undo, a resync, another view).
+    void closeStaleEffectWindows();
 
     te::Edit& edit;
     juce::UndoManager& undoManager;
     model::Song song { model::Song::create ("Untitled") };
 
     std::vector<std::unique_ptr<ChannelStrip>> strips;
+    std::map<juce::String, OpenEffectWindow> effectWindows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)
 };

@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+#include "sync/EngineIds.h"
+
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 
@@ -251,7 +253,10 @@ void MainComponent::openPluginEditor (const juce::String& generatorId)
         if (generators[(size_t) i].getId() != generatorId)
             continue;
 
-        if (auto external = tracks[i]->pluginList.findFirstPluginOfType<te::ExternalPlugin>())
+        // Not findFirstPluginOfType<ExternalPlugin>: an insert effect can be an
+        // external plugin too, and this must open the instrument's editor.
+        if (auto external = dynamic_cast<te::ExternalPlugin*> (
+                sync::findInstrumentPlugin (*tracks[i])))
         {
             if (auto instance = external->getAudioPluginInstance())
             {

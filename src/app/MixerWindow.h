@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "MixerComponent.h"
+#include "ShortcutHelpBar.h"
 
 namespace orionish::app
 {
@@ -31,9 +32,19 @@ public:
     {
         viewport.setViewedComponent (&mixer, false);
         viewport.setScrollBarsShown (false, true);
-        viewport.setSize (mixer.getWidth(), defaultHeight);
 
-        setContentNonOwned (&viewport, true);
+        // The slot gestures are mouse-only and invisible until you try them,
+        // which is exactly what the help bar is for. They are always available,
+        // so unlike the pattern editor's this list never changes.
+        helpBar.setEntries ({ { "+ FX", "add effect" },
+                              { "click", "open FX editor" },
+                              { "drag", "reorder FX" },
+                              { "dot", "bypass" },
+                              { "right-click", "FX menu" } });
+
+        content.setSize (mixer.getWidth(), defaultHeight + ShortcutHelpBar::preferredHeight);
+
+        setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
         setResizable (true, false);
 
@@ -124,8 +135,10 @@ private:
 
         // Pinning both width limits keeps a resize drag from fighting the next
         // re-fit; the height stays free.
-        setResizeLimits (width, minHeight + border.getTopAndBottom(),
-                         width, juce::jmax (minHeight, screen.getHeight()));
+        const auto smallest = minHeight + ShortcutHelpBar::preferredHeight;
+
+        setResizeLimits (width, smallest + border.getTopAndBottom(),
+                         width, juce::jmax (smallest, screen.getHeight()));
     }
 
     void restoreBounds()
@@ -169,7 +182,31 @@ private:
     std::function<bool (const juce::KeyPress&)> onKey;
     std::unique_ptr<juce::PropertiesFile> settings;   // flushes itself on destruction
     juce::Viewport viewport;
+    ShortcutHelpBar helpBar;
     MixerComponent mixer;
+
+    // The strips scroll, the help bar does not, so they need a parent between
+    // them and the window.
+    struct Content : public juce::Component
+    {
+        Content (juce::Viewport& v, ShortcutHelpBar& b) : viewport (v), helpBar (b)
+        {
+            addAndMakeVisible (viewport);
+            addAndMakeVisible (helpBar);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds();
+            helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
+            viewport.setBounds (area);
+        }
+
+        juce::Viewport& viewport;
+        ShortcutHelpBar& helpBar;
+    };
+
+    Content content { viewport, helpBar };
 };
 
 } // namespace orionish::app

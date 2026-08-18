@@ -7,10 +7,18 @@
 // SONG {name, tempo, loopStart, loopEnd}
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
-// │     │                                  type: "internal-synth" | "plugin"
+// │     │                          type: "internal-synth" | "plugin" | "sampler"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
+// │     ├─ SOUNDS                           type "sampler" only, absent otherwise
+// │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan}
+// │     │        file: absolute path to the sample. relPath: the same file
+// │     │        relative to the .orion's folder, rewritten on every save.
+// │     │        Loading prefers relPath when it resolves to a file that
+// │     │        exists, so a song moved with its samples plays elsewhere.
+// │     │        Everything but the paths is optional; see SamplerSound for
+// │     │        the defaults (whole keyboard, root C3, unity gain).
 // │     ├─ EFFECTS
 // │     │  └─ EFFECT {id, type, desc, state, enabled}
 // │     │        type: a tracktion internal plugin's xmlTypeName, or "plugin"
@@ -39,6 +47,8 @@ ORIONISH_DECLARE_ID (PATTERNS)
 ORIONISH_DECLARE_ID (PATTERN)
 ORIONISH_DECLARE_ID (NOTE)
 ORIONISH_DECLARE_ID (PLUGIN)
+ORIONISH_DECLARE_ID (SOUNDS)
+ORIONISH_DECLARE_ID (SOUND)
 ORIONISH_DECLARE_ID (EFFECTS)
 ORIONISH_DECLARE_ID (EFFECT)
 ORIONISH_DECLARE_ID (PLAYLIST)
@@ -67,6 +77,12 @@ ORIONISH_DECLARE_ID (volumeDb)
 ORIONISH_DECLARE_ID (pan)
 ORIONISH_DECLARE_ID (mute)
 ORIONISH_DECLARE_ID (solo)
+ORIONISH_DECLARE_ID (file)
+ORIONISH_DECLARE_ID (relPath)
+ORIONISH_DECLARE_ID (rootNote)
+ORIONISH_DECLARE_ID (minNote)
+ORIONISH_DECLARE_ID (maxNote)
+ORIONISH_DECLARE_ID (gainDb)
 
 #undef ORIONISH_DECLARE_ID
 

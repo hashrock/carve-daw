@@ -33,3 +33,13 @@ Mixer
 
 - [x] ウィンドウサイズを自動計算
 - [x] ウィンドウサイズを保存
+
+Side chain
+
+- [ ] コンプのサイドチェイン入力に別トラックを送る
+      tracktion 側は用意されている: CompressorPlugin は 3 本目の入力ピン
+      "Sidechain Trigger" と useSidechainTrigger を持ち、配線は
+      RackType::createInstanceForSideChain (Track&, channelMask, pluginID, pinIndex)
+      が行う。ただしコンプを Rack に包み、送り元トラックにも RackInstance を
+      挿す形になるため、「ジェネレータごとに直列インサート 1 本」という
+      現在のモデルに Rack を持ち込む必要がある。着手時はまずそこの設計から

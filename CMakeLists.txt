@@ -29,7 +29,9 @@ set(ORIONISH_CORE_SOURCES
     src/model/DemoSong.h
     src/model/DemoSong.cpp
     src/sync/EditSync.h
-    src/sync/EditSync.cpp)
+    src/sync/EditSync.cpp
+    src/plugins/DistortionPlugin.h
+    src/plugins/DistortionPlugin.cpp)
 
 function(orionish_configure_target target)
     target_sources(${target} PRIVATE ${ORIONISH_CORE_SOURCES})
@@ -61,6 +63,9 @@ target_sources(orionish-te PRIVATE
     src/app/TransportBar.cpp
     src/app/ClipPropertiesPanel.h
     src/app/ClipPropertiesPanel.cpp
+    src/app/EffectParameterWindow.h
+    src/app/EffectSlotList.h
+    src/app/EffectSlotList.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
     src/app/MixerComponent.h

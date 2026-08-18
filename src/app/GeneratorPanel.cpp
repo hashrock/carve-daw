@@ -127,9 +127,27 @@ GeneratorPanel::GeneratorPanel (te::Engine& engineToUse, model::Song songModel, 
 
     instrumentButton.onClick = [this]
     {
+        auto generator = getSelectedGenerator();
+
+        if (! generator)
+            return;
+
+        // A sampler has no plugin editor to open: the sample it plays is the
+        // only thing there is to choose, so the button becomes that chooser.
+        if (generator->isSampler())
+        {
+            const auto generatorId = generator->getId();
+
+            launchSampleChooser ([this, generatorId] (const juce::File& sample)
+            {
+                if (auto target = song.findGenerator (generatorId))
+                    assignSample (*target, sample);
+            });
+            return;
+        }
+
         if (onOpenPluginEditor)
-            if (auto id = getSelectedGeneratorId(); id.isNotEmpty())
-                onOpenPluginEditor (id);
+            onOpenPluginEditor (generator->getId());
     };
 
     editPatternButton.onClick = [this]
@@ -188,6 +206,7 @@ void GeneratorPanel::showAddGeneratorMenu()
 {
     juce::PopupMenu menu;
     menu.addItem (1, "4OSC (internal synth)");
+    menu.addItem (3, "Sampler (choose a sample)...");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> instruments;
@@ -217,6 +236,12 @@ void GeneratorPanel::showAddGeneratorMenu()
             if (onManagePlugins)
                 onManagePlugins();
         }
+        else if (result == 3)
+        {
+            // The sample comes first so the generator can be named after it;
+            // a cancelled chooser leaves no empty sampler behind.
+            launchSampleChooser ([this] (const juce::File& sample) { addSamplerGenerator (sample); });
+        }
         else if (result >= 100 && result < 100 + instruments.size())
         {
             const auto& description = instruments.getReference (result - 100);
@@ -225,8 +250,8 @@ void GeneratorPanel::showAddGeneratorMenu()
     });
 }
 
-void GeneratorPanel::addGenerator (const juce::String& name, const juce::String& type,
-                                   const juce::PluginDescription* description)
+model::Generator GeneratorPanel::addGenerator (const juce::String& name, const juce::String& type,
+                                              const juce::PluginDescription* description)
 {
     undoManager.beginNewTransaction();
     auto generator = song.addGenerator (name, type, &undoManager);
@@ -239,6 +264,88 @@ void GeneratorPanel::addGenerator (const juce::String& name, const juce::String&
     selectedPatternId = pattern.getId();
     refresh();
     generatorList.selectRow (song.getNumGenerators() - 1);
+    return generator;
+}
+
+//==============================================================================
+// Samples
+
+void GeneratorPanel::launchSampleChooser (std::function<void (const juce::File&)> onChosen)
+{
+    sampleChooser = std::make_unique<juce::FileChooser> (
+        "Choose a sample",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+        engine.getAudioFileFormatManager().readFormatManager.getWildcardForAllFormats());
+
+    sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+                                [onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto sample = chooser.getResult(); sample.existsAsFile())
+            onChosen (sample);
+    });
+}
+
+void GeneratorPanel::addSamplerGenerator (const juce::File& sample)
+{
+    auto generator = addGenerator (sample.getFileNameWithoutExtension(),
+                                   model::Generator::samplerType, nullptr);
+    generator.setSingleSound (sample, &undoManager);
+    refresh();
+}
+
+void GeneratorPanel::assignSample (model::Generator generator, const juce::File& sample)
+{
+    if (! generator.isSampler())
+        return;
+
+    undoManager.beginNewTransaction();
+
+    // One sample over the whole keyboard, replacing whatever was there. The
+    // generator's own name is left alone: it may well be the user's.
+    generator.setSingleSound (sample, &undoManager);
+    refresh();
+}
+
+std::optional<model::Generator> GeneratorPanel::getGeneratorAt (juce::Point<int> position) const
+{
+    if (! generatorList.getBounds().contains (position))
+        return std::nullopt;
+
+    const auto row = generatorList.getRowContainingPosition (position.x - generatorList.getX(),
+                                                             position.y - generatorList.getY());
+
+    if (row >= 0 && row < song.getNumGenerators())
+        return song.getGenerator (row);
+
+    return std::nullopt;
+}
+
+bool GeneratorPanel::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& path : files)
+        if (engine.getAudioFileFormatManager().canOpen (juce::File (path)))
+            return true;
+
+    return false;
+}
+
+void GeneratorPanel::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    for (const auto& path : files)
+    {
+        const juce::File sample (path);
+
+        if (! engine.getAudioFileFormatManager().canOpen (sample))
+            continue;
+
+        // Dropping onto a sampler swaps its sample; anywhere else -- another
+        // generator, or the empty space below the list -- makes a new one.
+        if (auto generator = getGeneratorAt ({ x, y }); generator && generator->isSampler())
+            assignSample (*generator, sample);
+        else
+            addSamplerGenerator (sample);
+    }
 }
 
 void GeneratorPanel::setSong (model::Song newSong)
@@ -424,6 +531,10 @@ void GeneratorPanel::rebuildSlotGrid()
     // name - which the piano roll may have changed away from the slot's.
     patternHeader.setText (selected ? "Pattern: " + selected->getName() : "Patterns",
                            juce::dontSendNotification);
+
+    // Same button, different job for a sampler; see its onClick.
+    instrumentButton.setButtonText (generator && generator->isSampler() ? "Load Sample..."
+                                                                        : "Instrument UI");
     slotGrid.repaint();
 }
 
