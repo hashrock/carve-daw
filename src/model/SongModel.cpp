@@ -802,7 +802,10 @@ Song::BarsAndBeats Song::toBarsAndBeats (double beat) const
 
         if (at > cursor)
         {
-            bar += (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+            // ceil, not floor: a change that lands mid-bar cuts that bar short
+            // rather than being swallowed by it, which is what every DAW does
+            // and what keeps this agreeing with beatOfBar.
+            bar += (int) std::ceil ((at - cursor) / sig.getBeatsPerBar() - tolerance);
             cursor = at;
         }
 
@@ -826,7 +829,9 @@ double Song::beatOfBar (int bar) const
     for (const auto& change : getTimeSigChanges())
     {
         const auto at = change.getStartBeat();
-        const auto barsUntil = (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+
+        // Matches toBarsAndBeats: a short bar before the change still counts.
+        const auto barsUntil = (int) std::ceil ((at - cursor) / sig.getBeatsPerBar() - tolerance);
 
         if (barCursor + barsUntil > bar)
             break;
