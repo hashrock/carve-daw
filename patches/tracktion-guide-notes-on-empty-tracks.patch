@@ -1,0 +1,50 @@
+Let a track with no clips still receive live MIDI (note previews)
+
+createNodeForAudioTrack builds the track's node from its clips, then wraps
+it in a LiveMidiInjectingNode -- the node that AudioTrack::playGuideNote
+ultimately delivers to. A track with nothing on the timeline produces no
+node from its clips, so the wrap is skipped; only afterwards does the
+function notice the track hosts a synth and make a SilentNode to feed it.
+
+The result is a synth track that plays back fine once something is placed
+on it, but silently swallows every guide note until then: injectLiveMidiMessage
+finds no listener for the track and drops the message. In an app whose piano
+roll previews notes as they are drawn, that reads as "previews work on some
+generators and not others".
+
+Moving the wrap after the stub-node block fixes it. A track that did produce
+a clips node is unaffected: the wrap still happens in the same place relative
+to the live-input and input-track summing below.
+
+--- a/modules/tracktion_engine/playback/graph/tracktion_EditNodeBuilder.cpp
++++ b/modules/tracktion_engine/playback/graph/tracktion_EditNodeBuilder.cpp
+@@ -1444,12 +1444,6 @@ std::unique_ptr<tracktion::graph::Node> createNodeForAudioTrack (AudioTrack& at,
+
+     auto liveInputNode = createLiveInputsNode (at, playHeadState, params);
+
+-    if (node && ! at.getListeners().isEmpty())
+-        node = makeNode<LiveMidiOutputNode> (at, std::move (node));
+-
+-    if (node)
+-        node = makeNode<LiveMidiInjectingNode> (at, std::move (node));
+-
+     if (node == nullptr && inputTracks.isEmpty() && liveInputNode == nullptr)
+     {
+         // If there are synths on the track, create a stub Node to feed them
+@@ -1466,6 +1460,16 @@ std::unique_ptr<tracktion::graph::Node> createNodeForAudioTrack (AudioTrack& at,
+             return {};
+     }
+
++    // After the stub Node above, not before it: a track with no clips has no
++    // node at this point, and wrapping first left such a track without a
++    // LiveMidiInjectingNode -- so playGuideNote was silently dropped on any
++    // synth track with nothing placed on the timeline yet. (carve)
++    if (node && ! at.getListeners().isEmpty())
++        node = makeNode<LiveMidiOutputNode> (at, std::move (node));
++
++    if (node)
++        node = makeNode<LiveMidiInjectingNode> (at, std::move (node));
++
+     if (liveInputNode)
+     {
+         if (node)
