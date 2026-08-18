@@ -66,15 +66,22 @@ target_sources(carve PRIVATE
     src/app/EffectParameterWindow.h
     src/app/EffectSlotList.h
     src/app/EffectSlotList.cpp
+    src/app/DrumPadGrid.h
+    src/app/DrumPadGrid.cpp
+    src/app/FourOscEditor.h
+    src/app/FourOscEditor.cpp
     src/app/GeneratorPanel.h
     src/app/GeneratorPanel.cpp
     src/app/MixerComponent.h
     src/app/MixerComponent.cpp
     src/app/MixerWindow.h
+    src/app/ParameterRows.h
     src/app/PianoRollComponent.h
     src/app/PianoRollComponent.cpp
     src/app/PianoRollWindow.h
     src/app/PluginWindows.h
+    src/app/PresetManager.h
+    src/app/PresetManager.cpp
     src/app/PlaylistComponent.h
     src/app/PlaylistComponent.cpp
     src/app/ShortcutHelpBar.h)

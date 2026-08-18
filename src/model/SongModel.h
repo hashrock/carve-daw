@@ -104,6 +104,31 @@ public:
 };
 
 
+// How a node that points at a file on disk stores it: an absolute path in
+// `file`, plus the same file relative to the .carve in `relPath`. Resolving
+// prefers the relative one when it lands on a file that exists, because that
+// is exactly the case where the absolute one is wrong (the project was copied
+// elsewhere, and the old path may still exist on this machine pointing at
+// something else). Both sampler sounds and playlist audio clips use this, so
+// a song moved with its media plays the same anywhere.
+struct FileRef
+{
+    static juce::File getFile (const juce::ValueTree&);
+    static void setFile (juce::ValueTree, const juce::File&, juce::UndoManager*);
+
+    // Called by Song::loadFromFile / saveToFile once the song's own location
+    // is known, which is the only thing a relative path is relative to.
+    static void resolve (juce::ValueTree, const juce::File& songDirectory);
+    static void refresh (juce::ValueTree, const juce::File& songDirectory);
+};
+
+// How long an audio file is, in seconds, or 0 for anything that can't be
+// read. The playlist needs this to give a dropped file a length, and that is
+// the only thing in the model that has to look at audio data rather than at
+// the tree.
+double readAudioFileLengthSeconds (const juce::File&);
+
+
 // One sample a sampler generator plays: a file, mapped across a key range and
 // pitched from a root note. That is deliberately all of it -- one sample laid
 // over the keyboard, or a handful with a root note each, covers the one-shot
@@ -126,9 +151,9 @@ public:
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 
     // The sample, as an absolute path. A relative one is stored alongside it;
-    // see Song::resolveSamplePaths for why, and which of the two wins.
-    juce::File getFile() const;
-    void setFile (const juce::File&, juce::UndoManager*);
+    // see FileRef for why, and which of the two wins.
+    juce::File getFile() const                                   { return FileRef::getFile (state); }
+    void setFile (const juce::File& f, juce::UndoManager* um)    { FileRef::setFile (state, f, um); }
 
     int getRootNote() const  { return state.getProperty (ids::rootNote, defaultRootNote); }
     int getMinNote() const   { return state.getProperty (ids::minNote, lowestNote); }
@@ -203,8 +228,16 @@ public:
     // presented and filled in -- everything downstream treats it as a sampler.
     static constexpr const char* drumKitType = "drum-sampler";
 
+    // An audio generator plays files placed on its playlist row instead of
+    // patterns, so it hosts no instrument at all -- its track carries wave
+    // clips where every other type carries MIDI. It still has a fader, a pan
+    // and an effect chain, which is why it is a generator type rather than a
+    // separate kind of thing.
+    static constexpr const char* audioType = "audio";
+
     bool isDrumKit() const  { return getType() == drumKitType; }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
+    bool isAudio() const    { return getType() == audioType; }
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 
@@ -334,6 +367,51 @@ public:
     juce::ValueTree state;
 };
 
+// An audio file placed on an audio generator's row. Where a PlaylistClip
+// names a pattern and inherits its length, this one names a file and states
+// its length outright: there is no pattern to fall back on, and the source's
+// own length is only known once something has read it off disk.
+//
+// Times are in beats, like everything else on the playlist. That does mean a
+// tempo change slides the audio around rather than stretching it -- but the
+// grid the user drops onto is a bar grid, so beats are what a placement is
+// actually expressed in, and pitch-shifting is out of scope either way.
+class AudioClip
+{
+public:
+    explicit AudioClip (juce::ValueTree v) : state (std::move (v)) {}
+
+    // Trimming can take a placement down to a sixteenth note, which is also
+    // the floor PlaylistClip uses.
+    static constexpr double minLengthBeats = 0.0625;
+
+    juce::String getId() const           { return state[ids::id]; }
+    juce::String getGeneratorId() const  { return state[ids::generatorId]; }
+
+    // The source, stored the same way a sampler sound's is; see FileRef.
+    juce::File getFile() const                                   { return FileRef::getFile (state); }
+    void setFile (const juce::File& f, juce::UndoManager* um)    { FileRef::setFile (state, f, um); }
+
+    // What the clip is called on the grid and on the track: the file's name,
+    // because nothing here renames a placement.
+    juce::String getName() const  { return getFile().getFileNameWithoutExtension(); }
+
+    double getStart() const   { return state[ids::start]; }
+    double getLength() const  { return std::max (minLengthBeats, (double) state[ids::length]); }
+
+    // Where in the source the placement starts, so a clip can play from part
+    // way in. Everything reads and honours it, but no gesture writes one yet:
+    // the grid only trims the end. Absent means "from the top", which is what
+    // a dropped file gets.
+    double getOffset() const  { return std::max (0.0, (double) state.getProperty (ids::offset, 0.0)); }
+
+    void setStart (double beats, juce::UndoManager* um)   { state.setProperty (ids::start, std::max (0.0, beats), um); }
+    void setLength (double beats, juce::UndoManager* um)  { state.setProperty (ids::length, std::max (minLengthBeats, beats), um); }
+    void setOffset (double beats, juce::UndoManager* um)  { state.setProperty (ids::offset, std::max (0.0, beats), um); }
+
+    juce::ValueTree state;
+};
+
 class Playlist
 {
 public:
@@ -346,6 +424,14 @@ public:
     PlaylistClip addClip (const Generator& generator, const Pattern& pattern,
                           double startBeats, juce::UndoManager* um);
     void removeClip (const PlaylistClip& clip, juce::UndoManager* um);
+
+    // Audio placements live alongside the pattern ones as their own node type,
+    // so getClips() keeps returning exactly what it always did.
+    std::vector<AudioClip> getAudioClips() const;
+
+    AudioClip addAudioClip (const Generator& generator, const juce::File& file,
+                            double startBeats, double lengthBeats, juce::UndoManager* um);
+    void removeAudioClip (const AudioClip& clip, juce::UndoManager* um);
 
     juce::ValueTree state;
 };
@@ -362,17 +448,22 @@ public:
     juce::String toXmlString() const;
     bool saveToFile (const juce::File& file) const;
 
-    // Sampler paths, which are the only thing in the model that means anything
-    // outside the file. Each sound stores both an absolute path and one
-    // relative to the .carve: resolving prefers the relative one when it lands
-    // on a file that exists, because that is the case where the absolute one
-    // is wrong (the project was copied elsewhere, and the old path may still
-    // exist on this machine pointing at a different sample). Refreshing
-    // rewrites the relative path from the absolute one against wherever the
-    // song is being saved. loadFromFile and saveToFile call these, and both
-    // do nothing at all to a song without sampler generators.
-    void resolveSamplePaths (const juce::File& songFile) const;
-    void refreshSamplePaths (const juce::File& songFile) const;
+    // Media paths -- sampler sounds and playlist audio clips -- which are the
+    // only thing in the model that means anything outside the file. Resolving
+    // fixes each one up against where the song is being loaded from, and
+    // refreshing rewrites the relative half against where it is being saved
+    // to; FileRef explains which of the two paths wins and why. loadFromFile
+    // and saveToFile call these, and both do nothing at all to a song that
+    // references no media.
+    void resolveMediaPaths (const juce::File& songFile) const;
+    void refreshMediaPaths (const juce::File& songFile) const;
+
+    // EditSync matches an audio placement to the wave clip it already built by
+    // id, so one without an id would be torn down and rebuilt on every resync
+    // -- re-reading the file and cutting whatever it is playing. Everything
+    // this code writes has an id; a hand-written song is the gap, and loading
+    // is the moment to close it. Called by fromXml, so every load path gets it.
+    void ensureAudioClipIds() const;
 
     juce::String getName() const  { return state[ids::name]; }
     double getTempo() const       { return state[ids::tempo]; }
@@ -406,6 +497,16 @@ public:
     Generator addGenerator (const juce::String& name, const juce::String& type, juce::UndoManager* um);
 
     Playlist getPlaylist() const;
+
+    // Where the last placement on the playlist ends, counting both pattern and
+    // audio clips. This is what "the whole song" means to the transport, so it
+    // has to live here rather than in whichever view happens to need it.
+    double getLengthBeats() const;
+
+    // Beats and seconds, at the song's one tempo. Placing an audio file needs
+    // this: the file's length only exists in seconds.
+    double beatsFromSeconds (double seconds) const  { return getTempo() > 0.0 ? seconds * getTempo() / 60.0 : 0.0; }
+    double secondsFromBeats (double beats) const    { return getTempo() > 0.0 ? beats * 60.0 / getTempo() : 0.0; }
 
     // Whether anything on the playlist plays this pattern. Used to decide if a
     // slot the user only browsed past can be dropped again.

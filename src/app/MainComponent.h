@@ -86,7 +86,9 @@ private:
     juce::String selectedGeneratorId, selectedPatternId;
 
     std::shared_ptr<juce::FileChooser> fileChooser;
-    std::map<juce::String, std::unique_ptr<PluginEditorWindow>> pluginEditorWindows;
+    // DocumentWindow, not PluginEditorWindow: an instrument is either an
+    // external plugin with its own editor or a 4OSC with ours.
+    std::map<juce::String, std::unique_ptr<juce::DocumentWindow>> pluginEditorWindows;
     std::unique_ptr<PluginScanWindow> pluginScanWindow;
     std::unique_ptr<PianoRollWindow> pianoRollWindow;
     std::unique_ptr<MixerWindow> mixerWindow;

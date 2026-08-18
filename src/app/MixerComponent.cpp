@@ -470,7 +470,7 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const mo
     if (auto* external = dynamic_cast<te::ExternalPlugin*> (plugin))
     {
         if (auto* instance = external->getAudioPluginInstance())
-            window = std::make_unique<PluginEditorWindow> (*instance, std::move (onClose));
+            window = std::make_unique<PluginEditorWindow> (*external, std::move (onClose));
     }
     else
     {

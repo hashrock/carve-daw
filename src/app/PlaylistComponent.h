@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -25,12 +26,20 @@ namespace carve::app
 // property of the clip, not a gesture here - a clip shorter than its pattern is
 // cut off, a longer one repeats it, and the repeats are drawn as dividers.
 //
+// An "audio" generator's row holds files rather than patterns. Those are drawn
+// as their waveform, they have no pattern to swap and no transpose (that would
+// mean pitch-shifting), and their one handle is instead a grip on the right
+// edge that trims the placement. Dropping audio files anywhere on the grid
+// places them: onto an audio row when the drop lands on one, onto a new audio
+// generator otherwise.
+//
 // The header band holds the tool strip, the zoom control and the bar ruler.
 // Dragging the ruler sets the song's loop range.
 //
 // Selection is pure UI state: it lives here and never reaches the model, so
 // selecting never dirties the document or triggers an EditSync resync.
 class PlaylistComponent : public juce::Component,
+                          public juce::FileDragAndDropTarget,
                           private juce::ValueTree::Listener
 {
 public:
@@ -77,6 +86,12 @@ public:
     void modifierKeysChanged (const juce::ModifierKeys&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override;
+    void fileDragMove (const juce::StringArray& files, int x, int y) override;
+    void fileDragExit (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+
 private:
     static constexpr int labelWidth = 120;
     static constexpr int rowHeight = 44;
@@ -100,14 +115,33 @@ private:
     static constexpr float menuButtonWidth = 15.0f;
     static constexpr float menuButtonInset = 3.0f;
 
+    // The grip on an audio clip's right edge that trims it. Narrow, because it
+    // sits inside the clip and everything to its left still drags the clip.
+    static constexpr float trimHandleWidth = 6.0f;
+
     enum class DragMode
     {
         none,
         paint,
         erase,
         move,
+        trim,        // an audio clip's right edge
         loopRange,   // on the ruler
         rubberBand   // select tool on empty space
+    };
+
+    // A placement on the grid, whichever node type it is. The two kinds differ
+    // in almost everything they draw and almost nothing about how they are
+    // hit-tested, selected, moved or deleted, so all of that goes through this
+    // rather than branching on the type in a dozen places.
+    struct Placement
+    {
+        juce::ValueTree state;
+        double start = 0.0;
+        double length = 0.0;
+
+        bool isAudio() const  { return state.hasType (model::ids::AUDIOCLIP); }
+        double getEnd() const  { return start + length; }
     };
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { refresh(); }
@@ -150,26 +184,36 @@ private:
     juce::Rectangle<float> rulerBounds() const    { return headerBounds().withTrimmedTop ((float) toolbarHeight); }
 
     std::optional<model::Pattern> patternForRow (const model::Generator&) const;
-    std::optional<model::PlaylistClip> clipAt (const model::Generator&, double beat) const;
+
+    // Resolves a playlist node into a Placement. Everything that draws,
+    // hit-tests, moves or measures a clip has to go through this, or a clip
+    // whose length isn't its pattern's ends up drawn in one place and clicked
+    // in another. Empty when the clip's generator, or the pattern it names,
+    // has gone.
+    std::optional<Placement> placementFor (const juce::ValueTree&) const;
+    std::vector<Placement> placementsFor (const model::Generator&) const;
+    std::optional<Placement> placementAt (const model::Generator&, double beat) const;
+
     juce::Rectangle<float> slotBounds (int row, double startBeats, double lengthBeats) const;
-    std::optional<juce::Rectangle<float>> boundsForClip (int row, const model::PlaylistClip&) const;
+    std::optional<juce::Rectangle<float>> boundsForClip (int row, const juce::ValueTree&) const;
     bool isRangeFree (const model::Generator&, double startBeats, double lengthBeats,
                       bool ignoreSelectedClips = false,
                       const juce::ValueTree& alsoIgnore = {}) const;
 
-    // How long a placement occupies the timeline: its own length when it has
-    // one, its pattern's otherwise. Everything that draws, hit-tests, moves or
-    // measures a clip has to go through this, or a clip with its own length
-    // ends up drawn in one place and clicked in another. Zero when the clip's
-    // generator or pattern has gone.
-    double clipLengthBeats (const model::PlaylistClip&) const;
-
-    // The one handle a clip carries, given the clip's painted bounds. Empty
-    // when the clip is too narrow to hold it.
+    // The one handle a pattern clip carries, given the clip's painted bounds,
+    // and the one an audio clip carries instead. Both are empty when the clip
+    // is too narrow to hold them.
     juce::Rectangle<float> patternMenuBounds (juce::Rectangle<float> clipRect) const;
+    juce::Rectangle<float> trimHandleBounds (juce::Rectangle<float> clipRect) const;
 
     bool paintClip (int row, double beat);
     bool eraseClip (int row, double beat);
+    void trimSelectionTo (double targetEnd);
+
+    // The two writes that have to know which kind of placement they are
+    // holding, so that nothing else does.
+    void removePlacement (const juce::ValueTree&);
+    void setPlacementStart (const juce::ValueTree&, double startBeats);
     void duplicateSelection();
     void deleteSelection();
     void dragSelectionTo (double targetStart);
@@ -180,7 +224,7 @@ private:
     void updateRubberBand (juce::Point<float> position);
 
     bool isSelected (const juce::ValueTree& clip) const;
-    void selectClip (const model::PlaylistClip&, bool extend);
+    void selectClip (const juce::ValueTree&, bool extend);
     void clearSelection();
     void pruneSelection();
 
@@ -190,6 +234,34 @@ private:
     void updateShortcutHelp();
 
     void paintRuler (juce::Graphics&);
+    void paintAudioClip (juce::Graphics&, const model::AudioClip&, juce::Rectangle<float>,
+                         juce::Colour, bool selected);
+
+    // Min/max peaks for one audio file, at a fixed resolution over its whole
+    // length. Reading a file is far too slow to do inside paint(), and every
+    // placement of the same file draws from the same peaks, so they are read
+    // once and kept. Empty for anything that could not be read.
+    struct WaveformPeaks
+    {
+        std::vector<float> minima, maxima;   // parallel, one entry per bucket
+        double lengthSeconds = 0.0;
+    };
+
+    static constexpr int waveformBuckets = 1024;
+
+    const WaveformPeaks& peaksFor (const juce::File&);
+
+    // Where a file drag would land, so the drop can be previewed. An audio row
+    // takes the files; anything else means a new generator, which is drawn as
+    // a strip under the last row.
+    struct FileDropTarget
+    {
+        int row = -1;        // the audio row the files land on; -1 means a new generator
+        int ghostRow = 0;    // which row to preview on, which is the pointer's when row is -1
+        double startBeats = 0.0;
+    };
+
+    std::optional<FileDropTarget> fileDropTargetFor (juce::Point<float> position) const;
 
     juce::MouseCursor cursorFor (juce::Point<float> position, juce::ModifierKeys mods) const;
     void updateHover (juce::Point<float> position);
@@ -220,6 +292,16 @@ private:
     double dragAnchorOriginStart = 0.0;  // that clip's start when the drag began
     double dragLastStart = 0.0;          // last start we wrote, so a drag only writes on a change
     std::vector<double> dragOriginStarts;   // parallel to selectedClips
+
+    // Trim drag: the one audio clip being trimmed, and the end we last wrote,
+    // so dragging within the same beat writes nothing.
+    juce::ValueTree trimClip;
+    double trimLastEnd = 0.0;
+
+    // A file drag currently over us, and where it would land.
+    std::optional<FileDropTarget> fileDropTarget;
+
+    std::map<juce::String, WaveformPeaks> peakCache;
 
     // Loop drag: the end of the range that stays put, plus whether the pointer
     // ever left the bar it went down in (a click without a drag clears).
