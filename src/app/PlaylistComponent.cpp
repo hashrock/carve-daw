@@ -87,10 +87,13 @@ void PlaylistComponent::setSong (model::Song newSong)
     song.state.addListener (this);
 
     dragMode = DragMode::none;
-    resizePattern = {};
     rubberBand = {};
     clearSelection();
     refresh();
+
+    // A fresh song is also the first moment the host has both its callbacks
+    // wired up and something to describe, so state the shortcuts now.
+    updateShortcutHelp();
 }
 
 void PlaylistComponent::setSelection (const juce::String& generatorId, const juce::String& patternId)
@@ -106,6 +109,7 @@ void PlaylistComponent::setTool (Tool newTool)
     paintToolButton.setToggleState (tool == Tool::paint, juce::dontSendNotification);
     selectToolButton.setToggleState (tool == Tool::select, juce::dontSendNotification);
     setMouseCursor (cursorFor (lastMousePosition, juce::ModifierKeys::getCurrentModifiers()));
+    updateShortcutHelp();   // the drag a tool offers is half of what the bar lists
     repaint();
 }
 
@@ -121,6 +125,7 @@ void PlaylistComponent::setPlayheadBeats (double beats)
 void PlaylistComponent::refresh()
 {
     pruneSelection();
+    selectionChanged();   // an undo or a reload can have taken clips out from under us
     updateSize();
     repaint();
 }
@@ -129,9 +134,8 @@ double PlaylistComponent::getContentLengthBeats() const
 {
     double length = 32.0;
     for (const auto& clip : song.getPlaylist().getClips())
-        if (auto generator = song.findGenerator (clip.getGeneratorId()))
-            if (auto pattern = generator->findPattern (clip.getPatternId()))
-                length = std::max (length, clip.getStart() + pattern->getLengthBeats() + 16.0);
+        if (const auto clipLength = clipLengthBeats (clip); clipLength > 0.0)
+            length = std::max (length, clip.getStart() + clipLength + 16.0);
     return std::ceil (length / 16.0) * 16.0;
 }
 
@@ -224,6 +228,14 @@ std::optional<model::Pattern> PlaylistComponent::patternForRow (const model::Gen
     return pattern;
 }
 
+double PlaylistComponent::clipLengthBeats (const model::PlaylistClip& clip) const
+{
+    if (auto generator = song.findGenerator (clip.getGeneratorId()))
+        if (auto pattern = generator->findPattern (clip.getPatternId()))
+            return clip.getLength (pattern->getLengthBeats());
+    return 0.0;
+}
+
 std::optional<model::PlaylistClip> PlaylistComponent::clipAt (const model::Generator& generator,
                                                               double beat) const
 {
@@ -236,7 +248,8 @@ std::optional<model::PlaylistClip> PlaylistComponent::clipAt (const model::Gener
         if (clip.getGeneratorId() != generator.getId())
             continue;
         if (auto pattern = generator.findPattern (clip.getPatternId()))
-            if (beat >= clip.getStart() && beat < clip.getStart() + pattern->getLengthBeats())
+            if (beat >= clip.getStart()
+                    && beat < clip.getStart() + clip.getLength (pattern->getLengthBeats()))
                 return clip;
     }
     return std::nullopt;
@@ -252,29 +265,20 @@ juce::Rectangle<float> PlaylistComponent::slotBounds (int row, double startBeats
 std::optional<juce::Rectangle<float>> PlaylistComponent::boundsForClip (int row,
                                                                        const model::PlaylistClip& clip) const
 {
-    if (auto generator = song.findGenerator (clip.getGeneratorId()))
-        if (auto pattern = generator->findPattern (clip.getPatternId()))
-            return slotBounds (row, clip.getStart(), pattern->getLengthBeats());
+    if (const auto length = clipLengthBeats (clip); length > 0.0)
+        return slotBounds (row, clip.getStart(), length);
     return std::nullopt;
 }
 
 juce::Rectangle<float> PlaylistComponent::patternMenuBounds (juce::Rectangle<float> clipRect) const
 {
-    // Only worth offering once the clip is wide enough to hold the chevron
-    // next to the resize edge and still show some of its name.
+    // Only worth offering once the clip is wide enough to hold the chevron and
+    // still show some of its name.
     if (clipRect.getWidth() < 46.0f)
         return {};
 
-    return { clipRect.getRight() - resizeHandleWidth - menuButtonWidth, clipRect.getY() + 1.0f,
+    return { clipRect.getRight() - menuButtonInset - menuButtonWidth, clipRect.getY() + 1.0f,
              menuButtonWidth, clipRect.getHeight() * 0.5f };
-}
-
-juce::Rectangle<float> PlaylistComponent::resizeHandleBounds (juce::Rectangle<float> clipRect) const
-{
-    if (clipRect.getWidth() < 16.0f)
-        return {};   // too narrow to split into "body" and "edge"
-
-    return clipRect.removeFromRight (resizeHandleWidth);
 }
 
 bool PlaylistComponent::isRangeFree (const model::Generator& generator, double startBeats,
@@ -292,7 +296,7 @@ bool PlaylistComponent::isRangeFree (const model::Generator& generator, double s
 
         if (auto pattern = generator.findPattern (clip.getPatternId()))
         {
-            const auto clipEnd = clip.getStart() + pattern->getLengthBeats();
+            const auto clipEnd = clip.getStart() + clip.getLength (pattern->getLengthBeats());
             if (startBeats < clipEnd - beatTolerance
                     && clip.getStart() < startBeats + lengthBeats - beatTolerance)
                 return false;
@@ -320,12 +324,12 @@ void PlaylistComponent::selectClip (const model::PlaylistClip& clip, bool extend
     else if (isSelected (clip.state))
     {
         std::erase (selectedClips, clip.state);
-        repaint();
+        selectionChanged();
         return;
     }
 
     selectedClips.push_back (clip.state);
-    repaint();
+    selectionChanged();
 }
 
 void PlaylistComponent::clearSelection()
@@ -333,7 +337,7 @@ void PlaylistComponent::clearSelection()
     if (selectedClips.empty())
         return;
     selectedClips.clear();
-    repaint();
+    selectionChanged();
 }
 
 void PlaylistComponent::pruneSelection()
@@ -345,6 +349,76 @@ void PlaylistComponent::pruneSelection()
     {
         return ! clip.isAChildOf (playlistState);
     });
+}
+
+void PlaylistComponent::selectionChanged()
+{
+    if (selectedClips == notifiedSelection)
+        return;   // the rubber band recomputes the same set on every mouse move
+
+    notifiedSelection = selectedClips;
+    updateShortcutHelp();   // some shortcuts only exist while something is selected
+    repaint();
+
+    if (onClipSelectionChanged)
+    {
+        std::vector<model::PlaylistClip> clips;
+        clips.reserve (selectedClips.size());
+        for (const auto& state : selectedClips)
+            clips.emplace_back (state);
+
+        onClipSelectionChanged (clips);
+    }
+}
+
+void PlaylistComponent::updateShortcutHelp()
+{
+    // What the bar lists is what works *now*: the active tool, whether there is
+    // a selection to act on, and whether a held modifier has re-pointed the
+    // drag. Ordered most-useful-first, because the bar drops the overflow.
+    std::vector<ShortcutHelpBar::Entry> entries;
+    const auto mods = juce::ModifierKeys::getCurrentModifiers();
+
+    if (mods.isAltDown())
+    {
+        // Alt takes the drag over from whichever tool is active, so leading
+        // with the tool's own drag here would be a lie.
+        entries.push_back ({ "drag", "erase clips" });
+    }
+    else if (tool == Tool::paint)
+    {
+        entries.push_back ({ "drag", "paint pattern" });
+        entries.push_back ({ "drag clip", "move" });
+        entries.push_back ({ "E", "select tool" });
+    }
+    else
+    {
+        entries.push_back ({ "drag", "rubber-band select" });
+        entries.push_back ({ "drag clip", "move" });
+        entries.push_back ({ "B", "paint tool" });
+    }
+
+    if (! selectedClips.empty())
+    {
+        entries.push_back ({ "Cmd+D", "duplicate" });
+        entries.push_back ({ "Delete", "remove" });
+    }
+
+    entries.push_back ({ "Cmd+click", "extend selection" });
+    entries.push_back ({ "double click", "edit pattern" });
+
+    if (! mods.isAltDown())
+        entries.push_back ({ "Alt+drag", "erase" });
+
+    entries.push_back ({ "Cmd+scroll", "zoom" });
+
+    // Without a host there is nothing to remember: caching now would swallow
+    // the first real call, which comes once the host has wired itself up.
+    if (! onShortcutHelpChanged || entries == notifiedShortcuts)
+        return;
+
+    notifiedShortcuts = entries;
+    onShortcutHelpChanged (std::move (entries));
 }
 
 //==============================================================================
@@ -478,22 +552,27 @@ void PlaylistComponent::paint (juce::Graphics& g)
             if (! pattern)
                 continue;
 
-            const auto r = slotBounds (row, clip.getStart(), pattern->getLengthBeats());
+            const auto patternLength = pattern->getLengthBeats();
+            const auto clipLength = clip.getLength (patternLength);
+            const auto r = slotBounds (row, clip.getStart(), clipLength);
             const bool selected = isSelected (clip.state);
-            // Every clip playing the pattern whose edge is under the pointer,
-            // so it is obvious *before* the drag that resizing hits them all.
-            const bool lengthHinted = lengthHintPatternId.isNotEmpty()
-                                          && pattern->getId() == lengthHintPatternId;
 
             g.setColour (selected ? rowColour.brighter (0.4f) : rowColour);
             g.fillRoundedRectangle (r, 3.0f);
             g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.5f));
             g.drawRoundedRectangle (r, 3.0f, selected ? 1.6f : 1.0f);
 
-            if (lengthHinted)
+            // A clip longer than its pattern loops it, so mark where each
+            // repeat starts: without this it reads as one long pattern.
+            // Skipped when the repeats are too close together to tell apart.
+            const auto repeatWidth = (float) (patternLength * pixelsPerBeat);
+
+            if (patternLength > 0.0 && clipLength > patternLength + beatTolerance
+                    && repeatWidth >= 4.0f)
             {
-                g.setColour (juce::Colour (0xffffd479));
-                g.drawRoundedRectangle (r.reduced (0.8f), 3.0f, 1.6f);
+                g.setColour (juce::Colours::black.withAlpha (0.35f));
+                for (auto x = r.getX() + repeatWidth; x < r.getRight() - 1.0f; x += repeatWidth)
+                    g.fillRect (x, r.getY() + 2.0f, 1.0f, r.getHeight() - 4.0f);
             }
 
             const auto menuRect = patternMenuBounds (r);
@@ -520,18 +599,6 @@ void PlaylistComponent::paint (juce::Graphics& g)
                 g.setColour (juce::Colours::black.withAlpha (0.8f));
                 g.strokePath (chevron, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
                                                              juce::PathStrokeType::rounded));
-            }
-
-            // Resize grip on the right edge, shown once the pattern is hinted
-            // so the handle is discoverable without cluttering every clip.
-            if (lengthHinted)
-            {
-                const auto grip = resizeHandleBounds (r);
-                if (! grip.isEmpty())
-                {
-                    g.setColour (juce::Colour (0xffffd479));
-                    g.fillRect (grip.getRight() - 2.0f, grip.getY() + 3.0f, 2.0f, grip.getHeight() - 6.0f);
-                }
             }
         }
     }
@@ -580,21 +647,6 @@ void PlaylistComponent::paint (juce::Graphics& g)
     const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
                                                   juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
     g.setFont (11.0f);
-
-    // While a pattern length is in play, say so plainly: this is the one edit
-    // here that reaches beyond the clip being dragged.
-    if (auto hintGenerator = song.findGenerator (lengthHintGeneratorId))
-        if (auto hintPattern = hintGenerator->findPattern (lengthHintPatternId))
-        {
-            const auto placements = countPlacements (lengthHintGeneratorId, lengthHintPatternId);
-            g.setColour (juce::Colour (0xffffd479));
-            g.drawText (hintPattern->getName() + ": "
-                            + juce::String (hintPattern->getLengthBeats() / snapBeats, 0) + " bars"
-                            + (placements > 1 ? " - drag resizes all " + juce::String (placements) + " placements"
-                                              : juce::String()),
-                        statusArea, juce::Justification::centredLeft);
-            return;
-        }
 
     // what the paint tool is currently holding
     if (auto generator = song.findGenerator (selectedGeneratorId))
@@ -663,7 +715,8 @@ void PlaylistComponent::dragSelectionTo (double targetStart)
         auto pattern = generator->findPattern (clip.getPatternId());
         if (! pattern)
             return;
-        if (! isRangeFree (*generator, dragOriginStarts[i] + delta, pattern->getLengthBeats(), true))
+        if (! isRangeFree (*generator, dragOriginStarts[i] + delta,
+                           clip.getLength (pattern->getLengthBeats()), true))
             return;
     }
 
@@ -688,12 +741,11 @@ void PlaylistComponent::duplicateSelection()
     for (const auto& state : clips)
     {
         model::PlaylistClip clip (state);
-        if (auto generator = song.findGenerator (clip.getGeneratorId()))
-            if (auto pattern = generator->findPattern (clip.getPatternId()))
-            {
-                spanStart = std::min (spanStart, clip.getStart());
-                spanEnd = std::max (spanEnd, clip.getStart() + pattern->getLengthBeats());
-            }
+        if (const auto length = clipLengthBeats (clip); length > 0.0)
+        {
+            spanStart = std::min (spanStart, clip.getStart());
+            spanEnd = std::max (spanEnd, clip.getStart() + length);
+        }
     }
     if (spanEnd <= spanStart)
         return;
@@ -713,18 +765,28 @@ void PlaylistComponent::duplicateSelection()
         if (! pattern)
             continue;
 
+        const auto length = clip.getLength (pattern->getLengthBeats());
         const auto start = clip.getStart() + offset;
-        if (! isRangeFree (*generator, start, pattern->getLengthBeats()))
+        if (! isRangeFree (*generator, start, length))
             continue;
 
-        copies.push_back (song.getPlaylist().addClip (*generator, *pattern, start, &undoManager).state);
+        auto copy = song.getPlaylist().addClip (*generator, *pattern, start, &undoManager);
+
+        // A copy has to play the same thing for the same time: a new clip is
+        // pattern-length and untransposed, so carry both over when they differ.
+        if (clip.hasOwnLength())
+            copy.setLength (length, &undoManager);
+        if (clip.getTranspose() != 0)
+            copy.setTranspose (clip.getTranspose(), &undoManager);
+
+        copies.push_back (copy.state);
     }
 
     // Select the copies so ⌘D again continues the chain.
     if (! copies.empty())
     {
         selectedClips = std::move (copies);
-        repaint();
+        selectionChanged();
     }
 }
 
@@ -743,16 +805,6 @@ void PlaylistComponent::deleteSelection()
         playlist.removeClip (model::PlaylistClip (state), &undoManager);
 
     clearSelection();
-}
-
-int PlaylistComponent::countPlacements (const juce::String& generatorId,
-                                        const juce::String& patternId) const
-{
-    int count = 0;
-    for (const auto& clip : song.getPlaylist().getClips())
-        if (clip.getGeneratorId() == generatorId && clip.getPatternId() == patternId)
-            ++count;
-    return count;
 }
 
 void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
@@ -800,65 +852,16 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
         if (! chosen || chosen->getId() == target.getPatternId())
             return;
 
-        // A longer pattern still has to fit; refuse rather than overlap.
-        if (! safeThis->isRangeFree (*owner, target.getStart(), chosen->getLengthBeats(),
+        // A longer pattern still has to fit; refuse rather than overlap. A clip
+        // with its own length keeps it, so only then does the pattern's matter.
+        if (! safeThis->isRangeFree (*owner, target.getStart(),
+                                     target.getLength (chosen->getLengthBeats()),
                                      false, clipState))
             return;
 
         safeThis->undoManager.beginNewTransaction();
         target.setPatternId (chosen->getId(), &safeThis->undoManager);
     });
-}
-
-double PlaylistComponent::maxLengthForPattern (const model::Generator& generator,
-                                               const model::Pattern& pattern) const
-{
-    // Growing a pattern grows every placement of it at once, so the ceiling is
-    // the tightest gap in front of any of them.
-    double maxLength = 256.0;
-    const auto clips = song.getPlaylist().getClips();
-
-    for (const auto& clip : clips)
-    {
-        if (clip.getGeneratorId() != generator.getId() || clip.getPatternId() != pattern.getId())
-            continue;
-
-        for (const auto& other : clips)
-        {
-            if (other.getGeneratorId() != generator.getId() || other.state == clip.state)
-                continue;
-            if (other.getStart() > clip.getStart() + beatTolerance)
-                maxLength = std::min (maxLength, other.getStart() - clip.getStart());
-        }
-    }
-
-    return std::max (snapBeats, maxLength);
-}
-
-void PlaylistComponent::resizePatternTo (double newLengthBeats)
-{
-    if (! resizePattern.isValid())
-        return;
-
-    model::Pattern pattern (resizePattern);
-    const auto length = juce::jlimit (snapBeats, resizeMaxLength, snapLengthToBar (newLengthBeats));
-
-    // Only on a real change: each write rebuilds every clip of this pattern in
-    // the Edit, so a drag inside one bar has to stay silent.
-    if (std::abs (length - pattern.getLengthBeats()) < beatTolerance)
-        return;
-
-    pattern.setLengthBeats (length, &undoManager);
-}
-
-void PlaylistComponent::setLengthHint (const juce::String& generatorId, const juce::String& patternId)
-{
-    if (generatorId == lengthHintGeneratorId && patternId == lengthHintPatternId)
-        return;
-
-    lengthHintGeneratorId = generatorId;
-    lengthHintPatternId = patternId;
-    repaint();
 }
 
 void PlaylistComponent::dragLoopTo (double beat)
@@ -909,7 +912,8 @@ void PlaylistComponent::updateRubberBand (juce::Point<float> position)
     }
 
     selectedClips = std::move (newSelection);
-    repaint();
+    selectionChanged();
+    repaint();   // the band itself moved even when the selection did not
 }
 
 //==============================================================================
@@ -939,12 +943,8 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
     if (clip)
     {
         if (const auto bounds = boundsForClip (row, *clip))
-        {
             if (patternMenuBounds (*bounds).contains (position))
                 return juce::MouseCursor::PointingHandCursor;
-            if (resizeHandleBounds (*bounds).contains (position))
-                return juce::MouseCursor::LeftRightResizeCursor;
-        }
 
         return juce::MouseCursor::DraggingHandCursor;   // click selects, drag moves
     }
@@ -963,28 +963,6 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
     const int row = position.x >= (float) labelWidth && ! headerBounds().contains (position)
                         ? yToRow (position.y) : -1;
     const auto start = snapToBar (xToBeat (position.x));
-
-    // Outline every placement of a pattern whose right edge is under the
-    // pointer, so the reach of a resize is visible before the drag starts. A
-    // drag in progress keeps the hint it set for itself.
-    if (dragMode != DragMode::patternLength)
-    {
-        juce::String hintGeneratorId, hintPatternId;
-
-        if (row >= 0 && row < song.getNumGenerators())
-        {
-            auto generator = song.getGenerator (row);
-            if (auto clip = clipAt (generator, xToBeat (position.x)))
-                if (const auto bounds = boundsForClip (row, *clip))
-                    if (resizeHandleBounds (*bounds).contains (position))
-                    {
-                        hintGeneratorId = clip->getGeneratorId();
-                        hintPatternId = clip->getPatternId();
-                    }
-        }
-
-        setLengthHint (hintGeneratorId, hintPatternId);
-    }
 
     if (row != hoverRow || std::abs (start - hoverStartBeats) > beatTolerance)
     {
@@ -1012,6 +990,11 @@ void PlaylistComponent::modifierKeysChanged (const juce::ModifierKeys& mods)
     // So that holding alt shows the erase cursor without moving the mouse.
     if (mouseIsOver)
         setMouseCursor (cursorFor (lastMousePosition, mods));
+
+    // Alt re-points the drag, so the help bar has to follow the key. This is
+    // called for every modifier; the entries only change for the ones that
+    // matter, and updateShortcutHelp stays quiet for the rest.
+    updateShortcutHelp();
 }
 
 void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
@@ -1086,19 +1069,6 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
-        // The right edge resizes the PATTERN, so every placement of it grows
-        // or shrinks with this one drag. The hint outline stays up throughout.
-        if (bounds && resizeHandleBounds (*bounds).contains (e.position))
-            if (auto pattern = generator.findPattern (clip->getPatternId()))
-            {
-                dragMode = DragMode::patternLength;
-                resizePattern = pattern->state;
-                resizeStartBeats = clip->getStart();
-                resizeMaxLength = maxLengthForPattern (generator, *pattern);
-                setLengthHint (generator.getId(), pattern->getId());
-                return;
-            }
-
         selectClip (*clip, e.mods.isCommandDown() || e.mods.isShiftDown());
 
         // Drag from here moves the selection. Snapshot the starts now so the
@@ -1165,10 +1135,6 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             dragLoopTo (xToBeat (e.position.x));
             break;
 
-        case DragMode::patternLength:
-            resizePatternTo (beat - resizeStartBeats);
-            break;
-
         case DragMode::rubberBand:
             updateRubberBand (e.position);
             break;
@@ -1187,7 +1153,6 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 
     dragMode = DragMode::none;
     dragOriginStarts.clear();
-    resizePattern = {};
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateHover (e.position);

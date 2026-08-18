@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "ShortcutHelpBar.h"
 #include "model/SongModel.h"
 
 namespace orionish::app
@@ -19,9 +20,10 @@ namespace orionish::app
 // selection) and dragging it moves it in time; a double click asks the host to
 // open that pattern in the editor; right-drag (or alt-drag) erases.
 //
-// A clip also carries two handles: the chevron in its top-right corner swaps
-// which of the generator's patterns it plays, and its right edge resizes the
-// *pattern*, i.e. every placement of it at once.
+// A clip carries one handle: the chevron in its top-right corner swaps which of
+// the generator's patterns it plays. How long the placement runs for is a
+// property of the clip, not a gesture here - a clip shorter than its pattern is
+// cut off, a longer one repeats it, and the repeats are drawn as dividers.
 //
 // The header band holds the tool strip, the zoom control and the bar ruler.
 // Dragging the ruler sets the song's loop range.
@@ -46,6 +48,13 @@ public:
     // A clip was double-clicked: (generatorId, patternId) of the pattern the
     // host should open in the pattern editor.
     std::function<void (const juce::String&, const juce::String&)> onEditPattern;
+
+    // Fired whenever the set of selected clips changes; empty when nothing is selected.
+    std::function<void (const std::vector<model::PlaylistClip>&)> onClipSelectionChanged;
+
+    // The shortcuts that apply right now, for whichever help bar the host owns.
+    // Only ours: the host appends its own global ones.
+    std::function<void (std::vector<ShortcutHelpBar::Entry>)> onShortcutHelpChanged;
 
     void setSong (model::Song newSong);
     void setSelection (const juce::String& generatorId, const juce::String& patternId);
@@ -86,9 +95,10 @@ private:
     static constexpr double minPixelsPerBeat = 3.0;
     static constexpr double maxPixelsPerBeat = 64.0;
 
-    // Grab zone on a clip's right edge, and the size of its pattern chevron.
-    static constexpr float resizeHandleWidth = 6.0f;
+    // The pattern chevron in a clip's top-right corner, and its inset from the
+    // clip's edge.
     static constexpr float menuButtonWidth = 15.0f;
+    static constexpr float menuButtonInset = 3.0f;
 
     enum class DragMode
     {
@@ -96,9 +106,8 @@ private:
         paint,
         erase,
         move,
-        loopRange,      // on the ruler
-        patternLength,  // on a clip's right edge
-        rubberBand      // select tool on empty space
+        loopRange,   // on the ruler
+        rubberBand   // select tool on empty space
     };
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override  { refresh(); }
@@ -120,12 +129,6 @@ private:
     float rowY (int row) const         { return (float) (headerHeight + row * rowHeight); }
     int yToRow (float y) const         { return (int) std::floor ((y - (float) headerHeight) / (float) rowHeight); }
     static double snapToBar (double beat)  { return std::max (0.0, std::floor (beat / snapBeats) * snapBeats); }
-    // Lengths round to the nearest bar (never to zero) so a resized edge
-    // follows the pointer instead of always trailing it.
-    static double snapLengthToBar (double beats)
-    {
-        return std::max (snapBeats, std::round (beats / snapBeats) * snapBeats);
-    }
 
     juce::Viewport* getViewport() const;
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
@@ -154,10 +157,16 @@ private:
                       bool ignoreSelectedClips = false,
                       const juce::ValueTree& alsoIgnore = {}) const;
 
-    // The two handles a clip carries, given the clip's painted bounds. Both are
-    // empty when the clip is too narrow to hold them.
+    // How long a placement occupies the timeline: its own length when it has
+    // one, its pattern's otherwise. Everything that draws, hit-tests, moves or
+    // measures a clip has to go through this, or a clip with its own length
+    // ends up drawn in one place and clicked in another. Zero when the clip's
+    // generator or pattern has gone.
+    double clipLengthBeats (const model::PlaylistClip&) const;
+
+    // The one handle a clip carries, given the clip's painted bounds. Empty
+    // when the clip is too narrow to hold it.
     juce::Rectangle<float> patternMenuBounds (juce::Rectangle<float> clipRect) const;
-    juce::Rectangle<float> resizeHandleBounds (juce::Rectangle<float> clipRect) const;
 
     bool paintClip (int row, double beat);
     bool eraseClip (int row, double beat);
@@ -166,9 +175,6 @@ private:
     void dragSelectionTo (double targetStart);
 
     void showPatternMenu (const model::PlaylistClip&, juce::Rectangle<float> buttonBounds);
-    int countPlacements (const juce::String& generatorId, const juce::String& patternId) const;
-    double maxLengthForPattern (const model::Generator&, const model::Pattern&) const;
-    void resizePatternTo (double newLengthBeats);
 
     void dragLoopTo (double beat);
     void updateRubberBand (juce::Point<float> position);
@@ -177,6 +183,11 @@ private:
     void selectClip (const model::PlaylistClip&, bool extend);
     void clearSelection();
     void pruneSelection();
+
+    // The single funnel for "the selection may have moved": repaints and tells
+    // the host, but only when the set actually differs from what it last heard.
+    void selectionChanged();
+    void updateShortcutHelp();
 
     void paintRuler (juce::Graphics&);
 
@@ -199,6 +210,11 @@ private:
     // remove the clip and needs no ids in the model.
     std::vector<juce::ValueTree> selectedClips;
 
+    // What the host was last told, so a gesture that recomputes the same
+    // selection every mouse move (the rubber band) only notifies on a change.
+    std::vector<juce::ValueTree> notifiedSelection;
+    std::vector<ShortcutHelpBar::Entry> notifiedShortcuts;
+
     DragMode dragMode = DragMode::none;
     double dragGrabOffsetBeats = 0.0;    // where in the grabbed clip the pointer went down
     double dragAnchorOriginStart = 0.0;  // that clip's start when the drag began
@@ -209,13 +225,6 @@ private:
     // ever left the bar it went down in (a click without a drag clears).
     double loopAnchorBeats = 0.0;
     bool loopDragMoved = false;
-
-    // Pattern-length drag: the PATTERN being resized, where the held clip
-    // starts, and the ceiling that keeps its placements from swallowing their
-    // neighbours.
-    juce::ValueTree resizePattern;
-    double resizeStartBeats = 0.0;
-    double resizeMaxLength = 0.0;
 
     // Rubber band, plus the selection it started from so ⌘/⇧ adds to it.
     juce::Rectangle<float> rubberBand;
@@ -228,12 +237,6 @@ private:
     bool mouseIsOver = false;
     int hoverRow = -1;
     double hoverStartBeats = 0.0;
-
-    // The pattern whose length the pointer is about to change (or is
-    // changing). Every placement of it is outlined while this is set, so the
-    // "this edits all of them" part is visible before the drag, not after.
-    juce::String lengthHintGeneratorId, lengthHintPatternId;
-    void setLengthHint (const juce::String& generatorId, const juce::String& patternId);
 
     const juce::MouseCursor eraseCursor;
 };
