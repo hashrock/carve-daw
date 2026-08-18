@@ -39,6 +39,11 @@ private:
     // only ever touch track plugins, so they take a cheap path instead.
     void valueTreePropertyChanged (juce::ValueTree& tree, const juce::Identifier& property) override
     {
+        // The transport reads the loop range off the model itself, so nothing
+        // here has to change for it.
+        if (tree.hasType (model::ids::SONG) && model::Song::isLoopProperty (property))
+            return;
+
         if (tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
             applyMixerStateOnly();
         else

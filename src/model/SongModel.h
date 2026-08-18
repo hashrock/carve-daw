@@ -182,6 +182,10 @@ public:
 
     void setStart (double beats, juce::UndoManager* um)  { state.setProperty (ids::start, beats, um); }
 
+    // Which of the generator's patterns this placement plays. Only patterns
+    // belonging to the clip's own generator make sense here.
+    void setPatternId (const juce::String& id, juce::UndoManager* um)  { state.setProperty (ids::patternId, id, um); }
+
     juce::ValueTree state;
 };
 
@@ -228,6 +232,14 @@ public:
 
     void setLoopRange (double startBeats, double endBeats, juce::UndoManager*);
     void clearLoopRange (juce::UndoManager*);
+
+    // The loop range is read straight off the model by the transport, so
+    // nothing has to be rebuilt when it changes. Dragging one on the ruler
+    // writes it once per bar crossed, so the difference matters.
+    static bool isLoopProperty (const juce::Identifier& property)
+    {
+        return property == ids::loopStart || property == ids::loopEnd;
+    }
 
     int getNumGenerators() const;
     Generator getGenerator (int index) const;

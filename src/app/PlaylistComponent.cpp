@@ -806,7 +806,7 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
             return;
 
         safeThis->undoManager.beginNewTransaction();
-        target.state.setProperty (model::ids::patternId, chosen->getId(), &safeThis->undoManager);
+        target.setPatternId (chosen->getId(), &safeThis->undoManager);
     });
 }
 
