@@ -209,6 +209,13 @@ GeneratorPanel::~GeneratorPanel()
     generatorList.setModel (nullptr);
 }
 
+// One bar of whatever the song opens in, so a 6/8 song doesn't hand every new
+// pattern a bar and a third.
+double GeneratorPanel::newPatternLengthBeats() const
+{
+    return song.getTimeSigAt (0.0).getBeatsPerBar();
+}
+
 void GeneratorPanel::showAddGeneratorMenu()
 {
     juce::PopupMenu menu;
@@ -282,7 +289,7 @@ model::Generator GeneratorPanel::addGenerator (const juce::String& name, const j
 
     // Only slot A1 is materialised: the rest of the grid stays virtual until
     // it is used, but the generator still opens with something to draw into.
-    auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, &undoManager);
+    auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, &undoManager, newPatternLengthBeats());
     selectedPatternId = pattern.getId();
     refresh();
     generatorList.selectRow (song.getNumGenerators() - 1);
@@ -558,7 +565,7 @@ void GeneratorPanel::slotClicked (model::PatternSlot slot)
     // the piano roll and the playlist address patterns by id, so a picked slot
     // has to be something real. Slots that were only browsed past are dropped
     // again below, which is what keeps the saved file free of empty nodes.
-    auto pattern = generator->getOrCreatePatternInSlot (slot, &undoManager);
+    auto pattern = generator->getOrCreatePatternInSlot (slot, &undoManager, newPatternLengthBeats());
     selectedPatternId = pattern.getId();
 
     refresh();

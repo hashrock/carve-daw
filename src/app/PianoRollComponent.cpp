@@ -29,6 +29,9 @@ PianoRollComponent::PianoRollComponent (juce::UndoManager& um)
 {
     // the tool keys, the zoom keys and Backspace are ours once the roll is clicked
     setWantsKeyboardFocus (true);
+
+    timeSigWatcher.onChanged = [this] { gridTimeSigChanged(); };
+
     updateSize();
 }
 
@@ -36,6 +39,31 @@ PianoRollComponent::~PianoRollComponent()
 {
     if (pattern)
         pattern->state.removeListener (this);
+}
+
+void PianoRollComponent::setSong (model::Song newSong)
+{
+    song = std::move (newSong);
+    timeSigWatcher.setSong (song->state);
+    gridTimeSigChanged();
+}
+
+// Only where the bar lines fall changes: the pattern, and so the roll's own
+// size, is untouched. The ruler is told because it copies our arithmetic
+// rather than doing its own, and nothing else would tell it.
+void PianoRollComponent::gridTimeSigChanged()
+{
+    repaint();
+
+    if (onViewChanged)
+        onViewChanged();
+}
+
+model::TimeSignature PianoRollComponent::getGridTimeSig() const
+{
+    // Beat 0: see the header for why the song's opening signature is the one a
+    // pattern -- which sits at no particular point in the song -- is drawn in.
+    return song ? song->getTimeSigAt (0.0) : model::TimeSignature();
 }
 
 void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
@@ -453,17 +481,25 @@ void PianoRollComponent::paint (juce::Graphics& g)
         }
     }
 
-    for (int beat = 0; (double) beat <= lengthBeats; ++beat)
+    // Beats and bars are two passes rather than one, because a bar is not a
+    // whole number of beats in every signature -- a 7/8 bar is three and a
+    // half -- so a bar line does not have to land on one of these. Bars come
+    // second so that they win wherever the two do coincide.
+    const auto beatsPerBar = getBeatsPerBar();
+
+    if (drawBeats)
     {
-        const bool isBar = (beat % (int) beatsPerBar) == 0;
+        g.setColour (juce::Colour (0xff3a3a40));
 
-        if (! isBar && ! drawBeats)
-            continue;
-
-        g.setColour (isBar ? juce::Colour (0xff55555e) : juce::Colour (0xff3a3a40));
-
-        g.drawVerticalLine ((int) beatToX ((double) beat), 0.0f, (float) getHeight());
+        for (int beat = 0; (double) beat <= lengthBeats; ++beat)
+            if (! isMultipleOf ((double) beat, beatsPerBar))
+                g.drawVerticalLine ((int) beatToX ((double) beat), 0.0f, (float) getHeight());
     }
+
+    g.setColour (juce::Colour (0xff55555e));
+
+    for (int bar = 0; (double) bar * beatsPerBar <= lengthBeats; ++bar)
+        g.drawVerticalLine ((int) beatToX ((double) bar * beatsPerBar), 0.0f, (float) getHeight());
 
     // end of the pattern, which an off-grid length would otherwise not mark
     g.setColour (juce::Colour (0xff6a6a74));
@@ -808,7 +844,7 @@ void PianoRollRuler::paint (juce::Graphics& g)
     }
 
     const auto lengthBeats = roll.getLengthBeats();
-    const auto beatsPerBar = PianoRollComponent::beatsPerBar;
+    const auto beatsPerBar = roll.getBeatsPerBar();
     const auto pixelsPerBeat = roll.getPixelsPerBeat();
 
     // Thinned the same way the roll's grid is: beat ticks only while they have
@@ -819,39 +855,51 @@ void PianoRollRuler::paint (juce::Graphics& g)
     while ((double) barStep * beatsPerBar * pixelsPerBeat < 34.0)
         barStep *= 2;
 
-    // Only walk the beats that can actually land on screen. Stepping by index
-    // keeps the marks on the same coordinates the roll's grid uses.
+    // Only walk what can actually land on screen. Stepping by index keeps the
+    // marks on the same coordinates the roll's grid uses -- and, as there, the
+    // beats and the bars are walked separately, because a bar line only falls
+    // on a whole beat in signatures whose bar is a whole number of them.
     const auto firstVisibleBeat = roll.xToBeat ((float) scrollOffset);
-    const int firstBeat = juce::jmax (0, (int) std::floor (firstVisibleBeat));
-    const int lastBeat = (int) std::floor (juce::jmin (lengthBeats,
-                                                       roll.xToBeat ((float) scrollOffset + width)));
+    const auto lastVisibleBeat = juce::jmin (lengthBeats,
+                                             (double) roll.xToBeat ((float) scrollOffset + width));
 
     g.setFont (10.0f);
 
-    for (int beat = firstBeat; beat <= lastBeat; ++beat)
+    if (drawBeatTicks)
     {
-        const auto x = roll.beatToX ((double) beat) - (float) scrollOffset;
-        const bool isBar = (beat % (int) beatsPerBar) == 0;
+        const int firstBeat = juce::jmax (0, (int) std::floor (firstVisibleBeat));
+        const int lastBeat = (int) std::floor (lastVisibleBeat);
 
-        if (isBar && (beat / (int) beatsPerBar) % barStep != 0)
+        g.setColour (juce::Colour (0xff43434a));
+
+        for (int beat = firstBeat; beat <= lastBeat; ++beat)
+            if (! isMultipleOf ((double) beat, beatsPerBar))
+                g.drawVerticalLine ((int) (roll.beatToX ((double) beat) - (float) scrollOffset),
+                                    height * 0.65f, height);
+    }
+
+    const int firstBar = juce::jmax (0, (int) std::floor (firstVisibleBeat / beatsPerBar));
+    const int lastBar = (int) std::floor (lastVisibleBeat / beatsPerBar + 1.0e-9);
+
+    for (int bar = firstBar; bar <= lastBar; ++bar)
+    {
+        if (bar % barStep != 0)
             continue;
 
-        if (! isBar && ! drawBeatTicks)
-            continue;
+        const auto x = roll.beatToX ((double) bar * beatsPerBar) - (float) scrollOffset;
 
-        g.setColour (isBar ? juce::Colour (0xff6a6a74) : juce::Colour (0xff43434a));
-        g.drawVerticalLine ((int) x, isBar ? height * 0.35f : height * 0.65f, height);
+        g.setColour (juce::Colour (0xff6a6a74));
+        g.drawVerticalLine ((int) x, height * 0.35f, height);
 
-        if (isBar)
-        {
-            // Bars are numbered from one, as musicians count them.
-            g.setColour (juce::Colour (0xffa0a0aa));
-            g.drawText (juce::String (beat / (int) beatsPerBar + 1),
-                        juce::Rectangle<float> (x + 3.0f, 1.0f,
-                                                (float) (beatsPerBar * pixelsPerBeat) - 6.0f,
-                                                height * 0.6f),
-                        juce::Justification::centredLeft, false);
-        }
+        // Bars are numbered from one, as musicians count them. These are the
+        // pattern's own bars, not the song's: the pattern is not anchored
+        // anywhere, so bar 1 is wherever the pattern starts.
+        g.setColour (juce::Colour (0xffa0a0aa));
+        g.drawText (juce::String (bar + 1),
+                    juce::Rectangle<float> (x + 3.0f, 1.0f,
+                                            (float) (beatsPerBar * pixelsPerBeat) - 6.0f,
+                                            height * 0.6f),
+                    juce::Justification::centredLeft, false);
     }
 
     // end of the pattern, matching the marker the roll draws

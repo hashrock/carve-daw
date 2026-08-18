@@ -70,7 +70,8 @@ class Pattern
 public:
     explicit Pattern (juce::ValueTree v) : state (std::move (v)) {}
 
-    // What a freshly materialised slot gets: one bar of 4/4.
+    // What a freshly materialised slot gets when the caller has no song to ask:
+    // one bar of 4/4.
     static constexpr double defaultLengthBeats = 4.0;
 
     juce::String getId() const      { return state[ids::id]; }
@@ -312,7 +313,12 @@ public:
     // Materialises the slot the first time it is used. Empty slots stay out of
     // the tree deliberately: writing all 36 into every generator would bloat
     // every .carve and make every EditSync resync walk dead nodes.
-    Pattern getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um);
+    //
+    // lengthBeats is what a fresh slot gets. Callers that know the song pass a
+    // bar of its signature, so a 6/8 song doesn't open every pattern at a bar
+    // and a third.
+    Pattern getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,
+                                      double lengthBeats = Pattern::defaultLengthBeats);
 
     Pattern addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um);
     Pattern addPattern (const PatternSlot& slot, const juce::String& name,

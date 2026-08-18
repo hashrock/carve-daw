@@ -19,6 +19,13 @@ namespace carve::app
 // the song, so they go through the model and the UndoManager; the tool, the
 // zoom, the grid unit and the snap toggle are view state that only the roll
 // cares about, so they never touch the model and are not undoable.
+//
+// The length is stepped in bars, which is how a pattern is thought about, but
+// bars are not a property of a pattern: the model stores a length in beats, and
+// the same pattern can be placed under two different time signatures. So the
+// spinner names the signature it counts in -- the roll's, i.e. the one the song
+// opens in -- the beat count is always spelled out beside it, and a song that
+// does change signature says that its bars vary.
 class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
@@ -42,8 +49,13 @@ public:
         lengthSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a40));
         lengthSlider.onValueChange = [this] { applyLength(); };
 
-        lengthHeader.setText ("Bars", juce::dontSendNotification);
+        // Text filled in by refreshFromPattern(), which is the only place that
+        // knows the signature; it is a header rather than a suffix on the
+        // spinner so that the unit reads before the number.
         lengthHeader.setJustificationType (juce::Justification::centredRight);
+
+        lengthNote.setFont (juce::FontOptions (10.0f));
+        lengthNote.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
         gridHeader.setText ("Grid", juce::dontSendNotification);
         gridHeader.setJustificationType (juce::Justification::centredRight);
@@ -91,8 +103,13 @@ public:
         pianoRoll.onShortcutContextChanged = [this] { updateToolStrip(); updateShortcutBar(); };
 
         // Zooming rescales the roll under the ruler, and nothing else tells the
-        // ruler that the arithmetic it copies has changed.
+        // ruler that the arithmetic it copies has changed. The roll fires this
+        // for a signature change too, for the same reason.
         pianoRoll.onViewChanged = [this] { updateRuler(); ruler.repaint(); };
+
+        // A signature change moves what a bar means, so the spinner's value,
+        // its unit and the beat count beside it all have to be rewritten.
+        timeSigWatcher.onChanged = [this] { refreshFromPattern(); };
 
         // select the entry matching the roll's own default rather than
         // assuming an index, so the two cannot drift apart
@@ -106,7 +123,7 @@ public:
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
-                 &lengthHeader, &lengthSlider, &gridHeader, &gridBox,
+                 &lengthHeader, &lengthSlider, &lengthNote, &gridHeader, &gridBox,
                  &snapButton, &ruler, &viewport, &shortcutBar })
             addAndMakeVisible (c);
 
@@ -127,6 +144,17 @@ public:
     void setPreviewNoteCallback (std::function<void (int, int)> callback)
     {
         pianoRoll.onPreviewNote = std::move (callback);
+    }
+
+    // The song, for its time signatures alone -- the roll needs them for its
+    // bar lines and the toolbar for the length spinner's unit. Until one
+    // arrives both count 4/4, so the editor works with no song set.
+    void setSong (model::Song newSong)
+    {
+        song = newSong;
+        timeSigWatcher.setSong (song->state);
+        pianoRoll.setSong (std::move (newSong));
+        refreshFromPattern();
     }
 
     void setPattern (std::optional<model::Pattern> newPattern)
@@ -184,8 +212,9 @@ public:
         place (selectToolButton, 52, 12);
         place (zoomOutButton, 24, 0);
         place (zoomInButton, 24, 18);
-        place (lengthHeader, 34, 4);
-        place (lengthSlider, 64, 18);
+        place (lengthHeader, 74, 4);
+        place (lengthSlider, 64, 6);
+        place (lengthNote, 130, 18);
         place (gridHeader, 34, 4);
         place (gridBox, 74, 18);
         place (snapButton, 70);
@@ -218,10 +247,10 @@ private:
         }
     };
 
-    // The model has no time signature, and the roll already draws its bar
-    // lines every four beats, so the toolbar counts bars the same way - taken
-    // from the roll rather than restated, so the two cannot drift apart.
-    static constexpr double beatsPerBar = PianoRollComponent::beatsPerBar;
+    // Taken from the roll rather than restated, so the spinner and the bar
+    // lines under it cannot disagree about where a bar ends.
+    double getBeatsPerBar() const  { return pianoRoll.getBeatsPerBar(); }
+
     static constexpr double maxBars = 256.0;
 
     struct GridOption { const char* name; double beats; };
@@ -258,6 +287,7 @@ private:
         const auto hasPattern = pattern.has_value();
         nameLabel.setEnabled (hasPattern);
         lengthSlider.setEnabled (hasPattern);
+        updateLengthUnit();
         updateShortcutBar();
 
         if (! hasPattern)
@@ -271,9 +301,40 @@ private:
         if (! nameLabel.isBeingEdited())
             nameLabel.setText (pattern->getName(), juce::dontSendNotification);
 
-        // A length the spinner cannot represent (an old off-bar pattern) shows
-        // rounded; it is only rewritten if the user actually nudges it.
-        lengthSlider.setValue (pattern->getLengthBeats() / beatsPerBar, juce::dontSendNotification);
+        // A length the spinner cannot represent -- an off-bar pattern, or one
+        // whose beats do not divide into the current signature's bar -- shows
+        // rounded; it is only rewritten if the user actually nudges it, and the
+        // exact beat count is spelled out beside it either way.
+        lengthSlider.setValue (pattern->getLengthBeats() / getBeatsPerBar(), juce::dontSendNotification);
+    }
+
+    // Says what the spinner's bars are bars *of*, and what the length is in the
+    // unit the model actually stores. Bars are the natural way to nudge a
+    // pattern longer, but they are a reading of a length rather than the length
+    // itself: this pattern may also be placed under a signature whose bar is a
+    // different number of beats, and when the song has any signature changes at
+    // all the note says so rather than implying the bar count travels with it.
+    void updateLengthUnit()
+    {
+        const auto sig = pianoRoll.getGridTimeSig();
+
+        lengthHeader.setText ("Bars of " + timeSigText (sig), juce::dontSendNotification);
+
+        if (! pattern)
+        {
+            lengthNote.setText ({}, juce::dontSendNotification);
+            return;
+        }
+
+        // The bars the spinner counts are the song's opening ones. If the song
+        // changes signature later, this pattern may well be placed there, where
+        // the same length is a different number of bars -- say so rather than
+        // let the spinner imply its bar count travels with the pattern.
+        const bool varies = song && songSignatureVaries (*song);
+
+        lengthNote.setText ("= " + trimmedNumber (pattern->getLengthBeats()) + " beats"
+                                + (varies ? ", bars vary" : ""),
+                            juce::dontSendNotification);
     }
 
     void updateToolStrip()
@@ -358,8 +419,9 @@ private:
             return;
 
         // The slider clamps to its own range, so anything that arrives here is
-        // already a legal bar count.
-        const auto beats = lengthSlider.getValue() * beatsPerBar;
+        // already a legal bar count -- of the roll's signature, which is what
+        // the header beside it says it is counting.
+        const auto beats = lengthSlider.getValue() * getBeatsPerBar();
 
         // Shrinking leaves notes past the new end in the pattern: they are kept
         // deliberately, so that undoing a mistaken shorten restores everything.
@@ -376,8 +438,10 @@ private:
 
     juce::UndoManager& undoManager;
     std::optional<model::Pattern> pattern;
+    std::optional<model::Song> song;
+    TimeSigWatcher timeSigWatcher;
 
-    juce::Label nameLabel, lengthHeader, gridHeader;
+    juce::Label nameLabel, lengthHeader, lengthNote, gridHeader;
     juce::Slider lengthSlider;
     juce::ComboBox gridBox;
     juce::ToggleButton snapButton { "Snap" };
@@ -406,9 +470,10 @@ public:
           content (um)
     {
         content.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
-        // the extra height is the ruler and the help bar, so the roll itself
-        // keeps its old size
-        content.setSize (860, 554 + PianoRollRuler::preferredHeight + ShortcutHelpBar::preferredHeight);
+        // The extra height is the ruler and the help bar, so the roll itself
+        // keeps its old size; the extra width is the length spinner's unit,
+        // which now names a time signature rather than being assumed.
+        content.setSize (960, 554 + PianoRollRuler::preferredHeight + ShortcutHelpBar::preferredHeight);
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
@@ -424,6 +489,14 @@ public:
     void setPreviewNoteCallback (std::function<void (int, int)> callback)
     {
         content.setPreviewNoteCallback (std::move (callback));
+    }
+
+    // Handed the song only so that the roll and its length spinner can count
+    // bars in the song's time signature instead of assuming 4/4. Safe to call
+    // whenever the song is replaced; until it is called at all, both count 4/4.
+    void setSong (model::Song song)
+    {
+        content.setSong (std::move (song));
     }
 
     void setPattern (std::optional<model::Pattern> pattern, const juce::String& title)

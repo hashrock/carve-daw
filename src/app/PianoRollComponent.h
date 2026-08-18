@@ -6,6 +6,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "TimeSigSupport.h"
 #include "model/SongModel.h"
 
 namespace carve::app
@@ -41,12 +42,30 @@ public:
     // up with the grid to the pixel, and the only way to guarantee that is to
     // have both of them do the same arithmetic.
     static constexpr int keyboardWidth = 48;
-    static constexpr double beatsPerBar = 4.0;      // no time signature in the model yet
 
     explicit PianoRollComponent (juce::UndoManager& um);
     ~PianoRollComponent() override;
 
     void setPattern (std::optional<model::Pattern> newPattern);
+
+    // The song, wanted only for its time signature map. A pattern is not a
+    // position in the song, so the roll cannot work out its signature from
+    // what it edits and has to be told which song the pattern belongs to.
+    // Optional because the window exists before a song reaches it; until one
+    // does, the roll counts 4/4.
+    void setSong (model::Song newSong);
+
+    // Which signature the roll draws its bar lines in.
+    //
+    // A pattern can be placed at several points in the song, and those points
+    // can be under different signatures, so no signature is *the* pattern's.
+    // What is picked is the one the song opens in: it is the only signature
+    // that is a property of the song rather than of one placement, and it does
+    // not move when the user drags a clip across a signature change. A song
+    // written throughout in 6/8 therefore gets three-beat bars here; a 4/4 song
+    // with a 7/8 bridge still gets 4/4, and the toolbar says which it is.
+    model::TimeSignature getGridTimeSig() const;
+    double getBeatsPerBar() const  { return getGridTimeSig().getBeatsPerBar(); }
 
     double xToBeat (float x) const;
     float beatToX (double beat) const;
@@ -121,6 +140,7 @@ private:
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
 
     void patternChanged();
+    void gridTimeSigChanged();
     void updateSize();
     int yToPitch (float y) const;
     float pitchToY (int pitch) const;
@@ -167,6 +187,8 @@ private:
 
     juce::UndoManager& undoManager;
     std::optional<model::Pattern> pattern;
+    std::optional<model::Song> song;
+    TimeSigWatcher timeSigWatcher;
 
     double gridBeats = 0.25;   // 16th-note grid
     bool snapEnabled = true;

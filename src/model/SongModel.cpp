@@ -331,14 +331,15 @@ std::optional<Pattern> Generator::findPatternInSlot (const PatternSlot& slot) co
     return Pattern (found);
 }
 
-Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um)
+Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,
+                                             double lengthBeats)
 {
     if (auto existing = findPatternInSlot (slot))
         return *existing;
 
     // The slot key doubles as the default name, so an untouched slot reads as
     // "A1" everywhere until the user renames it.
-    return addPattern (slot, slot.getKey(), Pattern::defaultLengthBeats, um);
+    return addPattern (slot, slot.getKey(), lengthBeats, um);
 }
 
 Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um)
@@ -801,7 +802,10 @@ Song::BarsAndBeats Song::toBarsAndBeats (double beat) const
 
         if (at > cursor)
         {
-            bar += (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+            // ceil, not floor: a change that lands mid-bar cuts that bar short
+            // rather than being swallowed by it, which is what every DAW does
+            // and what keeps this agreeing with beatOfBar.
+            bar += (int) std::ceil ((at - cursor) / sig.getBeatsPerBar() - tolerance);
             cursor = at;
         }
 
@@ -825,7 +829,9 @@ double Song::beatOfBar (int bar) const
     for (const auto& change : getTimeSigChanges())
     {
         const auto at = change.getStartBeat();
-        const auto barsUntil = (int) std::floor ((at - cursor) / sig.getBeatsPerBar() + tolerance);
+
+        // Matches toBarsAndBeats: a short bar before the change still counts.
+        const auto barsUntil = (int) std::ceil ((at - cursor) / sig.getBeatsPerBar() - tolerance);
 
         if (barCursor + barsUntil > bar)
             break;
