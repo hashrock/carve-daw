@@ -92,6 +92,65 @@ void Pattern::removeNote (const Note& note, juce::UndoManager* um)
 
 
 //==============================================================================
+// SamplerSound
+
+juce::File SamplerSound::getFile() const
+{
+    const auto path = state[ids::file].toString();
+
+    // juce::File asserts on anything that isn't an absolute path, and a
+    // hand-written song (or one whose paths were never resolved) can hold
+    // whatever it likes here.
+    return juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
+}
+
+void SamplerSound::setFile (const juce::File& file, juce::UndoManager* um)
+{
+    state.setProperty (ids::file, file.getFullPathName(), um);
+
+    // Stale the moment the file changes; Song::saveToFile writes a fresh one
+    // against whichever .orion the song ends up in.
+    state.removeProperty (ids::relPath, um);
+}
+
+void SamplerSound::setKeyRange (int lowest, int highest, juce::UndoManager* um)
+{
+    state.setProperty (ids::minNote, juce::jlimit (lowestNote, highestNote, std::min (lowest, highest)), um);
+    state.setProperty (ids::maxNote, juce::jlimit (lowestNote, highestNote, std::max (lowest, highest)), um);
+}
+
+std::vector<SamplerSound> Generator::getSounds() const
+{
+    return collectChildren<SamplerSound> (state.getChildWithName (ids::SOUNDS), ids::SOUND);
+}
+
+SamplerSound Generator::addSound (const juce::File& file, juce::UndoManager* um)
+{
+    juce::ValueTree sound (ids::SOUND);
+    sound.setProperty (ids::id, newId(), nullptr);
+    sound.setProperty (ids::name, file.getFileNameWithoutExtension(), nullptr);
+
+    getOrCreateChild (state, ids::SOUNDS).appendChild (sound, um);
+
+    SamplerSound wrapper (sound);
+    wrapper.setFile (file, um);
+    return wrapper;
+}
+
+void Generator::removeSound (const SamplerSound& sound, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::SOUNDS).removeChild (sound.state, um);
+}
+
+SamplerSound Generator::setSingleSound (const juce::File& file, juce::UndoManager* um)
+{
+    for (const auto& existing : getSounds())
+        removeSound (existing, um);
+
+    return addSound (file, um);
+}
+
+//==============================================================================
 // Effect
 
 void Effect::setPlugin (const juce::PluginDescription& description, juce::UndoManager* um)
@@ -346,7 +405,15 @@ std::optional<Song> Song::loadFromFile (const juce::File& file)
 {
     if (! file.existsAsFile())
         return std::nullopt;
-    return fromXml (file.loadFileAsString());
+
+    auto song = fromXml (file.loadFileAsString());
+
+    // Not in fromXml: this is the only place that knows where the song lives,
+    // which is exactly what a stored relative path is relative to.
+    if (song)
+        song->resolveSamplePaths (file);
+
+    return song;
 }
 
 juce::String Song::toXmlString() const
@@ -356,7 +423,48 @@ juce::String Song::toXmlString() const
 
 bool Song::saveToFile (const juce::File& file) const
 {
+    refreshSamplePaths (file);
     return file.replaceWithText (toXmlString());
+}
+
+// Both of these write to the tree from a const method, the way getPlaylist
+// already does: the wrapper is a handle onto shared state, and neither is an
+// edit the user should be able to undo.
+void Song::resolveSamplePaths (const juce::File& songFile) const
+{
+    const auto directory = songFile.getParentDirectory();
+
+    for (const auto& generator : getGenerators())
+    {
+        for (auto sound : generator.getSounds())
+        {
+            const auto relative = sound.state[ids::relPath].toString();
+
+            if (relative.isEmpty())
+                continue;
+
+            if (const auto resolved = directory.getChildFile (relative); resolved.existsAsFile())
+                sound.state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
+        }
+    }
+}
+
+void Song::refreshSamplePaths (const juce::File& songFile) const
+{
+    const auto directory = songFile.getParentDirectory();
+
+    for (const auto& generator : getGenerators())
+    {
+        for (auto sound : generator.getSounds())
+        {
+            const auto file = sound.getFile();
+
+            if (file == juce::File())
+                continue;
+
+            sound.state.setProperty (ids::relPath, file.getRelativePathFrom (directory), nullptr);
+        }
+    }
 }
 
 void Song::setLoopRange (double startBeats, double endBeats, juce::UndoManager* um)

@@ -39,21 +39,25 @@ namespace
 
     // An insert effect can be an ExternalPlugin too, so the instrument is
     // whichever unstamped one comes first.
+    bool isInstrument (const te::Plugin& plugin)
+    {
+        return ! isEffect (plugin)
+                && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
+    }
+
     void removeInstruments (te::AudioTrack& track)
     {
         for (auto plugin : track.pluginList.getPlugins())
-            if (! isEffect (*plugin)
-                 && (dynamic_cast<te::FourOscPlugin*> (plugin) != nullptr
-                      || dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr))
+            if (isInstrument (*plugin))
                 plugin->deleteFromParent();
     }
 
     te::Plugin* findInstrument (te::AudioTrack& track)
     {
         for (auto plugin : track.pluginList.getPlugins())
-            if (! isEffect (*plugin)
-                 && (dynamic_cast<te::FourOscPlugin*> (plugin) != nullptr
-                      || dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr))
+            if (isInstrument (*plugin))
                 return plugin;
 
         return nullptr;
@@ -115,8 +119,97 @@ namespace
             track.pluginList.insertPlugin (*synth, 0, nullptr);
     }
 
+    // SamplerPlugin keeps its sounds as SOUND children of its own state tree,
+    // but only exposes their media path through a list it rebuilds from an
+    // async callback. Reading the tree directly is what lets a resync tell an
+    // unchanged sound from a changed one -- and tell whether that rebuild has
+    // happened yet, which flushSamplerLoads below needs.
+    const juce::Identifier samplerSoundType ("SOUND");
+    const juce::Identifier samplerSourceProperty ("source");
+
+    juce::String getSoundSource (const te::SamplerPlugin& sampler, int soundIndex)
+    {
+        int index = 0;
+
+        for (const auto& child : sampler.state)
+            if (child.hasType (samplerSoundType) && index++ == soundIndex)
+                return child[samplerSourceProperty].toString();
+
+        return {};
+    }
+
+    // Reconciles the plugin's sounds against the model in place. Re-pointing a
+    // sound the sampler already has is free, where removing and re-adding it
+    // would throw away the audio it has read off disk and cut whatever it is
+    // playing -- the same reason the effect chain matches instead of rebuilds.
+    void syncSamplerSounds (te::SamplerPlugin& sampler, const model::Generator& generator)
+    {
+        const auto sounds = generator.getSounds();
+
+        while (sampler.getNumSounds() > (int) sounds.size())
+            sampler.removeSound (sampler.getNumSounds() - 1);
+
+        for (int i = 0; i < (int) sounds.size(); ++i)
+        {
+            const auto& sound = sounds[(size_t) i];
+            const auto path = sound.getFile().getFullPathName();
+
+            if (i >= sampler.getNumSounds())
+            {
+                // Start 0 / length 0 is the whole file: trimming a sample is
+                // not something the model describes yet. A non-empty return
+                // means the sampler is full, and so are we.
+                if (sampler.addSound (path, sound.getName(), 0.0, 0.0, sound.getGainDb()).isNotEmpty())
+                    break;
+            }
+            else if (getSoundSource (sampler, i) != path)
+            {
+                sampler.setSoundMedia (i, path);
+            }
+
+            if (sampler.getSoundName (i) != sound.getName())
+                sampler.setSoundName (i, sound.getName());
+
+            if (sampler.getKeyNote (i) != sound.getRootNote()
+                 || sampler.getMinKey (i) != sound.getMinNote()
+                 || sampler.getMaxKey (i) != sound.getMaxNote())
+                sampler.setSoundParams (i, sound.getRootNote(), sound.getMinNote(), sound.getMaxNote());
+
+            if (std::abs (sampler.getSoundGainDb (i) - sound.getGainDb()) > 0.01f
+                 || std::abs (sampler.getSoundPan (i) - sound.getPan()) > 0.001f)
+                sampler.setSoundGains (i, sound.getGainDb(), sound.getPan());
+        }
+    }
+
+    void ensureSamplerInstrument (te::Edit& edit, te::AudioTrack& track,
+                                  const model::Generator& generator)
+    {
+        auto sampler = dynamic_cast<te::SamplerPlugin*> (findInstrument (track));
+
+        if (sampler == nullptr)
+        {
+            removeInstruments (track);
+
+            auto plugin = edit.getPluginCache().createNewPlugin (te::SamplerPlugin::xmlTypeName, {});
+            sampler = dynamic_cast<te::SamplerPlugin*> (plugin.get());
+
+            if (sampler == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        syncSamplerSounds (*sampler, generator);
+    }
+
     void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
+        if (generator.isSampler())
+        {
+            ensureSamplerInstrument (edit, track, generator);
+            return;
+        }
+
         if (generator.getType() == "plugin")
         {
             if (auto description = generator.getPluginDescription())
@@ -124,6 +217,29 @@ namespace
             return;
         }
         ensureInternalInstrument (edit, track);
+    }
+
+    bool samplerSoundsAreLoaded (te::Edit& edit)
+    {
+        for (auto track : te::getAudioTracks (edit))
+            if (auto sampler = track->pluginList.findFirstPluginOfType<te::SamplerPlugin>())
+                for (int i = 0; i < sampler->getNumSounds(); ++i)
+                    if (getSoundSource (*sampler, i).isNotEmpty()
+                         && sampler->getSoundMedia (i).isEmpty())
+                        return false;
+
+        return true;
+    }
+
+    // Runs the message loop until every sampler has picked its sounds up out of
+    // its own state, which it only ever does from an async callback. See the
+    // call site for why this isn't unconditional.
+    void flushSamplerLoads (te::Edit& edit)
+    {
+        constexpr int maxAttempts = 200;
+
+        for (int attempt = 0; attempt < maxAttempts && ! samplerSoundsAreLoaded (edit); ++attempt)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
     }
 
     te::Plugin::Ptr createEffectPlugin (te::Edit& edit, const model::Effect& effect)
@@ -329,6 +445,15 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
         applyMixerState (generator, track);
         rebuildClips (song, generator, edit, track);
     }
+
+    // A sampler reads its samples from a message-loop callback, so a caller
+    // that renders straight after syncing would get silence. The headless
+    // renderer is exactly that caller, and is also the one with no message
+    // loop of its own -- which is what the missing application object marks.
+    // The GUI must not take this path: it would re-enter the resync we are
+    // inside of, and its loop delivers the callback a moment later anyway.
+    if (juce::JUCEApplicationBase::getInstance() == nullptr)
+        flushSamplerLoads (edit);
 }
 
 void EditSync::captureLivePluginState()

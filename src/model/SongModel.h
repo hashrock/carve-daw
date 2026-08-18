@@ -104,6 +104,53 @@ public:
 };
 
 
+// One sample a sampler generator plays: a file, mapped across a key range and
+// pitched from a root note. That is deliberately all of it -- one sample laid
+// over the keyboard, or a handful with a root note each, covers the one-shot
+// and drum-kit cases without a zone editor.
+class SamplerSound
+{
+public:
+    explicit SamplerSound (juce::ValueTree v) : state (std::move (v)) {}
+
+    // A sound carrying nothing but a path plays its whole file across the
+    // whole keyboard at unity gain, which is what a just-chosen sample should
+    // do. Everything below is stored only once it differs from that.
+    static constexpr int defaultRootNote = 60;      // middle C: the sample plays back untransposed there
+    static constexpr int lowestNote = 0;
+    static constexpr int highestNote = 127;
+
+    juce::String getId() const    { return state[ids::id]; }
+    juce::String getName() const  { return state[ids::name]; }
+
+    void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
+
+    // The sample, as an absolute path. A relative one is stored alongside it;
+    // see Song::resolveSamplePaths for why, and which of the two wins.
+    juce::File getFile() const;
+    void setFile (const juce::File&, juce::UndoManager*);
+
+    int getRootNote() const  { return state.getProperty (ids::rootNote, defaultRootNote); }
+    int getMinNote() const   { return state.getProperty (ids::minNote, lowestNote); }
+    int getMaxNote() const   { return state.getProperty (ids::maxNote, highestNote); }
+
+    void setRootNote (int midiNote, juce::UndoManager* um)
+    {
+        state.setProperty (ids::rootNote, juce::jlimit (lowestNote, highestNote, midiNote), um);
+    }
+
+    void setKeyRange (int lowest, int highest, juce::UndoManager*);
+
+    float getGainDb() const  { return state.getProperty (ids::gainDb, 0.0f); }
+    float getPan() const     { return state.getProperty (ids::pan, 0.0f); }
+
+    void setGainDb (float db, juce::UndoManager* um)  { state.setProperty (ids::gainDb, juce::jlimit (-48.0f, 48.0f, db), um); }
+    void setPan (float p, juce::UndoManager* um)      { state.setProperty (ids::pan, juce::jlimit (-1.0f, 1.0f, p), um); }
+
+    juce::ValueTree state;
+};
+
+
 // One insert effect on a generator's track. Either a tracktion internal
 // plugin, named by its xmlTypeName, or an external VST3/AU described the same
 // way the instrument is. The id is what lets EditSync match a model entry to
@@ -146,6 +193,13 @@ public:
     juce::String getName() const    { return state[ids::name]; }
     juce::String getType() const    { return state[ids::type]; }
 
+    // The one generator type the model itself has to reason about: a sampler
+    // keeps its instrument's whole configuration in the tree, where the other
+    // two only name a plugin.
+    static constexpr const char* samplerType = "sampler";
+
+    bool isSampler() const  { return getType() == samplerType; }
+
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 
     // Mixer state, applied to the generator's track by EditSync. Stored as
@@ -179,6 +233,19 @@ public:
     std::optional<juce::PluginDescription> getPluginDescription() const;
     void setPluginState (const juce::String& base64, juce::UndoManager*);
     juce::String getPluginState() const;
+
+    // For type "sampler": the samples it plays, in the order the sampler gets
+    // them. Empty for every other type, and the SOUNDS node stays out of the
+    // tree entirely until a sample is assigned, so nothing else changes shape.
+    std::vector<SamplerSound> getSounds() const;
+
+    SamplerSound addSound (const juce::File&, juce::UndoManager*);
+    void removeSound (const SamplerSound&, juce::UndoManager*);
+
+    // Points the generator at one sample across the whole keyboard, dropping
+    // whatever it had. This is what the panel's file chooser and file drops
+    // do: the tree can hold a multi-sample kit, but nothing edits one yet.
+    SamplerSound setSingleSound (const juce::File&, juce::UndoManager*);
 
     // Insert effects, in signal order, sitting between the instrument and the
     // track fader.
@@ -288,6 +355,18 @@ public:
 
     juce::String toXmlString() const;
     bool saveToFile (const juce::File& file) const;
+
+    // Sampler paths, which are the only thing in the model that means anything
+    // outside the file. Each sound stores both an absolute path and one
+    // relative to the .orion: resolving prefers the relative one when it lands
+    // on a file that exists, because that is the case where the absolute one
+    // is wrong (the project was copied elsewhere, and the old path may still
+    // exist on this machine pointing at a different sample). Refreshing
+    // rewrites the relative path from the absolute one against wherever the
+    // song is being saved. loadFromFile and saveToFile call these, and both
+    // do nothing at all to a song without sampler generators.
+    void resolveSamplePaths (const juce::File& songFile) const;
+    void refreshSamplePaths (const juce::File& songFile) const;
 
     juce::String getName() const  { return state[ids::name]; }
     double getTempo() const       { return state[ids::tempo]; }

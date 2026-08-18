@@ -51,6 +51,7 @@ private:
 // Patterns. This is the entry point of the Orion workflow: pick a Generator,
 // pick/create one of its Patterns, then edit it in the piano roll.
 class GeneratorPanel : public juce::Component,
+                       public juce::FileDragAndDropTarget,
                        private juce::ListBoxModel,
                        private juce::ValueTree::Listener,
                        private juce::AsyncUpdater
@@ -78,6 +79,12 @@ public:
 
     void resized() override;
 
+    // Dropping an audio file makes a sampler generator out of it, or swaps the
+    // sample of the sampler it lands on. Anything the engine can't read is
+    // left alone, so a drag meant for someone else passes through.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+
 private:
     int getNumRows() override;
     void paintListBoxItem (int row, juce::Graphics&, int width, int height, bool selected) override;
@@ -96,8 +103,16 @@ private:
     void rebuildSlotGrid();
     void fireSelectionChanged();
     void showAddGeneratorMenu();
-    void addGenerator (const juce::String& name, const juce::String& type,
-                       const juce::PluginDescription* description);
+    model::Generator addGenerator (const juce::String& name, const juce::String& type,
+                                   const juce::PluginDescription* description);
+
+    // The sampler side of the panel. A sample is picked with a file chooser
+    // (or a drop); there is no key-zone editor, so one sample covers the whole
+    // keyboard and replaces whatever the generator had.
+    void launchSampleChooser (std::function<void (const juce::File&)> onChosen);
+    void addSamplerGenerator (const juce::File& sample);
+    void assignSample (model::Generator, const juce::File& sample);
+    std::optional<model::Generator> getGeneratorAt (juce::Point<int>) const;
 
     std::optional<model::Generator> getSelectedGenerator() const;
     void ensureValidPatternSelection();
@@ -116,6 +131,9 @@ private:
     juce::Label patternHeader;
     PatternSlotGrid slotGrid;
     juce::ComboBox patternBox;   // only the patterns outside the slot grid
+
+    // Has to outlive launchAsync, so it can't be a local.
+    std::unique_ptr<juce::FileChooser> sampleChooser;
 
     juce::String selectedPatternId;
     bool isRefreshing = false;
