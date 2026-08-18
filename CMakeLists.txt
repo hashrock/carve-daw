@@ -84,7 +84,8 @@ target_sources(carve PRIVATE
     src/app/PresetManager.cpp
     src/app/PlaylistComponent.h
     src/app/PlaylistComponent.cpp
-    src/app/ShortcutHelpBar.h)
+    src/app/ShortcutHelpBar.h
+    src/app/TimeSigSupport.h)
 carve_configure_target(carve)
 
 # --- Headless renderer CLI ---
