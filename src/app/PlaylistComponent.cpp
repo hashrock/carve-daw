@@ -1,5 +1,7 @@
 #include "PlaylistComponent.h"
 
+#include "TimelineView.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -208,19 +210,14 @@ void PlaylistComponent::setPixelsPerBeat (double newPixelsPerBeat, float anchorX
     if (std::abs (newPixelsPerBeat - pixelsPerBeat) < 1.0e-6)
         return;
 
-    // Keep whatever is under anchorX pinned to the same place on screen, so
-    // zooming feels like it happens around the pointer rather than around the
-    // start of the song.
-    auto* viewport = getViewport();
-    const auto anchorBeat = xToBeat (anchorX);
-    const auto anchorScreenX = juce::roundToInt (anchorX) - (viewport != nullptr ? viewport->getViewPositionX() : 0);
-
-    pixelsPerBeat = newPixelsPerBeat;
-    updateSize();
-
-    if (viewport != nullptr)
-        viewport->setViewPosition (juce::jmax (0, juce::roundToInt (beatToX (anchorBeat)) - anchorScreenX),
-                                   viewport->getViewPositionY());
+    zoomAroundAnchor (*this, anchorX,
+                      [this] (float x) { return xToBeat (x); },
+                      [this] (double beat) { return beatToX (beat); },
+                      [this, newPixelsPerBeat]
+                      {
+                          pixelsPerBeat = newPixelsPerBeat;
+                          updateSize();
+                      });
 
     updateHover (lastMousePosition);
     repaint();

@@ -3,6 +3,8 @@
 
 #include "PianoRollComponent.h"
 
+#include "TimelineView.h"
+
 namespace carve::app
 {
 
@@ -162,20 +164,14 @@ void PianoRollComponent::setPixelsPerBeat (double newPixelsPerBeat, float anchor
     if (std::abs (newPixelsPerBeat - pixelsPerBeat) < 1.0e-6)
         return;
 
-    // Keep whatever is under anchorX pinned to the same place on screen, so
-    // zooming feels like it happens around the pointer rather than around the
-    // start of the pattern.
-    auto* viewport = getViewport();
-    const auto anchorBeat = xToBeat (anchorX);
-    const auto anchorScreenX = juce::roundToInt (anchorX)
-                                   - (viewport != nullptr ? viewport->getViewPositionX() : 0);
-
-    pixelsPerBeat = newPixelsPerBeat;
-    updateSize();
-
-    if (viewport != nullptr)
-        viewport->setViewPosition (juce::jmax (0, juce::roundToInt (beatToX (anchorBeat)) - anchorScreenX),
-                                   viewport->getViewPositionY());
+    zoomAroundAnchor (*this, anchorX,
+                      [this] (float x) { return xToBeat (x); },
+                      [this] (double beat) { return beatToX (beat); },
+                      [this, newPixelsPerBeat]
+                      {
+                          pixelsPerBeat = newPixelsPerBeat;
+                          updateSize();
+                      });
 
     // the ruler works in our coordinates, so it has to be told the scale moved
     if (onViewChanged)

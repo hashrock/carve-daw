@@ -134,39 +134,61 @@ namespace
     {
         const auto sounds = generator.getSounds();
 
-        while (sampler.getNumSounds() > (int) sounds.size())
-            sampler.removeSound (sampler.getNumSounds() - 1);
+        // Matched by source file rather than by index. A sampler's sounds are
+        // addressed by key range, so their order means nothing to playback --
+        // but matching positionally meant clearing one pad shifted every later
+        // sound down and re-pointed its media, which makes the sampler read
+        // those files off disk again for no reason.
+        std::vector<bool> claimed ((size_t) sampler.getNumSounds(), false);
 
-        for (int i = 0; i < (int) sounds.size(); ++i)
+        auto claimExisting = [&] (const juce::String& path) -> int
         {
-            const auto& sound = sounds[(size_t) i];
-            const auto path = sound.getFile().getFullPathName();
+            for (int i = 0; i < sampler.getNumSounds(); ++i)
+                if (! claimed[(size_t) i] && getSoundSource (sampler, i) == path)
+                {
+                    claimed[(size_t) i] = true;
+                    return i;
+                }
 
-            if (i >= sampler.getNumSounds())
+            return -1;
+        };
+
+        for (const auto& sound : sounds)
+        {
+            const auto path = sound.getFile().getFullPathName();
+            auto index = claimExisting (path);
+
+            if (index < 0)
             {
                 // Start 0 / length 0 is the whole file: trimming a sample is
                 // not something the model describes yet. A non-empty return
                 // means the sampler is full, and so are we.
                 if (sampler.addSound (path, sound.getName(), 0.0, 0.0, sound.getGainDb()).isNotEmpty())
                     break;
+
+                index = sampler.getNumSounds() - 1;
+                claimed.resize ((size_t) sampler.getNumSounds(), false);
+                claimed[(size_t) index] = true;
             }
-            else if (getSoundSource (sampler, i) != path)
-            {
-                sampler.setSoundMedia (i, path);
-            }
 
-            if (sampler.getSoundName (i) != sound.getName())
-                sampler.setSoundName (i, sound.getName());
+            if (sampler.getSoundName (index) != sound.getName())
+                sampler.setSoundName (index, sound.getName());
 
-            if (sampler.getKeyNote (i) != sound.getRootNote()
-                 || sampler.getMinKey (i) != sound.getMinNote()
-                 || sampler.getMaxKey (i) != sound.getMaxNote())
-                sampler.setSoundParams (i, sound.getRootNote(), sound.getMinNote(), sound.getMaxNote());
+            if (sampler.getKeyNote (index) != sound.getRootNote()
+                 || sampler.getMinKey (index) != sound.getMinNote()
+                 || sampler.getMaxKey (index) != sound.getMaxNote())
+                sampler.setSoundParams (index, sound.getRootNote(), sound.getMinNote(), sound.getMaxNote());
 
-            if (std::abs (sampler.getSoundGainDb (i) - sound.getGainDb()) > 0.01f
-                 || std::abs (sampler.getSoundPan (i) - sound.getPan()) > 0.001f)
-                sampler.setSoundGains (i, sound.getGainDb(), sound.getPan());
+            if (std::abs (sampler.getSoundGainDb (index) - sound.getGainDb()) > 0.01f
+                 || std::abs (sampler.getSoundPan (index) - sound.getPan()) > 0.001f)
+                sampler.setSoundGains (index, sound.getGainDb(), sound.getPan());
         }
+
+        // Whatever nothing in the model claimed is gone; high to low so the
+        // indices stay valid as they are removed.
+        for (int i = (int) claimed.size(); --i >= 0;)
+            if (! claimed[(size_t) i])
+                sampler.removeSound (i);
     }
 
     void ensureSamplerInstrument (te::Edit& edit, te::AudioTrack& track,
