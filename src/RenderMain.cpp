@@ -66,6 +66,11 @@ int renderSongToWav (te::Engine& engine, const orionish::model::Song& song, cons
 {
     auto edit = te::Edit::createSingleTrackEdit (engine);
     orionish::sync::syncSongToEdit (song, *edit);
+
+    // No message loop is running here, so nothing would otherwise deliver the
+    // callback a sampler waits on and it would render silence.
+    orionish::sync::flushSamplerLoads (*edit);
+
     return renderEditToWav (*edit, outputFile, song.getName());
 }
 

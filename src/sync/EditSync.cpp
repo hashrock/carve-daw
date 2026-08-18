@@ -231,17 +231,6 @@ namespace
         return true;
     }
 
-    // Runs the message loop until every sampler has picked its sounds up out of
-    // its own state, which it only ever does from an async callback. See the
-    // call site for why this isn't unconditional.
-    void flushSamplerLoads (te::Edit& edit)
-    {
-        constexpr int maxAttempts = 200;
-
-        for (int attempt = 0; attempt < maxAttempts && ! samplerSoundsAreLoaded (edit); ++attempt)
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
-    }
-
     te::Plugin::Ptr createEffectPlugin (te::Edit& edit, const model::Effect& effect)
     {
         te::Plugin::Ptr plugin;
@@ -446,14 +435,14 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
         rebuildClips (song, generator, edit, track);
     }
 
-    // A sampler reads its samples from a message-loop callback, so a caller
-    // that renders straight after syncing would get silence. The headless
-    // renderer is exactly that caller, and is also the one with no message
-    // loop of its own -- which is what the missing application object marks.
-    // The GUI must not take this path: it would re-enter the resync we are
-    // inside of, and its loop delivers the callback a moment later anyway.
-    if (juce::JUCEApplicationBase::getInstance() == nullptr)
-        flushSamplerLoads (edit);
+}
+
+void flushSamplerLoads (te::Edit& edit)
+{
+    constexpr int maxAttempts = 200;
+
+    for (int attempt = 0; attempt < maxAttempts && ! samplerSoundsAreLoaded (edit); ++attempt)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
 }
 
 void EditSync::captureLivePluginState()

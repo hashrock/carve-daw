@@ -17,6 +17,12 @@ namespace orionish::sync
 // so editing a pattern updates every placement on the next sync.
 void syncSongToEdit (const model::Song& song, te::Edit& edit);
 
+// Samplers pick their sounds up out of their own state from a message-loop
+// callback, so anything that renders straight after syncing would get silence.
+// A GUI's loop delivers that callback on its own a moment later; a headless
+// caller has to ask for it, and must do so before rendering.
+void flushSamplerLoads (te::Edit& edit);
+
 // Keeps an Edit continuously in sync with a song model: any change to the
 // song tree triggers a debounced (coalesced per message-loop tick) full
 // resync. Message thread only.
