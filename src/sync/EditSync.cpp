@@ -51,13 +51,18 @@ namespace
 
     te::Plugin* findInstrument (te::AudioTrack& track)  { return sync::findInstrumentPlugin (track); }
 
-    te::Plugin* findEffectPlugin (te::AudioTrack& track, const juce::String& effectId)
+    te::Plugin* findEffectPlugin (te::PluginList& plugins, const juce::String& effectId)
     {
-        for (auto plugin : track.pluginList.getPlugins())
+        for (auto plugin : plugins.getPlugins())
             if (getEffectId (*plugin) == effectId)
                 return plugin;
 
         return nullptr;
+    }
+
+    te::Plugin* findEffectPlugin (te::AudioTrack& track, const juce::String& effectId)
+    {
+        return findEffectPlugin (track.pluginList, effectId);
     }
 
     void restorePluginState (te::ExternalPlugin& external, const juce::String& base64)
@@ -286,9 +291,9 @@ namespace
     // close its editor window, so the plugins' own ValueTrees are reordered
     // instead -- which also means the live plugin objects, and everything the
     // user has tweaked on them, are left alone.
-    void orderEffects (te::AudioTrack& track, const std::vector<model::Effect>& effects)
+    void orderEffects (juce::ValueTree ownerState, const std::vector<model::Effect>& effects)
     {
-        auto trackState = track.state;
+        auto trackState = ownerState;
 
         for (size_t position = 0; position < effects.size(); ++position)
         {
@@ -324,39 +329,61 @@ namespace
         }
     }
 
-    void syncEffects (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
+    // Reconciles one plugin list against one model effect list. Shared by the
+    // generator chains and the master chain, which differ only in where their
+    // effects sit and what they sit after.
+    void syncEffectChain (te::Edit& edit, te::PluginList& plugins, juce::ValueTree ownerState,
+                          const std::vector<model::Effect>& effects,
+                          const std::function<bool (const juce::String&)>& stillWanted,
+                          int insertAt)
     {
-        const auto effects = generator.getEffects();
-
         // Copy: deleting mutates the list we would be walking.
-        for (auto plugin : te::Plugin::Array (track.pluginList.getPlugins()))
-            if (isEffect (*plugin) && ! generator.findEffect (getEffectId (*plugin)))
+        for (auto plugin : te::Plugin::Array (plugins.getPlugins()))
+            if (isEffect (*plugin) && ! stillWanted (getEffectId (*plugin)))
                 plugin->deleteFromParent();
 
         for (const auto& effect : effects)
         {
-            if (findEffectPlugin (track, effect.getId()) != nullptr)
+            if (findEffectPlugin (plugins, effect.getId()) != nullptr)
                 continue;
 
             if (auto plugin = createEffectPlugin (edit, effect))
-            {
-                // After the instrument, before the fader: the level meter is
-                // post-fader and stays that way.
-                const auto instrument = findInstrument (track);
-                const auto insertAt = instrument != nullptr
-                                          ? track.pluginList.indexOf (instrument) + 1
-                                          : 0;
-
-                track.pluginList.insertPlugin (plugin, insertAt, nullptr);
-            }
+                plugins.insertPlugin (plugin, insertAt, nullptr);
         }
 
-        orderEffects (track, effects);
+        orderEffects (ownerState, effects);
 
         for (const auto& effect : effects)
-            if (auto plugin = findEffectPlugin (track, effect.getId()))
+            if (auto plugin = findEffectPlugin (plugins, effect.getId()))
                 if (plugin->isEnabled() != effect.isEnabled())
                     plugin->setEnabled (effect.isEnabled());
+    }
+
+    void syncEffects (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
+    {
+        // After the instrument, before the fader: the level meter is post-fader
+        // and stays that way.
+        const auto instrument = findInstrument (track);
+        const auto insertAt = instrument != nullptr ? track.pluginList.indexOf (instrument) + 1 : 0;
+
+        syncEffectChain (edit, track.pluginList, track.state, generator.getEffects(),
+                         [&generator] (const juce::String& id) { return generator.findEffect (id).has_value(); },
+                         insertAt);
+    }
+
+    void syncMasterBus (const model::Song& song, te::Edit& edit)
+    {
+        const auto master = song.getMasterBus();
+
+        // Master effects go at the head of the list, so the Edit's own master
+        // volume and meter stay last and stay post-fader.
+        syncEffectChain (edit, edit.getMasterPluginList(), edit.state, master.getEffects(),
+                         [&master] (const juce::String& id) { return master.findEffect (id).has_value(); },
+                         0);
+
+        if (auto volume = edit.getMasterVolumePlugin())
+            if (std::abs (volume->getVolumeDb() - master.getVolumeDb()) > 0.01f)
+                volume->setVolumeDb (master.getVolumeDb());
     }
 
     // Stamped onto the wave clip built for a model AUDIOCLIP, the way an
@@ -645,6 +672,7 @@ namespace
 void syncSongToEdit (const model::Song& song, te::Edit& edit)
 {
     syncTempoSequence (song, edit);
+    syncMasterBus (song, edit);
 
     const auto generators = song.getGenerators();
 

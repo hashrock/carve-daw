@@ -319,10 +319,10 @@ class MixerComponent::MasterStrip : public juce::Component,
                                     private juce::ValueTree::Listener
 {
 public:
-    explicit MasterStrip (te::Edit& editToShow)
+    MasterStrip (te::Edit& editToShow, model::MasterBus bus, juce::UndoManager& undoManager)
         : edit (editToShow),
-          masterPluginsState (editToShow.state.getOrCreateChildWithName (te::IDs::MASTERPLUGINS, nullptr)),
-          effectSlots (makeMasterEffectChain (editToShow), editToShow.engine)
+          masterPluginsState (bus.state),
+          effectSlots (makeMasterEffectChain (bus, undoManager), editToShow.engine)
     {
         masterPluginsState.addListener (this);
 
@@ -483,7 +483,7 @@ private:
 MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     : edit (editToShow), undoManager (um)
 {
-    masterStrip = std::make_unique<MasterStrip> (edit);
+    masterStrip = std::make_unique<MasterStrip> (edit, song.getMasterBus(), undoManager);
 
     // The slot list knows nothing about where its plugins live, so the mixer
     // hands it the things that need to know.

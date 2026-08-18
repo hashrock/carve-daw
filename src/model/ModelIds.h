@@ -5,6 +5,9 @@
 // ValueTree schema:
 //
 // SONG {name, tempo, loopStart, loopEnd}
+// ├─ MASTER {volumeDb}                      the mix bus: its fader and the
+// │  └─ EFFECTS                            effects across the whole mix. Same
+// │     └─ EFFECT {...}                    EFFECT nodes a generator carries.
 // ├─ TEMPOS                                 changes after the first; the song's
 // │  └─ TEMPO {start, bpm}                  own "tempo" is what plays until the
 // │                                         first one. Absent = one tempo.
@@ -75,6 +78,7 @@ CARVE_DECLARE_ID (EFFECT)
 CARVE_DECLARE_ID (PLAYLIST)
 CARVE_DECLARE_ID (CLIP)
 CARVE_DECLARE_ID (AUDIOCLIP)
+CARVE_DECLARE_ID (MASTER)
 CARVE_DECLARE_ID (TEMPOS)
 CARVE_DECLARE_ID (TEMPO)
 CARVE_DECLARE_ID (TIMESIGS)

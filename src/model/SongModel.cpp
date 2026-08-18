@@ -686,6 +686,63 @@ bool Song::isPatternUsedInPlaylist (const Pattern& pattern) const
 }
 
 
+
+//==============================================================================
+// MasterBus
+//
+// The effect list is the generator's, verbatim: same node type, same ids, same
+// order semantics. Kept as its own set of methods rather than a shared base
+// because a Generator is not a MasterBus in any other respect.
+
+std::vector<Effect> MasterBus::getEffects() const
+{
+    return collectChildren<Effect> (state.getChildWithName (ids::EFFECTS), ids::EFFECT);
+}
+
+std::optional<Effect> MasterBus::findEffect (const juce::String& effectId) const
+{
+    auto found = state.getChildWithName (ids::EFFECTS).getChildWithProperty (ids::id, effectId);
+    return found.isValid() ? std::optional<Effect> (Effect (found)) : std::nullopt;
+}
+
+Effect MasterBus::addEffect (const juce::String& type,
+                             const juce::PluginDescription* description,
+                             juce::UndoManager* um)
+{
+    juce::ValueTree effect (ids::EFFECT);
+    effect.setProperty (ids::id, newId(), nullptr);
+    effect.setProperty (ids::type, type, nullptr);
+
+    getOrCreateChild (state, ids::EFFECTS).appendChild (effect, um);
+
+    Effect wrapper (effect);
+    if (description != nullptr)
+        wrapper.setPlugin (*description, um);
+
+    return wrapper;
+}
+
+void MasterBus::removeEffect (const Effect& effect, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::EFFECTS).removeChild (effect.state, um);
+}
+
+void MasterBus::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* um)
+{
+    auto effects = state.getChildWithName (ids::EFFECTS);
+    const auto from = effects.indexOf (effect.state);
+
+    if (from < 0)
+        return;
+
+    effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
+}
+
+MasterBus Song::getMasterBus() const
+{
+    return MasterBus (getOrCreateChild (state, ids::MASTER));
+}
+
 //==============================================================================
 // Tempo and time signature
 

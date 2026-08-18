@@ -125,75 +125,54 @@ EffectChain makeGeneratorEffectChain (model::Generator generatorToShow, juce::Un
 }
 
 //==============================================================================
-namespace
-{
-    // A master insert has no model Effect to carry an id of ours, so it is
-    // addressed by the plugin's own EditItemID -- unique within the Edit and
-    // stable for as long as the plugin is in the list.
-    te::Plugin::Ptr findMasterPlugin (te::Edit& edit, const juce::String& id)
-    {
-        for (auto plugin : edit.getMasterPluginList().getPlugins())
-            if (plugin->itemID.toString() == id)
-                return plugin;
-
-        return {};
-    }
-} // namespace
-
-EffectChain makeMasterEffectChain (te::Edit& edit)
+// The master chain is the generator chain with a different owner: same EFFECT
+// nodes, same ids, same undo. Only the node they hang off differs.
+EffectChain makeMasterEffectChain (model::MasterBus busToShow, juce::UndoManager& undoManager)
 {
     EffectChain chain;
 
-    chain.getSlots = [&edit]
+    chain.getSlots = [bus = busToShow]
     {
         std::vector<EffectSlot> result;
 
-        for (auto plugin : edit.getMasterPluginList().getPlugins())
-            result.push_back ({ plugin->itemID.toString(),
-                                plugin->getShortName (8),
-                                plugin->isEnabled() });
+        for (const auto& effect : bus.getEffects())
+            result.push_back ({ effect.getId(), getSlotName (effect), effect.isEnabled() });
 
         return result;
     };
 
-    chain.add = [&edit] (const juce::String& type, const juce::PluginDescription* description)
+    chain.add = [bus = busToShow, &undoManager] (const juce::String& type,
+                                                 const juce::PluginDescription* description) mutable
     {
-        auto plugin = description != nullptr
-                          ? edit.getPluginCache().createNewPlugin (
-                                te::ExternalPlugin::create (edit.engine, *description))
-                          : edit.getPluginCache().createNewPlugin (type, {});
-
-        if (plugin != nullptr)
-            edit.getMasterPluginList().insertPlugin (plugin, edit.getMasterPluginList().size(), nullptr);
+        undoManager.beginNewTransaction();
+        bus.addEffect (type, description, &undoManager);
     };
 
-    chain.setEnabled = [&edit] (const juce::String& id, bool enabled)
+    chain.setEnabled = [bus = busToShow, &undoManager] (const juce::String& id, bool enabled) mutable
     {
-        if (auto plugin = findMasterPlugin (edit, id))
-            plugin->setEnabled (enabled);
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            effect->setEnabled (enabled, &undoManager);
+        }
     };
 
-    chain.remove = [&edit] (const juce::String& id)
+    chain.remove = [bus = busToShow, &undoManager] (const juce::String& id) mutable
     {
-        if (auto plugin = findMasterPlugin (edit, id))
-            plugin->deleteFromParent();
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            bus.removeEffect (*effect, &undoManager);
+        }
     };
 
-    chain.move = [&edit] (const juce::String& id, int newIndex)
+    chain.move = [bus = busToShow, &undoManager] (const juce::String& id, int newIndex) mutable
     {
-        // The plugins' own ValueTrees are reordered rather than the plugins
-        // removed and re-added, so a live plugin -- and its open editor -- is
-        // left alone. Same reason EditSync reorders a track's chain in place.
-        auto plugin = findMasterPlugin (edit, id);
-
-        if (plugin == nullptr)
-            return;
-
-        auto parent = plugin->state.getParent();
-        const auto from = parent.indexOf (plugin->state);
-
-        if (from >= 0 && newIndex >= 0 && newIndex < parent.getNumChildren())
-            parent.moveChild (from, newIndex, nullptr);
+        if (auto effect = bus.findEffect (id))
+        {
+            undoManager.beginNewTransaction();
+            bus.moveEffect (*effect, newIndex, &undoManager);
+        }
     };
 
     return chain;

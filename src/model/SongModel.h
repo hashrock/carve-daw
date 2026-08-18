@@ -530,6 +530,29 @@ public:
     juce::ValueTree state;
 };
 
+// The mix bus. It carries the same EFFECT nodes a generator does, so one
+// effect implementation and one EditSync reconciliation cover both -- the only
+// difference is which plugin list they end up in.
+class MasterBus
+{
+public:
+    explicit MasterBus (juce::ValueTree v) : state (std::move (v)) {}
+
+    static constexpr float defaultVolumeDb = 0.0f;
+
+    float getVolumeDb() const  { return state.getProperty (ids::volumeDb, defaultVolumeDb); }
+    void setVolumeDb (float db, juce::UndoManager* um)  { state.setProperty (ids::volumeDb, db, um); }
+
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 class Song
 {
 public:
@@ -591,6 +614,10 @@ public:
     Generator addGenerator (const juce::String& name, const juce::String& type, juce::UndoManager* um);
 
     Playlist getPlaylist() const;
+
+    // Materialised on first use, like the playlist, so songs written before the
+    // master bus existed gain nothing until something touches it.
+    MasterBus getMasterBus() const;
 
     // Where the last placement on the playlist ends, counting both pattern and
     // audio clips. This is what "the whole song" means to the transport, so it

@@ -41,12 +41,10 @@ struct EffectChain
 // One generator's chain, out of the song model, through the UndoManager.
 EffectChain makeGeneratorEffectChain (model::Generator, juce::UndoManager&);
 
-// The Edit's master plugin list.
-//
-// Not model-backed, and so neither undoable nor saved in the .carve: the song
-// model has no node for a master chain, and adding one is a change to
-// src/model, which this round does not own. See MixerComponent's master strip.
-EffectChain makeMasterEffectChain (te::Edit&);
+// The master bus chain, out of the song model, through the UndoManager -- the
+// same EFFECT nodes a generator carries, so it is undoable and saved with the
+// song like everything else.
+EffectChain makeMasterEffectChain (model::MasterBus, juce::UndoManager&);
 
 // The insert-effect slots of one mixer channel strip: the chain in signal
 // order, plus a row at the bottom that adds to the end of it.
