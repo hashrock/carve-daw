@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iterator>
+#include <memory>
 #include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -12,8 +13,96 @@
 namespace carve::app
 {
 
+// The quantise settings, shown in a call-out from the toolbar button.
+//
+// Not in the toolbar itself: two sliders and a button do not fit beside
+// everything already there, and quantise is a command rather than a mode --
+// the panel is opened, aimed, fired and dismissed. What it aims is kept on the
+// roll rather than here, so the Q key can repeat it with the panel shut.
+class QuantisePanel : public juce::Component
+{
+public:
+    QuantisePanel (double strength, double swing, const juce::String& gridName)
+    {
+        strengthHeader.setText ("Strength", juce::dontSendNotification);
+        swingHeader.setText ("Swing", juce::dontSendNotification);
+
+        for (auto* header : { &strengthHeader, &swingHeader })
+        {
+            header->setFont (juce::FontOptions (11.0f));
+            header->setJustificationType (juce::Justification::centredRight);
+        }
+
+        for (auto* slider : { &strengthSlider, &swingSlider })
+        {
+            slider->setSliderStyle (juce::Slider::LinearHorizontal);
+            slider->setTextBoxStyle (juce::Slider::TextBoxRight, false, 46, 20);
+            slider->setRange (0.0, 100.0, 1.0);
+            slider->setTextValueSuffix ("%");
+        }
+
+        strengthSlider.setValue (strength * 100.0, juce::dontSendNotification);
+        swingSlider.setValue (swing * 100.0, juce::dontSendNotification);
+
+        // The unit quantising moves notes to is the toolbar's grid, not a
+        // setting of its own: the grid is already what the user has been
+        // drawing against, and two units to keep in step would be one too many.
+        unitLabel.setText ("to the " + gridName + " grid", juce::dontSendNotification);
+        unitLabel.setFont (juce::FontOptions (11.0f));
+        unitLabel.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+
+        applyButton.onClick = [this]
+        {
+            if (onApply)
+                onApply (strengthSlider.getValue() / 100.0, swingSlider.getValue() / 100.0);
+
+            // a call-out is a one-shot: it has done what it was opened for
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->dismiss();
+        };
+
+        for (auto* c : std::initializer_list<juce::Component*> {
+                 &strengthHeader, &strengthSlider, &swingHeader, &swingSlider,
+                 &unitLabel, &applyButton })
+            addAndMakeVisible (c);
+
+        setSize (290, 96);
+    }
+
+    std::function<void (double strength, double swing)> onApply;
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (8);
+
+        auto row = [&area] (juce::Label& header, juce::Slider& slider)
+        {
+            auto line = area.removeFromTop (24);
+            header.setBounds (line.removeFromLeft (56));
+            line.removeFromLeft (4);
+            slider.setBounds (line);
+            area.removeFromTop (4);
+        };
+
+        row (strengthHeader, strengthSlider);
+        row (swingHeader, swingSlider);
+
+        auto footer = area.removeFromTop (24);
+        applyButton.setBounds (footer.removeFromRight (72));
+        footer.removeFromRight (6);
+        unitLabel.setBounds (footer);
+    }
+
+private:
+    juce::Label strengthHeader, swingHeader, unitLabel;
+    juce::Slider strengthSlider, swingSlider;
+    juce::TextButton applyButton { "Apply" };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QuantisePanel)
+};
+
 // Content of the pattern editor window: a toolbar over a scrolling piano roll,
-// with a shortcut help bar along the bottom.
+// with a velocity lane under it and a shortcut help bar along the bottom.
 //
 // The toolbar mixes two kinds of setting. The pattern name and length belong to
 // the song, so they go through the model and the UndoManager; the tool, the
@@ -77,6 +166,10 @@ public:
         selectToolButton.setTooltip ("Select (E): rubber-band notes, then move or delete them");
         zoomOutButton.setTooltip ("Zoom out (- key, or cmd-scroll)");
         zoomInButton.setTooltip ("Zoom in (= key, or cmd-scroll)");
+        quantiseButton.setTooltip ("Quantise (Q): pull note starts onto the grid, with swing");
+
+        quantiseButton.setWantsKeyboardFocus (false);
+        quantiseButton.onClick = [this] { showQuantisePanel(); };
 
         for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton })
         {
@@ -100,12 +193,23 @@ public:
         // The tool can also change from the keyboard, and the modifiers change
         // without any click at all, so the strip and the help bar are refreshed
         // from the roll rather than from whatever was pressed.
-        pianoRoll.onShortcutContextChanged = [this] { updateToolStrip(); updateShortcutBar(); };
+        // The selection also decides what the velocity lane will let a drag
+        // touch, and it says so by dimming the rest, so it redraws from here too.
+        pianoRoll.onShortcutContextChanged = [this]
+        {
+            updateToolStrip();
+            updateShortcutBar();
+            velocityLane.repaint();
+        };
 
-        // Zooming rescales the roll under the ruler, and nothing else tells the
-        // ruler that the arithmetic it copies has changed. The roll fires this
-        // for a signature change too, for the same reason.
-        pianoRoll.onViewChanged = [this] { updateRuler(); ruler.repaint(); };
+        // Zooming rescales the roll under the ruler and the lane, and nothing
+        // else tells them that the arithmetic they copy has changed. The roll
+        // fires this for a signature change too, for the same reason.
+        pianoRoll.onViewChanged = [this] { updateStrips(); ruler.repaint(); velocityLane.repaint(); };
+
+        // The lane is a sibling of the roll rather than a child of it, so the
+        // roll's own repaint does not reach it.
+        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); };
 
         // A signature change moves what a bar means, so the spinner's value,
         // its unit and the beat count beside it all have to be rewritten.
@@ -119,12 +223,12 @@ public:
 
         viewport.setViewedComponent (&pianoRoll, false);
         viewport.setScrollBarsShown (true, true);
-        viewport.onVisibleAreaChanged = [this] { updateRuler(); };
+        viewport.onVisibleAreaChanged = [this] { updateStrips(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
                  &lengthHeader, &lengthSlider, &lengthNote, &gridHeader, &gridBox,
-                 &snapButton, &ruler, &viewport, &shortcutBar })
+                 &snapButton, &quantiseButton, &ruler, &viewport, &velocityLane, &shortcutBar })
             addAndMakeVisible (c);
 
         updateToolStrip();
@@ -197,9 +301,14 @@ public:
         auto area = getLocalBounds();
         auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 5);
         shortcutBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
+
+        // The ruler and the lane are placed by updateStrips(), which has to
+        // keep them to the viewport's *visible* width; here they only reserve
+        // their strips above and below it.
+        area.removeFromBottom (PianoRollVelocityLane::preferredHeight);
         area.removeFromTop (PianoRollRuler::preferredHeight);
         viewport.setBounds (area);
-        updateRuler();
+        updateStrips();
 
         auto place = [&toolbar] (juce::Component& c, int width, int gap = 6)
         {
@@ -217,21 +326,53 @@ public:
         place (lengthNote, 130, 18);
         place (gridHeader, 34, 4);
         place (gridBox, 74, 18);
-        place (snapButton, 70);
+        place (snapButton, 70, 12);
+        place (quantiseButton, 74);
     }
 
 private:
     static constexpr int toolbarHeight = 34;
 
-    // Keeps the ruler over the part of the roll that is actually on screen.
-    // Its width follows the viewport's visible area rather than the whole
-    // component, so a vertical scrollbar appearing cannot push it out of
-    // alignment with the grid underneath.
-    void updateRuler()
+    // Keeps the ruler and the velocity lane over the part of the roll that is
+    // actually on screen. Their width follows the viewport's visible area
+    // rather than the whole component, so a vertical scrollbar appearing
+    // cannot push either out of alignment with the grid between them.
+    void updateStrips()
     {
+        const auto visibleWidth = viewport.getMaximumVisibleWidth();
+
         ruler.setBounds (viewport.getX(), viewport.getY() - PianoRollRuler::preferredHeight,
-                         viewport.getMaximumVisibleWidth(), PianoRollRuler::preferredHeight);
-        ruler.setScrollOffset (viewport.getViewPositionX());
+                         visibleWidth, PianoRollRuler::preferredHeight);
+        velocityLane.setBounds (viewport.getX(), viewport.getBottom(),
+                                visibleWidth, PianoRollVelocityLane::preferredHeight);
+
+        const auto offsetX = viewport.getViewPositionX();
+        ruler.setScrollOffset (offsetX);
+        velocityLane.setScrollOffset (offsetX);
+    }
+
+    // Opened from the toolbar button. The roll keeps the settings, so this is
+    // only a way of aiming them: what it applies, Q afterwards repeats.
+    void showQuantisePanel()
+    {
+        auto panel = std::make_unique<QuantisePanel> (pianoRoll.getQuantiseStrength(),
+                                                      pianoRoll.getQuantiseSwing(),
+                                                      gridBox.getText());
+
+        panel->onApply = [safe = juce::Component::SafePointer<PianoRollContent> (this)]
+                         (double strength, double swing)
+        {
+            if (safe == nullptr)
+                return;
+
+            safe->pianoRoll.setQuantiseSettings (strength, swing);
+            safe->pianoRoll.quantiseNotes();
+
+            // the call-out had the keyboard; the roll owns Q and Backspace
+            safe->pianoRoll.grabKeyboardFocus();
+        };
+
+        juce::CallOutBox::launchAsynchronously (std::move (panel), quantiseButton.getBounds(), this);
     }
 
     // juce::Viewport only reports scrolling through this virtual, so the ruler
@@ -280,13 +421,15 @@ private:
 
     void refreshFromPattern()
     {
-        // this runs on exactly the changes the ruler cares about - a different
-        // pattern, or a new length - so it is also where the ruler is refreshed
+        // this runs on exactly the changes the ruler and the lane care about -
+        // a different pattern, or a new length - so it is where both refresh
         ruler.repaint();
+        velocityLane.repaint();
 
         const auto hasPattern = pattern.has_value();
         nameLabel.setEnabled (hasPattern);
         lengthSlider.setEnabled (hasPattern);
+        quantiseButton.setEnabled (hasPattern);
         updateLengthUnit();
         updateShortcutBar();
 
@@ -381,8 +524,24 @@ private:
         if (! mods.isAltDown())
             entries.push_back ({ "drag edge", "resize" });
 
-        if (pianoRoll.getNumSelectedNotes() > 0)
+        const bool hasSelection = pianoRoll.getNumSelectedNotes() > 0;
+
+        // The lane edits the selection when there is one and whatever it
+        // sweeps when there is not, so it is worth saying which is happening.
+        entries.push_back ({ "drag lane", hasSelection ? "velocity of selection" : "velocity" });
+
+        if (hasSelection)
+        {
             entries.push_back ({ "Backspace", "delete selected" });
+            entries.push_back ({ "Cmd+C/X", "copy / cut" });
+        }
+
+        entries.push_back ({ "Q", hasSelection ? "quantise selection" : "quantise pattern" });
+
+        // Listed whether or not there is anything to paste: this bar is
+        // rebuilt on every selection change, so a rubber-band drag would be
+        // reading the system clipboard once per mouse event to find out.
+        entries.push_back ({ "Cmd+V", "paste at pointer bar" });
 
         entries.push_back ({ selectTool ? "D" : "E", selectTool ? "draw tool" : "select tool" });
 
@@ -447,9 +606,11 @@ private:
     juce::ToggleButton snapButton { "Snap" };
     juce::TextButton drawToolButton { "Draw" }, selectToolButton { "Select" };
     juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" };
+    juce::TextButton quantiseButton { "Quantise" };
     RollViewport viewport;
     PianoRollComponent pianoRoll;
     PianoRollRuler ruler { pianoRoll };
+    PianoRollVelocityLane velocityLane { pianoRoll };
     ShortcutHelpBar shortcutBar;
 };
 
@@ -470,10 +631,13 @@ public:
           content (um)
     {
         content.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
-        // The extra height is the ruler and the help bar, so the roll itself
-        // keeps its old size; the extra width is the length spinner's unit,
-        // which now names a time signature rather than being assumed.
-        content.setSize (960, 554 + PianoRollRuler::preferredHeight + ShortcutHelpBar::preferredHeight);
+        // The extra height is the ruler, the velocity lane and the help bar, so
+        // the roll itself keeps its old size; the extra width is the length
+        // spinner's unit, which now names a time signature rather than being
+        // assumed, plus the quantise button on the end of the toolbar.
+        content.setSize (1000, 554 + PianoRollRuler::preferredHeight
+                                   + PianoRollVelocityLane::preferredHeight
+                                   + ShortcutHelpBar::preferredHeight);
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);

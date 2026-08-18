@@ -24,7 +24,12 @@ namespace carve::app
 // resizes it, right/alt-drag erases every note the cursor sweeps over, and
 // Backspace deletes the selection.
 //
-// Cmd-scroll zooms in time about the pointer.
+// Cmd-scroll zooms in time about the pointer. Cmd+C / Cmd+X / Cmd+V copy, cut
+// and paste the selection through the system clipboard, and Q quantises.
+//
+// A velocity lane sits under the roll (see PianoRollVelocityLane): it is a
+// separate component, but the notes it edits and the writes it makes belong
+// here, so it drives the roll rather than the model.
 //
 // Selection is pure UI state: it lives here and never reaches the model, so
 // selecting never dirties the document or triggers an EditSync resync.
@@ -47,6 +52,11 @@ public:
     ~PianoRollComponent() override;
 
     void setPattern (std::optional<model::Pattern> newPattern);
+
+    // The notes of the pattern on screen, empty when there is none. The
+    // velocity lane draws one bar per note and needs them all.
+    std::vector<model::Note> getNotes() const;
+    bool isNoteSelected (const model::Note& note) const  { return isSelected (note.state); }
 
     // The song, wanted only for its time signature map. A pattern is not a
     // position in the song, so the roll cannot work out its signature from
@@ -87,6 +97,11 @@ public:
     // the selection, or a held modifier that changes what a drag would do.
     std::function<void()> onShortcutContextChanged;
 
+    // Fired when the notes themselves changed, so the velocity lane can
+    // redraw: it is a sibling rather than a child, so our own repaint() misses
+    // it, and a velocity edit changes nothing the two callbacks above report.
+    std::function<void()> onNotesChanged;
+
     // View settings, driven by the toolbar above the roll. The grid unit and
     // the snap flag describe how the song is *edited*, not what it is, so
     // neither of them touches the model.
@@ -98,6 +113,45 @@ public:
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
     int getNumSelectedNotes() const  { return (int) selectedNotes.size(); }
+
+    //==============================================================================
+    // Velocity lane support. The lane owns the geometry of its bars, because
+    // only it knows how tall it is; the pattern, the selection and the undo
+    // manager live here, so the writes stay here too.
+    //
+    // What a lane drag is allowed to touch: with a selection up, only the
+    // selected notes answer to it, so that sweeping across a phrase cannot
+    // quietly rewrite the neighbours the user had just ruled out. With nothing
+    // selected, whatever the pointer sweeps is fair game -- which is the quick
+    // way to dial in a hi-hat line without selecting anything first.
+    bool isVelocityEditable (const model::Note& note) const;
+
+    // One transaction per lane drag, the same rule the roll's own gestures
+    // follow, so a whole sweep undoes in one step.
+    void beginVelocityGesture()  { undoManager.beginNewTransaction(); }
+    void setNoteVelocity (const model::Note& note, int velocity);
+
+    //==============================================================================
+    // Quantise. Note starts are pulled towards the nearest grid unit by
+    // `strength` (0 leaves them alone, 1 puts them exactly on it), and every
+    // other division is then pushed late by `swing` (1 lands it a third of a
+    // division late, which is the triplet feel). Both are 0..1.
+    //
+    // The settings live here rather than in the panel that edits them, so that
+    // the Q key can repeat the last quantise without the panel being open.
+    void setQuantiseSettings (double strength, double swing);
+    double getQuantiseStrength() const  { return quantiseStrength; }
+    double getQuantiseSwing() const     { return quantiseSwing; }
+
+    // Quantises the selection, or the whole pattern when nothing is selected.
+    void quantiseNotes();
+
+    //==============================================================================
+    // Clipboard, as XML on the system clipboard so a copy in one pattern
+    // editor can be pasted into another. Content that is not ours is ignored.
+    bool copySelection() const;
+    void cutSelection();
+    void pasteNotes();
 
     // Zoom about the middle of what is on screen; the pointer-anchored version
     // is the cmd-scroll gesture and stays private.
@@ -119,7 +173,11 @@ private:
     static constexpr int highestPitch = 96;   // C7
     static constexpr float resizeZoneWidth = 6.0f;
     static constexpr double defaultLengthBeats = 16.0;   // grid shown with no pattern loaded
-    static constexpr int newNoteVelocity = 100;
+    static constexpr int defaultNoteVelocity = 100;
+
+    // Tag of our clipboard payload. Anything else on the clipboard -- text
+    // from another app, notes from another program -- is left alone.
+    static constexpr const char* clipboardTag = "CARVENOTES";
 
     // Zoom limits, in pixels per beat. The default is what the roll used to be
     // fixed at; the bottom of the range is where a bar is still ~24px wide,
@@ -173,6 +231,16 @@ private:
     void deleteSelection();
     void updateRubberBand (juce::Point<float> position);
 
+    // Where a paste puts the notes: see the .cpp for why it is the bar under
+    // the pointer.
+    double getPasteTargetBeat (double originBeat) const;
+
+    void notifyNotesChanged() const
+    {
+        if (onNotesChanged)
+            onNotesChanged();
+    }
+
     void notifyShortcutContext() const
     {
         if (onShortcutContextChanged)
@@ -202,6 +270,14 @@ private:
     int grabPitchOffset = 0;                 // note pitch minus the pitch under the cursor
     juce::Point<float> lastErasePosition;
     double lastNoteLength = 0.5;
+
+    // New notes are drawn at the last velocity the user set in the lane, the
+    // way their length follows the last resize: having just dialled in a set
+    // of ghost notes, the next one drawn should be one too.
+    int lastNoteVelocity = defaultNoteVelocity;
+
+    double quantiseStrength = 1.0;
+    double quantiseSwing = 0.0;
 
     // The notes the user has selected, as the NOTE trees themselves: a
     // ValueTree compares by identity, so this survives any edit that does not
@@ -244,6 +320,66 @@ public:
 private:
     const PianoRollComponent& roll;
     int scrollOffset = 0;
+};
+
+// Velocity lane drawn under the roll: one bar per note, standing where the
+// note does and as tall as its velocity.
+//
+// Like the ruler it is a sibling of the roll's Viewport rather than a strip
+// inside the roll, so it stays put while the roll scrolls through the
+// pitches, and it lines up with the grid by drawing in the roll's own
+// coordinates shifted by the viewport's horizontal scroll offset.
+//
+// Unlike the ruler it is an editor: dragging in it writes velocities. Only
+// the geometry is worked out here -- which notes are fair game, and the model
+// writes themselves, belong to the roll.
+class PianoRollVelocityLane : public juce::Component
+{
+public:
+    explicit PianoRollVelocityLane (PianoRollComponent& rollToEdit);
+
+    static constexpr int preferredHeight = 64;
+
+    // x coordinate of the roll that sits at this component's left edge
+    void setScrollOffset (int offsetX);
+
+    void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+private:
+    // Height of the bars' area: the rest is the baseline strip along the
+    // bottom, which keeps a velocity-1 bar visible instead of nothing.
+    static constexpr float topMargin = 4.0f;
+    static constexpr float baselineHeight = 3.0f;
+
+    // Narrow enough to sit inside a 1/32 note at the default zoom, wide
+    // enough to stay grabbable when the roll is zoomed right out.
+    static constexpr float minBarWidth = 3.0f;
+
+    float barsTop() const     { return topMargin; }
+    float barsBottom() const  { return (float) getHeight() - baselineHeight; }
+
+    // Horizontal reach of a note's bar. Hit-testing uses this alone and
+    // ignores the pointer's height: a bar for a quiet note is only a few
+    // pixels tall, and having to hit it would make the lane unusable exactly
+    // where it is most wanted.
+    juce::Range<float> barSpan (const model::Note&) const;
+    juce::Rectangle<float> barBounds (const model::Note&) const;
+    int velocityAtY (float y) const;
+    bool isOverEditableBar (juce::Point<float>) const;
+
+    // Applies the pointer's velocity to every editable note the drag swept,
+    // interpolated across the sweep so a diagonal drag draws a ramp rather
+    // than flattening everything it passed to the last value.
+    void applySweep (juce::Point<float> from, juce::Point<float> to);
+
+    PianoRollComponent& roll;
+    int scrollOffset = 0;
+    bool dragging = false;
+    juce::Point<float> lastDragPosition;
 };
 
 } // namespace carve::app
