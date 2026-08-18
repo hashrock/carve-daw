@@ -92,6 +92,27 @@ void Pattern::removeNote (const Note& note, juce::UndoManager* um)
     state.removeChild (note.state, um);
 }
 
+void Pattern::clearNotes (juce::UndoManager* um)
+{
+    // Backwards, because removing a child shuffles everything after it down.
+    for (int i = state.getNumChildren(); --i >= 0;)
+        if (state.getChild (i).hasType (ids::NOTE))
+            state.removeChild (i, um);
+}
+
+void Pattern::copyNotesFrom (const Pattern& source, juce::UndoManager* um)
+{
+    if (source.state == state)
+        return;
+
+    clearNotes (um);
+
+    // createCopy rather than the note's four properties: a NOTE that grows a
+    // fifth one later should copy without anyone having to remember this.
+    for (const auto& note : source.getNotes())
+        state.appendChild (note.state.createCopy(), um);
+}
+
 
 //==============================================================================
 // FileRef
@@ -329,6 +350,34 @@ std::optional<Pattern> Generator::findPatternInSlot (const PatternSlot& slot) co
         return std::nullopt;
 
     return Pattern (found);
+}
+
+std::optional<PatternSlot> Generator::findFreeSlot (std::optional<PatternSlot> after) const
+{
+    const int start = after && after->isValid() ? after->toFlatIndex() + 1 : 0;
+
+    for (int i = 0; i < PatternSlot::numSlots; ++i)
+    {
+        const auto slot = PatternSlot::fromFlatIndex ((start + i) % PatternSlot::numSlots);
+        if (! findPatternInSlot (slot))
+            return slot;
+    }
+
+    return std::nullopt;
+}
+
+Pattern Generator::duplicatePattern (const Pattern& source, const PatternSlot& destination,
+                                     juce::UndoManager* um)
+{
+    // A pattern still carrying its slot's name was never named by the user, so
+    // the copy takes its own slot's name and the grid stays readable. One the
+    // user did name keeps that name, marked as the copy it is.
+    const auto name = source.hasDefaultSlotName() ? destination.getKey()
+                                                  : source.getName() + " copy";
+
+    auto copy = addPattern (destination, name, source.getLengthBeats(), um);
+    copy.copyNotesFrom (source, um);
+    return copy;
 }
 
 Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,

@@ -48,10 +48,10 @@
 // │                                  no transpose, and needs an explicit
 // │                                  length, so every consumer of CLIP would
 // │                                  have had to special-case it anyway.
-// │                                  start/length/offset are in beats, offset
-// │                                  being how far into the source the
-// │                                  placement begins. file/relPath work
-// │                                  exactly as SOUND's do -- see FileRef.
+// │                                  offset is how far into the source the
+// │                                  placement begins, in seconds like its
+// │                                  length. file/relPath work exactly as
+// │                                  SOUND's do -- see FileRef.
 // │                                  id is what lets EditSync match a live
 // │                                  wave clip to its placement.
 // └─ AUTOMATION (M6)
