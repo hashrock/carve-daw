@@ -49,15 +49,26 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*generatorPanel);
+    playlist.onClipSelectionChanged = [this] (const std::vector<model::PlaylistClip>& clips)
+    {
+        clipProperties.setSelection (clips);
+    };
+
+    // The playlist knows the current tool; the global shortcuts are ours, and
+    // go last because the bar drops whatever doesn't fit.
+    playlist.onShortcutHelpChanged = [this] (std::vector<ShortcutHelpBar::Entry> entries)
+    {
+        for (auto& global : globalShortcutHelp())
+            entries.push_back (global);
+
+        helpBar.setEntries (std::move (entries));
+    };
+
     addAndMakeVisible (playlistViewport);
+    addAndMakeVisible (clipProperties);
     addAndMakeVisible (helpBar);
 
-    // The playlist re-sets these as the tool and selection change; this is what
-    // is true before anything has been touched.
-    helpBar.setEntries ({ { "Space", "play/stop" },
-                          { "Cmd+S", "save" },
-                          { "Cmd+Z", "undo" },
-                          { "Shift+Cmd+Z", "redo" } });
+    helpBar.setEntries (globalShortcutHelp());
 
     loadSong (model::buildDemoSong());
 
@@ -88,6 +99,7 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 
     transportBar->setSong (song);
     playlist.setSong (song);
+    clipProperties.setSong (song);
     generatorPanel->setSong (song);   // fires onSelectionChanged -> updates piano roll
 
     // Last, because handing the song to the views can write to the tree and a
@@ -388,6 +400,7 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     transportBar->setBounds (area.removeFromTop (44));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
+    clipProperties.setBounds (area.removeFromRight (210));
     generatorPanel->setBounds (area.removeFromLeft (220));
     playlistViewport.setBounds (area);
 }
