@@ -6,6 +6,9 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "ParameterRows.h"
+#include "PresetManager.h"
+
 namespace te = tracktion;
 
 namespace carve::app
@@ -24,6 +27,9 @@ namespace carve::app
 // which is where the rest of the mixer's edits go: the plugin's own ValueTree
 // is the parameter store, and EditSync copies it back into the model when the
 // song is saved. The cost is that a knob move is not undoable.
+//
+// The 4OSC editor is the same rows in a structured layout; this one stays a
+// flat list, which is all the parameter list of an effect really is.
 class EffectParameterPanel : public juce::Component,
                              private juce::Timer
 {
@@ -33,7 +39,8 @@ public:
     {
         for (auto* parameter : pluginToEdit.getAutomatableParameters())
             if (parameter != nullptr)
-                rows.push_back (std::make_unique<Row> (*parameter, [this] { return plugin != nullptr; }));
+                rows.push_back (std::make_unique<ParameterSliderRow> (
+                                    *parameter, [this] { return plugin != nullptr; }));
 
         for (auto& row : rows)
             addAndMakeVisible (*row);
@@ -43,7 +50,7 @@ public:
     }
 
     static constexpr int width = 320;
-    static constexpr int rowHeight = 22;
+    static constexpr int rowHeight = EditorRow::height;
 
     void paint (juce::Graphics& g) override
     {
@@ -67,81 +74,6 @@ public:
     }
 
 private:
-    class Row : public juce::Component
-    {
-    public:
-        Row (te::AutomatableParameter& parameterToEdit, std::function<bool()> isAliveCheck)
-            : parameter (&parameterToEdit), isAlive (std::move (isAliveCheck))
-        {
-            nameLabel.setText (parameter->getParameterName(), juce::dontSendNotification);
-            nameLabel.setFont (juce::FontOptions (11.0f));
-            nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
-
-            valueLabel.setFont (juce::FontOptions (11.0f));
-            valueLabel.setJustificationType (juce::Justification::centredRight);
-            valueLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
-
-            // Normalised: the parameter owns the taper, and its own value
-            // string is what gets displayed anyway.
-            slider.setSliderStyle (juce::Slider::LinearHorizontal);
-            slider.setRange (0.0, 1.0);
-            slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-            slider.onDragStart = [this]
-            {
-                if (isAlive())
-                    parameter->parameterChangeGestureBegin();
-            };
-            slider.onDragEnd = [this]
-            {
-                if (isAlive())
-                    parameter->parameterChangeGestureEnd();
-            };
-            slider.onValueChange = [this]
-            {
-                if (isRefreshing || ! isAlive())
-                    return;
-
-                parameter->setNormalisedParameter ((float) slider.getValue(), juce::sendNotification);
-            };
-
-            for (auto* c : std::initializer_list<juce::Component*> { &nameLabel, &slider, &valueLabel })
-                addAndMakeVisible (c);
-
-            refresh();
-        }
-
-        // Polled rather than listened to: AutomatableParameter's listener is
-        // async anyway, and a knob can also move from automation or the
-        // plugin itself.
-        void refresh()
-        {
-            if (! isAlive() || slider.isMouseButtonDown())
-                return;
-
-            const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
-            slider.setValue (parameter->getCurrentNormalisedValue(), juce::dontSendNotification);
-            valueLabel.setText (parameter->getCurrentValueAsStringWithLabel(), juce::dontSendNotification);
-        }
-
-        void resized() override
-        {
-            auto area = getLocalBounds().reduced (6, 2);
-            nameLabel.setBounds (area.removeFromLeft (100));
-            valueLabel.setBounds (area.removeFromRight (64));
-            slider.setBounds (area.reduced (4, 0));
-        }
-
-    private:
-        te::AutomatableParameter::Ptr parameter;
-        std::function<bool()> isAlive;
-
-        juce::Label nameLabel, valueLabel;
-        juce::Slider slider;
-        bool isRefreshing = false;
-
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Row)
-    };
-
     void timerCallback() override
     {
         if (plugin == nullptr)
@@ -158,7 +90,7 @@ private:
     }
 
     te::SafeSelectable<te::Plugin> plugin;
-    std::vector<std::unique_ptr<Row>> rows;
+    std::vector<std::unique_ptr<ParameterSliderRow>> rows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectParameterPanel)
 };
@@ -172,20 +104,18 @@ public:
         : juce::DocumentWindow (plugin.getName(),
                                 juce::Colour (0xff232327),
                                 juce::DocumentWindow::closeButton),
-          onClose (std::move (onCloseCallback))
+          onClose (std::move (onCloseCallback)),
+          content (plugin)
     {
-        auto panel = std::make_unique<EffectParameterPanel> (plugin);
-        const auto contentHeight = juce::jlimit (60, maxHeight, panel->getHeight());
+        const auto panelHeight = juce::jlimit (60, maxHeight, content.getPanelHeight());
 
-        viewport.setViewedComponent (panel.release(), true);
-        viewport.setScrollBarsShown (true, false);
-        viewport.setSize (EffectParameterPanel::width, contentHeight);
+        content.setSize (EffectParameterPanel::width, panelHeight + PresetBar::height);
 
-        setContentNonOwned (&viewport, true);
+        setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
         setResizable (true, false);
-        setResizeLimits (EffectParameterPanel::width, 60,
-                         EffectParameterPanel::width, maxHeight);
+        setResizeLimits (EffectParameterPanel::width, 60 + PresetBar::height,
+                         EffectParameterPanel::width, maxHeight + PresetBar::height);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
         toFront (true);
@@ -197,21 +127,49 @@ public:
             onClose();   // owner destroys this window (deferred)
     }
 
-    void resized() override
-    {
-        juce::DocumentWindow::resized();
-
-        // The panel is as tall as its parameter list; only the viewport
-        // follows the window.
-        if (auto* panel = viewport.getViewedComponent())
-            panel->setSize (viewport.getMaximumVisibleWidth(), panel->getHeight());
-    }
-
 private:
     static constexpr int maxHeight = 460;
 
+    // The preset strip has to stay put while the parameters scroll, so the
+    // viewport is a child here rather than the window's content itself.
+    class Content : public juce::Component
+    {
+    public:
+        explicit Content (te::Plugin& plugin)
+            : presetBar (plugin)
+        {
+            auto panel = std::make_unique<EffectParameterPanel> (plugin);
+            panelHeight = panel->getHeight();
+
+            viewport.setViewedComponent (panel.release(), true);
+            viewport.setScrollBarsShown (true, false);
+
+            addAndMakeVisible (presetBar);
+            addAndMakeVisible (viewport);
+        }
+
+        int getPanelHeight() const  { return panelHeight; }
+
+        void resized() override
+        {
+            auto area = getLocalBounds();
+            presetBar.setBounds (area.removeFromTop (PresetBar::height));
+            viewport.setBounds (area);
+
+            // The panel is as tall as its parameter list; only the viewport
+            // follows the window.
+            if (auto* panel = viewport.getViewedComponent())
+                panel->setSize (viewport.getMaximumVisibleWidth(), panel->getHeight());
+        }
+
+    private:
+        PresetBar presetBar;
+        juce::Viewport viewport;
+        int panelHeight = 0;
+    };
+
     std::function<void()> onClose;
-    juce::Viewport viewport;
+    Content content;
 };
 
 } // namespace carve::app
