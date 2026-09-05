@@ -1,0 +1,66 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A push to a PR makes the run already in flight pointless, and this one is too
+# expensive to leave both going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  carve-tests:
+    # macOS rather than Ubuntu. FetchContent_MakeAvailable(tracktion) configures
+    # tracktion's own bundled examples even though this build excludes them from
+    # the default target, and JUCE runs its Linux pkg-config checks for every
+    # juce_add_* target at configure time -- webkit2gtk among them, which recent
+    # Ubuntu no longer ships at the version JUCE 8.0.6 asks for. That would fail
+    # the configure before reaching anything this repo owns. macOS is also what
+    # the project is built and rendered on, so it is the platform whose green is
+    # worth something.
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The fetched sources, which are the slow half of a cold run: tracktion
+      # carries JUCE as a submodule and lands at ~500MB. Keyed on CMakeLists
+      # because that is where the pinned tag and commit live, with a loose
+      # restore key so an unrelated edit to it still starts from the last
+      # checkout rather than cloning again.
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build-tests/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ runner.os }}
+          max-size: 1G
+
+      - name: Configure
+        run: |
+          cmake -B build-tests \
+            -DCARVE_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # An explicit job count: bare --parallel hands make a -j with no number,
+      # which is unlimited, and a JUCE link step is not something to run
+      # unbounded on a three-core runner.
+      - name: Build
+        run: cmake --build build-tests --target carve-tests --parallel $(sysctl -n hw.ncpu)
+
+      # Not ctest: enable_testing() would also register the tests tracktion
+      # declares for its bundled examples, which this build excludes, so every
+      # one of them would report as not run. See the comment in CMakeLists.txt.
+      - name: Test
+        run: ./build-tests/carve-tests_artefacts/Debug/carve-tests
