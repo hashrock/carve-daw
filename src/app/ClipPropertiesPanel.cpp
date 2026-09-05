@@ -242,7 +242,7 @@ void ClipPropertiesPanel::refresh()
                                    + trimmedNumber (patternLength) + " beats",
                                juce::dontSendNotification);
 
-    const auto repeats = clipLength / juce::jmax (0.0625, patternLength);
+    const auto repeats = clipLength / juce::jmax (model::Pattern::minLengthBeats, patternLength);
     loopLabel.setText (repeats > 1.001 ? "plays " + trimmedNumber (repeats) + "x through"
                                        : repeats < 0.999 ? "cut short" : juce::String(),
                        juce::dontSendNotification);

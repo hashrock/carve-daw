@@ -56,7 +56,6 @@ jobs:
       - name: Configure
         run: |
           cmake -B build-tests \
-            -DCARVE_BUILD_TESTS=ON \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache

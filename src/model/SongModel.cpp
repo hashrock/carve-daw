@@ -1,5 +1,8 @@
 #include "SongModel.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <juce_audio_formats/juce_audio_formats.h>
 
 namespace carve::model
@@ -78,11 +81,13 @@ std::vector<Note> Pattern::getNotes() const
 
 Note Pattern::addNote (double startBeats, double lengthBeats, int pitch, int velocity, juce::UndoManager* um)
 {
+    // Through the same clamps the setters use: a note that arrives wrong from
+    // a MIDI file or a clipboard should be as impossible as one edited wrong.
     juce::ValueTree note (ids::NOTE);
-    note.setProperty (ids::start, startBeats, nullptr);
-    note.setProperty (ids::length, lengthBeats, nullptr);
-    note.setProperty (ids::pitch, pitch, nullptr);
-    note.setProperty (ids::velocity, velocity, nullptr);
+    note.setProperty (ids::start, Note::clampStart (startBeats), nullptr);
+    note.setProperty (ids::length, Note::clampLength (lengthBeats), nullptr);
+    note.setProperty (ids::pitch, Note::clampPitch (pitch), nullptr);
+    note.setProperty (ids::velocity, Note::clampVelocity (velocity), nullptr);
     state.appendChild (note, um);
     return Note (note);
 }
@@ -396,7 +401,7 @@ Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juc
     juce::ValueTree pattern (ids::PATTERN);
     pattern.setProperty (ids::id, newId(), nullptr);
     pattern.setProperty (ids::name, name, nullptr);
-    pattern.setProperty (ids::lengthBeats, lengthBeats, nullptr);
+    pattern.setProperty (ids::lengthBeats, juce::jmax (Pattern::minLengthBeats, lengthBeats), nullptr);
     getOrCreateChild (state, ids::PATTERNS).appendChild (pattern, um);
     return Pattern (pattern);
 }
@@ -471,7 +476,7 @@ PlaylistClip Playlist::addClip (const Generator& generator, const Pattern& patte
     juce::ValueTree clip (ids::CLIP);
     clip.setProperty (ids::generatorId, generator.getId(), nullptr);
     clip.setProperty (ids::patternId, pattern.getId(), nullptr);
-    clip.setProperty (ids::start, startBeats, nullptr);
+    clip.setProperty (ids::start, std::max (0.0, startBeats), nullptr);
     state.appendChild (clip, um);
     return PlaylistClip (clip);
 }
@@ -527,6 +532,8 @@ std::optional<Song> Song::fromXml (const juce::String& xml)
 
     Song song (tree);
     song.ensureAudioClipIds();
+    song.dropDuplicateChanges();
+    song.clampValues();
     return song;
 }
 
@@ -568,6 +575,91 @@ void Song::ensureAudioClipIds() const
             clip.state.setProperty (ids::id, newId(), nullptr);
 }
 
+void Song::dropDuplicateChanges() const
+{
+    // Walked backwards and kept last-wins, which is the one the walks in
+    // getTempoAt and secondsFromBeats had in force: both write over what they
+    // have for every change at or before the beat, so of a pair on one beat
+    // the later one is the one that was heard. This therefore drops only what
+    // nothing could hear, and a load leaves the time axis where it was.
+    auto dropDuplicatesIn = [] (juce::ValueTree parent, const juce::Identifier& type)
+    {
+        if (! parent.isValid())
+            return;
+
+        std::vector<double> kept;
+
+        for (int i = parent.getNumChildren(); --i >= 0;)
+        {
+            const auto child = parent.getChild (i);
+
+            if (! child.hasType (type))
+                continue;
+
+            const auto beat = (double) child.getProperty (ids::start);
+
+            if (std::any_of (kept.begin(), kept.end(),
+                             [beat] (double other) { return isSameBeat (other, beat); }))
+                parent.removeChild (i, nullptr);
+            else
+                kept.push_back (beat);
+        }
+    };
+
+    dropDuplicatesIn (state.getChildWithName (ids::TEMPOS), ids::TEMPO);
+    dropDuplicatesIn (state.getChildWithName (ids::TIMESIGS), ids::TIMESIG);
+}
+
+void Song::clampValues() const
+{
+    // Written straight onto the tree with a null UndoManager, like the two
+    // passes above: what a load fixes up is not an edit the user made, and not
+    // one they should be able to undo.
+    auto clamp = [] (juce::ValueTree node, const juce::Identifier& property, auto clamped)
+    {
+        if (node.hasProperty (property))
+            node.setProperty (property, clamped (node.getProperty (property)), nullptr);
+    };
+
+    for (const auto& generator : getGenerators())
+        for (const auto& pattern : generator.getPatterns())
+        {
+            clamp (pattern.state, ids::lengthBeats,
+                   [] (const juce::var& v) { return Pattern::clampLengthBeats (v); });
+
+            for (const auto& note : pattern.getNotes())
+            {
+                clamp (note.state, ids::start,    [] (const juce::var& v) { return Note::clampStart (v); });
+                clamp (note.state, ids::length,   [] (const juce::var& v) { return Note::clampLength (v); });
+                clamp (note.state, ids::pitch,    [] (const juce::var& v) { return Note::clampPitch (v); });
+                clamp (note.state, ids::velocity, [] (const juce::var& v) { return Note::clampVelocity (v); });
+            }
+        }
+
+    auto playlist = getPlaylist();
+
+    for (const auto& clip : playlist.getClips())
+    {
+        clamp (clip.state, ids::start,  [] (const juce::var& v) { return PlaylistClip::clampStart (v); });
+        clamp (clip.state, ids::length, [] (const juce::var& v) { return PlaylistClip::clampLength (v); });
+    }
+
+    for (const auto& clip : playlist.getAudioClips())
+    {
+        clamp (clip.state, ids::start,  [] (const juce::var& v) { return std::max (0.0, (double) v); });
+        clamp (clip.state, ids::offset, [] (const juce::var& v) { return std::max (0.0, (double) v); });
+        clamp (clip.state, ids::length,
+               [] (const juce::var& v) { return std::max (AudioClip::minLengthSeconds, (double) v); });
+    }
+
+    clamp (state, ids::tempo, [] (const juce::var& v) { return TempoChange::clampBpm (v); });
+
+    // Through the setter, because the loop range is a pair: clamping the two
+    // ends one at a time could leave them crossed over.
+    if (state.hasProperty (ids::loopStart) || state.hasProperty (ids::loopEnd))
+        Song (state).setLoopRange (getLoopStart(), getLoopEnd(), nullptr);
+}
+
 void Song::resolveMediaPaths (const juce::File& songFile) const
 {
     const auto directory = songFile.getParentDirectory();
@@ -595,8 +687,10 @@ void Song::refreshMediaPaths (const juce::File& songFile) const
 void Song::setLoopRange (double startBeats, double endBeats, juce::UndoManager* um)
 {
     // Normalise so a right-to-left drag on the ruler still gives a valid range.
+    // Both ends are clamped, not just the start: clamping one of a pair that
+    // both sit before the song would leave the range inverted.
     const auto start = std::max (0.0, std::min (startBeats, endBeats));
-    const auto end = std::max (startBeats, endBeats);
+    const auto end = std::max (0.0, std::max (startBeats, endBeats));
 
     state.setProperty (ids::loopStart, start, um);
     state.setProperty (ids::loopEnd, end, um);
@@ -997,6 +1091,13 @@ Return Song::addReturn (const juce::String& name, juce::UndoManager* um)
 
 void Song::removeReturn (const Return& ret, juce::UndoManager* um)
 {
+    // In the same transaction, so one press of undo brings the return and
+    // everything that fed it back together.
+    const auto returnId = ret.getId();
+
+    for (auto generator : getGenerators())
+        generator.removeSend (returnId, um);
+
     state.getChildWithName (ids::RETURNS).removeChild (ret.state, um);
 }
 
@@ -1012,27 +1113,116 @@ namespace
 
         // Beat order is what every walk below assumes; the tree keeps whatever
         // order things were added in.
-        std::sort (result.begin(), result.end(),
-                   [] (const Change& a, const Change& b) { return a.getStartBeat() < b.getStartBeat(); });
+        //
+        // Stable, so that if two changes ever do share a beat -- which nothing
+        // this code writes can produce, but a tree assembled in memory could,
+        // before dropDuplicateChanges gets to it -- document order decides
+        // which is in force, rather than whichever the sort happened to leave
+        // last. That is what makes "the load keeps the one that was in force"
+        // mean anything. It costs a temporary buffer per call, which these
+        // lists are far too short for anyone to notice.
+        std::stable_sort (result.begin(), result.end(),
+                          [] (const Change& a, const Change& b)
+                          { return a.getStartBeat() < b.getStartBeat(); });
 
         return result;
     }
+
+    // Whether a sibling of `change` already sits on `beat`. What stops a drag
+    // from stacking one change on another; the two setStartBeat methods share
+    // it because a tempo change and a signature change live in their own
+    // lists, so a beat is only occupied by a change of the same kind.
+    bool beatTakenBySibling (const juce::ValueTree& change, double beat)
+    {
+        const auto parent = change.getParent();
+
+        if (! parent.isValid())
+            return false;
+
+        for (const auto& sibling : parent)
+            if (sibling != change && sibling.hasType (change.getType())
+                 && isSameBeat ((double) sibling.getProperty (ids::start), beat))
+                return true;
+
+        return false;
+    }
+
+    // The shared body of TempoChange::setStartBeat and TimeSigChange's.
+    void moveChangeTo (juce::ValueTree change, double beat, juce::UndoManager* um)
+    {
+        const auto target = juce::jmax (0.0, beat);
+
+        if (! beatTakenBySibling (change, target))
+            change.setProperty (ids::start, target, um);
+    }
+
+    // The change of this kind sitting on this beat. Walks the children rather
+    // than collectSorted's vector: this is a point query, order means nothing
+    // to it, and it runs on the marker drag path once per mouse move.
+    template <typename Change>
+    std::optional<Change> findChangeAt (const juce::ValueTree& parent,
+                                        const juce::Identifier& type, double beat)
+    {
+        for (const auto& child : parent)
+            if (child.hasType (type) && isSameBeat ((double) child.getProperty (ids::start), beat))
+                return Change (child);
+
+        return std::nullopt;
+    }
+
+    // A change node, built before it is appended -- the way every other add in
+    // this file works: one undoable action instead of three, and the node is
+    // never briefly in the list without the beat it belongs on. The payload is
+    // whatever the kind of change carries.
+    template <typename Change, typename WritePayload>
+    Change appendChange (juce::ValueTree parent, const juce::Identifier& type,
+                         double beat, WritePayload&& writePayload, juce::UndoManager* um)
+    {
+        juce::ValueTree change (type);
+        change.setProperty (ids::start, beat, nullptr);
+        writePayload (change);
+        parent.appendChild (change, um);
+        return Change (change);
+    }
 } // namespace
+
+void TempoChange::setStartBeat (double beat, juce::UndoManager* um)
+{
+    moveChangeTo (state, beat, um);
+}
+
+void TimeSigChange::setStartBeat (double beat, juce::UndoManager* um)
+{
+    moveChangeTo (state, beat, um);
+}
 
 std::vector<TempoChange> Song::getTempoChanges() const
 {
     return collectSorted<TempoChange> (state.getChildWithName (ids::TEMPOS), ids::TEMPO);
 }
 
+std::optional<TempoChange> Song::findTempoChangeAt (double beat) const
+{
+    return findChangeAt<TempoChange> (state.getChildWithName (ids::TEMPOS), ids::TEMPO, beat);
+}
+
 TempoChange Song::addTempoChange (double startBeat, double bpm, juce::UndoManager* um)
 {
-    juce::ValueTree change (ids::TEMPO);
-    getOrCreateChild (state, ids::TEMPOS).appendChild (change, um);
+    // Clamped before the lookup, not after: setStartBeat clamps too, so a beat
+    // before the song would otherwise be looked up where it was asked for and
+    // written where it lands.
+    const auto beat = juce::jmax (0.0, startBeat);
 
-    TempoChange wrapper (change);
-    wrapper.setStartBeat (startBeat, um);
-    wrapper.setBpm (bpm, um);
-    return wrapper;
+    if (auto existing = findTempoChangeAt (beat))
+        return *existing;
+
+    return appendChange<TempoChange> (getOrCreateChild (state, ids::TEMPOS), ids::TEMPO, beat,
+                                      [bpm] (juce::ValueTree& change)
+                                      {
+                                          change.setProperty (ids::bpm, TempoChange::clampBpm (bpm),
+                                                              nullptr);
+                                      },
+                                      um);
 }
 
 void Song::removeTempoChange (const TempoChange& change, juce::UndoManager* um)
@@ -1052,7 +1242,7 @@ double Song::getTempoAt (double beat) const
         bpm = change.getBpm();
     }
 
-    return bpm > 0.0 ? bpm : 120.0;
+    return bpm;
 }
 
 std::vector<TimeSigChange> Song::getTimeSigChanges() const
@@ -1060,15 +1250,25 @@ std::vector<TimeSigChange> Song::getTimeSigChanges() const
     return collectSorted<TimeSigChange> (state.getChildWithName (ids::TIMESIGS), ids::TIMESIG);
 }
 
+std::optional<TimeSigChange> Song::findTimeSigChangeAt (double beat) const
+{
+    return findChangeAt<TimeSigChange> (state.getChildWithName (ids::TIMESIGS), ids::TIMESIG, beat);
+}
+
 TimeSigChange Song::addTimeSigChange (double startBeat, TimeSignature sig, juce::UndoManager* um)
 {
-    juce::ValueTree change (ids::TIMESIG);
-    getOrCreateChild (state, ids::TIMESIGS).appendChild (change, um);
+    const auto beat = juce::jmax (0.0, startBeat);
 
-    TimeSigChange wrapper (change);
-    wrapper.setStartBeat (startBeat, um);
-    wrapper.setSignature (sig, um);
-    return wrapper;
+    if (auto existing = findTimeSigChangeAt (beat))
+        return *existing;
+
+    return appendChange<TimeSigChange> (getOrCreateChild (state, ids::TIMESIGS), ids::TIMESIG, beat,
+                                        [sig] (juce::ValueTree& change)
+                                        {
+                                            change.setProperty (ids::numerator, juce::jmax (1, sig.numerator), nullptr);
+                                            change.setProperty (ids::denominator, juce::jmax (1, sig.denominator), nullptr);
+                                        },
+                                        um);
 }
 
 void Song::removeTimeSigChange (const TimeSigChange& change, juce::UndoManager* um)
@@ -1096,7 +1296,9 @@ double Song::secondsFromBeats (double beats) const
     if (beats <= 0.0)
         return 0.0;
 
-    double seconds = 0.0, cursor = 0.0, bpm = getTempo() > 0.0 ? getTempo() : 120.0;
+    // getTempo and getBpm both floor what they return, so nothing below has to
+    // guard against dividing by zero.
+    double seconds = 0.0, cursor = 0.0, bpm = getTempo();
 
     for (const auto& change : getTempoChanges())
     {
@@ -1122,7 +1324,7 @@ double Song::beatsFromSeconds (double seconds) const
     if (seconds <= 0.0)
         return 0.0;
 
-    double elapsed = 0.0, cursor = 0.0, bpm = getTempo() > 0.0 ? getTempo() : 120.0;
+    double elapsed = 0.0, cursor = 0.0, bpm = getTempo();
 
     for (const auto& change : getTempoChanges())
     {

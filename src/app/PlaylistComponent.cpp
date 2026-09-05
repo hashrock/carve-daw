@@ -1930,54 +1930,47 @@ void PlaylistComponent::dragLoopTo (double beat)
 //
 // A tempo change may sit on any beat -- a fill that speeds up does not care
 // where the bar line is -- but a time signature change may only sit on a bar
-// line, because a bar that changes meter part way through is not a bar. The
-// model deliberately enforces neither, so this is where both rules live.
+// line, because a bar that changes meter part way through is not a bar. Bar
+// alignment is this view's rule and lives here; one change per beat is the
+// model's, and the two add paths below simply let it hold.
 
+// Whether a change of this kind owns this beat, not counting `ignore` -- the
+// marker being dragged, which is allowed to sit where it already is.
+//
+// Asked of the model, which is where "one change per beat" is enforced: the
+// two add methods refuse to make a second, setStartBeat refuses to drag one
+// onto another, and a song loaded with a pair has one dropped. So there is at
+// most one to find, and the only reason not to count it is `ignore`.
 bool PlaylistComponent::hasChangeAt (bool tempo, double beat, const juce::ValueTree& ignore) const
 {
-    auto sitsOn = [&] (const juce::ValueTree& state, double at)
-    {
-        return state != ignore && std::abs (at - beat) < beatTolerance;
-    };
-
     if (tempo)
-    {
-        for (const auto& change : song.getTempoChanges())
-            if (sitsOn (change.state, change.getStartBeat()))
-                return true;
+        if (auto change = song.findTempoChangeAt (beat))
+            return change->state != ignore;
 
-        return false;
-    }
-
-    for (const auto& change : song.getTimeSigChanges())
-        if (sitsOn (change.state, change.getStartBeat()))
-            return true;
+    if (! tempo)
+        if (auto change = song.findTimeSigChangeAt (beat))
+            return change->state != ignore;
 
     return false;
 }
 
+// Both of these are one line past the snapping, because addTempoChange and
+// addTimeSigChange clamp the beat and refuse a second change on one that is
+// taken -- so a request on an occupied beat writes nothing and the change
+// already there is still the one to edit. A transaction opened over a write
+// that does not happen is not one the user can undo, so it costs nothing.
 void PlaylistComponent::addTempoChangeAt (double beat, double bpm)
 {
-    beat = std::max (0.0, beat);
-
-    // Two changes of a kind on one beat would fight over which of them wins,
-    // so the second is simply not made; the first is still there to edit.
-    if (hasChangeAt (true, beat))
-        return;
-
     undoManager.beginNewTransaction();
     song.addTempoChange (beat, bpm, &undoManager);
 }
 
 void PlaylistComponent::addTimeSigChangeAt (double beat, model::TimeSignature signature)
 {
-    beat = nearestBar (std::max (0.0, beat));
-
-    if (hasChangeAt (false, beat))
-        return;
-
+    // The bar line is this view's rule, and the only part of the position the
+    // model has no opinion about.
     undoManager.beginNewTransaction();
-    song.addTimeSigChange (beat, signature, &undoManager);
+    song.addTimeSigChange (nearestBar (std::max (0.0, beat)), signature, &undoManager);
 }
 
 void PlaylistComponent::removeMarker (const juce::ValueTree& state)
@@ -2007,7 +2000,10 @@ void PlaylistComponent::dragMarkerTo (double beat)
     const auto target = tempo ? std::max (0.0, std::round (beat))
                               : nearestBar (std::max (0.0, beat), dragMarker);
 
-    if (std::abs (target - markerLastBeat) < beatTolerance || hasChangeAt (tempo, target, dragMarker))
+    // hasChangeAt as well as setStartBeat's own refusal, because this is what
+    // stops markerLastBeat from advancing past a beat the drag never reached.
+    if (std::abs (target - markerLastBeat) < model::sameBeatTolerance
+         || hasChangeAt (tempo, target, dragMarker))
         return;   // nothing to write, or another change already owns that beat
 
     markerLastBeat = target;

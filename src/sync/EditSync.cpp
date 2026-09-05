@@ -1057,7 +1057,7 @@ namespace
                 if (noteStart >= clipLength - 1.0e-9)
                     continue;
 
-                wanted.push_back ({ juce::jlimit (0, 127, note.getPitch() + transpose),
+                wanted.push_back ({ model::Note::clampPitch (note.getPitch() + transpose),
                                     noteStart,
                                     std::min (note.getLength(), clipLength - noteStart),
                                     note.getVelocity() });

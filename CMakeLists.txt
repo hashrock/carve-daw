@@ -112,10 +112,17 @@ carve_configure_target(carve-render)
 
 # --- Tests ---
 #
-# Off by default: a plain build of the app has no use for Catch2 or RapidCheck,
-# and nothing here is worth fetching on every configure of the app.
+# On by default. It was off to begin with, on the grounds that a plain build of
+# the app has no use for Catch2 or RapidCheck -- but a test suite nobody runs
+# without knowing to ask for it is a test suite nobody runs, and the two are a
+# rounding error next to the ~500MB tracktion checkout that every configure
+# already pays for. Turn it off with -DCARVE_BUILD_TESTS=OFF.
 #
-#   cmake -B build-tests -DCARVE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+#   ./run.sh --test                   builds and runs them
+#
+# ...or by hand, against the tracktion checkout the app build already fetched:
+#
+#   cmake -B build-tests -DCMAKE_BUILD_TYPE=Debug \
 #         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
 #   cmake --build build-tests --target carve-tests --parallel
 #   ./build-tests/carve-tests_artefacts/Debug/carve-tests
@@ -132,7 +139,7 @@ carve_configure_target(carve-render)
 # replay a failure, RapidCheck reads its settings from the environment:
 #
 #   RC_PARAMS="max_success=20000 max_size=200 seed=1" ...carve-tests
-option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" OFF)
+option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" ON)
 
 if(CARVE_BUILD_TESTS)
     FetchContent_Declare(Catch2
@@ -150,12 +157,16 @@ if(CARVE_BUILD_TESTS)
 
     FetchContent_MakeAvailable(Catch2 rapidcheck)
 
-    # Deliberately not carve_configure_target: the conversions under test are
-    # model-layer arithmetic that never reaches the engine, and linking
-    # tracktion_engine would recompile the whole of it for this one binary.
+    # Deliberately not carve_configure_target: what is under test is model-layer
+    # arithmetic, document edits, and the piano roll's gesture maths -- none of
+    # which reaches the engine, and linking tracktion_engine would recompile the
+    # whole of it for this one binary. src/app/NoteGestures.h is header-only and
+    # free of JUCE, which is what lets a src/app header be tested here at all.
     juce_add_console_app(carve-tests PRODUCT_NAME "carve-tests")
     target_sources(carve-tests PRIVATE
         src/model/SongModel.cpp
+        tests/NoteGestureProperties.cpp
+        tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)
     target_include_directories(carve-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(carve-tests PRIVATE
