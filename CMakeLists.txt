@@ -110,3 +110,63 @@ target_sources(carve-render PRIVATE src/RenderMain.cpp)
 carve_configure_target(carve-render)
 
 
+# --- Tests ---
+#
+# Off by default: a plain build of the app has no use for Catch2 or RapidCheck,
+# and nothing here is worth fetching on every configure of the app.
+#
+#   cmake -B build-tests -DCARVE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+#         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
+#   cmake --build build-tests --target carve-tests --parallel
+#   ./build-tests/carve-tests_artefacts/Debug/carve-tests
+#
+# The tracktion source directory is the same reuse run.sh does for --asan: the
+# tests need JUCE, which only arrives inside that checkout, and fetching a
+# second copy costs ~500MB.
+#
+# Run the binary rather than ctest: enable_testing() here would also pull in
+# the tests tracktion registers for its own bundled examples, which this build
+# excludes, so every one of them would report as not run.
+#
+# The properties run 100 cases each by default. To lean on them harder, or to
+# replay a failure, RapidCheck reads its settings from the environment:
+#
+#   RC_PARAMS="max_success=20000 max_size=200 seed=1" ...carve-tests
+option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" OFF)
+
+if(CARVE_BUILD_TESTS)
+    FetchContent_Declare(Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.9.1
+        GIT_SHALLOW    TRUE)
+
+    # RapidCheck has no tagged releases, hence a commit. Its own Catch
+    # integration stays off: that one targets Catch2 v2, and rc::check() works
+    # from inside a v3 TEST_CASE without it.
+    set(RC_ENABLE_CATCH OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(rapidcheck
+        GIT_REPOSITORY https://github.com/emil-e/rapidcheck.git
+        GIT_TAG        6e8dadfdafa3a74eabb52ead87f8787f72eccd0b)
+
+    FetchContent_MakeAvailable(Catch2 rapidcheck)
+
+    # Deliberately not carve_configure_target: the conversions under test are
+    # model-layer arithmetic that never reaches the engine, and linking
+    # tracktion_engine would recompile the whole of it for this one binary.
+    juce_add_console_app(carve-tests PRODUCT_NAME "carve-tests")
+    target_sources(carve-tests PRIVATE
+        src/model/SongModel.cpp
+        tests/SongTimeProperties.cpp)
+    target_include_directories(carve-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(carve-tests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_STANDALONE_APPLICATION=1)
+    target_link_libraries(carve-tests PRIVATE
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_data_structures
+        Catch2::Catch2WithMain
+        rapidcheck
+        juce::juce_recommended_config_flags)
+endif()
