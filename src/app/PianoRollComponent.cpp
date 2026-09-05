@@ -3,6 +3,7 @@
 
 #include "PianoRollComponent.h"
 
+#include "NoteGestures.h"
 #include "TimelineView.h"
 
 namespace carve::app
@@ -365,30 +366,22 @@ void PianoRollComponent::dragSelectionTo (double anchorStart, int anchorPitch)
     // selectedNotes, so work from our own copy for the whole gesture.
     const auto notes = selectedNotes;
 
-    // Clamp the gesture rather than each note: the selection keeps its shape
-    // when it runs into an end of the pattern or of the keyboard, instead of
-    // collapsing onto the boundary.
-    auto lowestStart = dragOriginStarts.front();
-    auto highestEnd = 0.0;
-    auto lowestPitchInSet = dragOriginPitches.front();
-    auto highestPitchInSet = dragOriginPitches.front();
+    // Where the gesture started, which is what it is clamped against: the
+    // selection keeps its shape when it runs into an end of the pattern or of
+    // the keyboard, instead of collapsing onto the boundary.
+    std::vector<gestures::NoteSpan> origins;
+    origins.reserve (notes.size());
 
     for (size_t i = 0; i < notes.size(); ++i)
-    {
-        lowestStart = juce::jmin (lowestStart, dragOriginStarts[i]);
-        highestEnd = juce::jmax (highestEnd, dragOriginStarts[i] + model::Note (notes[i]).getLength());
-        lowestPitchInSet = juce::jmin (lowestPitchInSet, dragOriginPitches[i]);
-        highestPitchInSet = juce::jmax (highestPitchInSet, dragOriginPitches[i]);
-    }
+        origins.push_back ({ dragOriginStarts[i], model::Note (notes[i]).getLength(),
+                             dragOriginPitches[i] });
 
-    // jmin/jmax around zero so that a note already sitting outside the pattern
-    // (left behind by a shorten) cannot make the limits cross over.
-    const auto deltaBeats = juce::jlimit (juce::jmin (0.0, -lowestStart),
-                                          juce::jmax (0.0, pattern->getLengthBeats() - highestEnd),
-                                          anchorStart - dragAnchorOriginStart);
-    const auto deltaPitch = juce::jlimit (juce::jmin (0, lowestPitch - lowestPitchInSet),
-                                          juce::jmax (0, highestPitch - highestPitchInSet),
-                                          anchorPitch - dragAnchorOriginPitch);
+    const auto bounds = gestures::boundsOf (origins);
+
+    const auto deltaBeats = gestures::clampMoveBeats (bounds, pattern->getLengthBeats(),
+                                                      anchorStart - dragAnchorOriginStart);
+    const auto deltaPitch = gestures::clampMovePitch (bounds, { lowestPitch, highestPitch },
+                                                      anchorPitch - dragAnchorOriginPitch);
 
     for (size_t i = 0; i < notes.size(); ++i)
     {
@@ -508,7 +501,7 @@ void PianoRollComponent::quantiseNotes()
     if (notes.empty())
         return;
 
-    const auto unit = gridBeats;
+    const gestures::QuantiseSettings settings { gridBeats, quantiseStrength, quantiseSwing };
     const auto patternLength = pattern->getLengthBeats();
 
     // One transaction for the whole operation, however many notes it moves.
@@ -517,30 +510,8 @@ void PianoRollComponent::quantiseNotes()
     for (auto& note : notes)
     {
         const auto start = note.getStart();
-
-        // Which division of the grid the note belongs to. floor(x + 0.5)
-        // rather than round() so that a note lying exactly between two
-        // divisions always goes to the later one instead of away from zero.
-        const auto division = std::floor (start / unit + 0.5);
-
-        // Swing pushes every other division late. At 1.0 the off-beat lands a
-        // third of a division after the on-beat, which is the triplet feel a
-        // swung eighth is written as.
-        const auto swingOffset = std::fmod (division, 2.0) > 0.5 ? quantiseSwing * unit / 3.0 : 0.0;
-        const auto target = division * unit + swingOffset;
-
-        // Partial strength moves the note towards the grid rather than onto
-        // it, which is what leaves a played-in part still sounding played in.
-        auto newStart = juce::jmax (0.0, start + quantiseStrength * (target - start));
-
-        // A note that fitted inside the pattern stays inside it: swing on the
-        // last division would otherwise push it past the end, where it is
-        // never heard. A note already sitting outside is left alone rather
-        // than dragged back in behind the user's back.
-        const auto maxStart = juce::jmax (0.0, patternLength - note.getLength());
-
-        if (start <= maxStart)
-            newStart = juce::jmin (newStart, maxStart);
+        const auto newStart = gestures::quantisedStart (start, note.getLength(), settings,
+                                                        patternLength);
 
         if (! juce::exactlyEqual (newStart, start))
             note.setStart (newStart, &undoManager);
@@ -619,7 +590,9 @@ void PianoRollComponent::pasteNotes()
     if (xml == nullptr || ! xml->hasTagName (clipboardTag))
         return;
 
-    struct PastedNote { double start, length; int pitch, velocity; };
+    // .start/.length/.pitch so that gestures::boundsOf can read these
+    // directly, the same way it reads a selection being dragged.
+    struct PastedNote : gestures::NoteSpan { int velocity = 0; };
     std::vector<PastedNote> notes;
 
     const auto noteTag = model::ids::NOTE.toString();
@@ -631,11 +604,11 @@ void PianoRollComponent::pasteNotes()
 
         // Clamped on the way in: this is text off a clipboard anyone can
         // write to, so it is something to make sense of rather than to trust.
-        notes.push_back ({ juce::jmax (0.0, child->getDoubleAttribute (model::ids::start.toString())),
-                           juce::jmax (freeMinLengthBeats,
-                                       child->getDoubleAttribute (model::ids::length.toString())),
-                           juce::jlimit (lowestPitch, highestPitch,
-                                         child->getIntAttribute (model::ids::pitch.toString())),
+        notes.push_back ({ { juce::jmax (0.0, child->getDoubleAttribute (model::ids::start.toString())),
+                             juce::jmax (freeMinLengthBeats,
+                                         child->getDoubleAttribute (model::ids::length.toString())),
+                             juce::jlimit (lowestPitch, highestPitch,
+                                           child->getIntAttribute (model::ids::pitch.toString())) },
                            juce::jlimit (1, 127,
                                          child->getIntAttribute (model::ids::velocity.toString(),
                                                                  defaultNoteVelocity)) });
@@ -644,24 +617,14 @@ void PianoRollComponent::pasteNotes()
     if (notes.empty())
         return;
 
-    auto lowestStart = notes.front().start;
-    auto highestEnd = notes.front().start + notes.front().length;
-
-    for (const auto& note : notes)
-    {
-        lowestStart = juce::jmin (lowestStart, note.start);
-        highestEnd = juce::jmax (highestEnd, note.start + note.length);
-    }
-
-    const auto origin = xml->getDoubleAttribute (originAttribute, lowestStart);
+    const auto bounds = gestures::boundsOf (notes);
+    const auto origin = xml->getDoubleAttribute (originAttribute, bounds.lowestStart);
 
     // Clamp the block rather than each note, so it keeps its shape when it
-    // lands against an end of the pattern -- the rule a move drag follows.
-    // jmin/jmax around zero so that a block longer than the pattern cannot
-    // make the two limits cross over.
-    const auto offset = juce::jlimit (juce::jmin (0.0, -lowestStart),
-                                      juce::jmax (0.0, pattern->getLengthBeats() - highestEnd),
-                                      getPasteTargetBeat (origin) - origin);
+    // lands against an end of the pattern -- the same call, and so the same
+    // rule, a move drag follows.
+    const auto offset = gestures::clampMoveBeats (bounds, pattern->getLengthBeats(),
+                                                  getPasteTargetBeat (origin) - origin);
 
     undoManager.beginNewTransaction();
 

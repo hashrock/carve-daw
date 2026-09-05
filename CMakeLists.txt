@@ -150,12 +150,16 @@ if(CARVE_BUILD_TESTS)
 
     FetchContent_MakeAvailable(Catch2 rapidcheck)
 
-    # Deliberately not carve_configure_target: the conversions under test are
-    # model-layer arithmetic that never reaches the engine, and linking
-    # tracktion_engine would recompile the whole of it for this one binary.
+    # Deliberately not carve_configure_target: what is under test is model-layer
+    # arithmetic, document edits, and the piano roll's gesture maths -- none of
+    # which reaches the engine, and linking tracktion_engine would recompile the
+    # whole of it for this one binary. src/app/NoteGestures.h is header-only and
+    # free of JUCE, which is what lets a src/app header be tested here at all.
     juce_add_console_app(carve-tests PRODUCT_NAME "carve-tests")
     target_sources(carve-tests PRIVATE
         src/model/SongModel.cpp
+        tests/NoteGestureProperties.cpp
+        tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)
     target_include_directories(carve-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(carve-tests PRIVATE
