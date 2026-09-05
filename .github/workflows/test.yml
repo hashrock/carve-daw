@@ -39,6 +39,14 @@ jobs:
           key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: deps-${{ runner.os }}-
 
+      # tracktion pins JUCE as a submodule with an SSH URL
+      # (git@github.com:juce-framework/JUCE.git), which clones only for someone
+      # with a key on the box. A runner has none, so the submodule step of the
+      # tracktion fetch fails on "Permission denied (publickey)" -- rewrite it
+      # to the anonymous HTTPS remote before anything fetches.
+      - name: Clone GitHub over HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
