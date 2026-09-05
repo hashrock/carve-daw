@@ -6,16 +6,17 @@
 #   ./run.sh                          the GUI, Release
 #   ./run.sh --asan                   the GUI, AddressSanitizer build
 #   ./run.sh --render --demo out.wav  the headless renderer, arguments passed through
+#   ./run.sh --test                   the property tests, arguments passed through
 #
 # The first run configures the build directory, which downloads tracktion_engine
-# and JUCE (~500MB) and takes a while. --asan reuses that checkout rather than
-# fetching a second copy.
+# and JUCE (~500MB) and takes a while. --asan and --test reuse that checkout
+# rather than fetching a second copy.
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-usage() { sed -n '3,9p' "$0" | cut -c3-; }
+usage() { sed -n '3,10p' "$0" | cut -c3-; }
 
 mode=release
 target=carve
@@ -24,12 +25,24 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --asan)     mode=asan; shift ;;
         --render)   target=carve-render; shift; break ;;
+        --test)     mode=test; target=carve-tests; shift; break ;;
         -h|--help)  usage; exit 0 ;;
         *)          break ;;
     esac
 done
 
-if [[ $mode == asan ]]; then
+if [[ $mode == test ]]; then
+    # Its own directory at Debug, so the assertions the properties rely on are
+    # live and the app's Release build is left alone. Reuses the Release
+    # build's tracktion checkout for the same reason --asan does.
+    build_dir=build-tests
+    config=Debug
+    configure_args=(-DCMAKE_BUILD_TYPE=Debug)
+
+    if [[ -d build/_deps/tracktion-src ]]; then
+        configure_args+=(-DFETCHCONTENT_SOURCE_DIR_TRACKTION="$PWD/build/_deps/tracktion-src")
+    fi
+elif [[ $mode == asan ]]; then
     build_dir=build-asan
     config=Debug
     configure_args=(
@@ -54,6 +67,8 @@ cmake --build "$build_dir" --target "$target" --parallel
 
 if [[ $target == carve ]]; then
     binary="$build_dir/carve_artefacts/$config/Carve DAW.app/Contents/MacOS/Carve DAW"
+elif [[ $target == carve-tests ]]; then
+    binary="$build_dir/carve-tests_artefacts/$config/carve-tests"
 else
     binary="$build_dir/carve-render_artefacts/$config/carve-render"
 fi

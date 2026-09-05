@@ -16,20 +16,56 @@
 namespace carve::model
 {
 
+// How close two tempo or time signature changes have to be to count as sharing
+// a beat. The positions the playlist writes are computed -- a rounded beat, a
+// bar line walked to from the start of the song -- so exact equality would let
+// a second change land a rounding error away from the first.
+inline constexpr double sameBeatTolerance = 1.0e-9;
+
+inline bool isSameBeat (double a, double b)  { return std::abs (a - b) < sameBeatTolerance; }
+
 class Note
 {
 public:
     explicit Note (juce::ValueTree v) : state (std::move (v)) {}
+
+    // What a note may be, clamped here rather than only at each gesture that
+    // writes one. A pitch outside 0..127 is not a MIDI note; velocity 0 is a
+    // note off rather than a very quiet note, which is why the floor is 1; and
+    // a note before the start of its pattern, or with no length, is never
+    // heard. The piano roll already held all four lines -- see
+    // PianoRollComponent::setNoteVelocity for the velocity one -- but MIDI
+    // import, a pasted clipboard and a hand-written .carve all reach a note
+    // without going past it.
+    // Named for MIDI rather than for a keyboard: PianoRollComponent has its
+    // own lowestPitch/highestPitch, which are the rows it draws (C1..C7) and a
+    // good deal narrower than this.
+    static constexpr int lowestMidiNote = 0;
+    static constexpr int highestMidiNote = 127;
+    static constexpr int quietestVelocity = 1;
+    static constexpr int loudestVelocity = 127;
+
+    // The absolute floor, below which a note is a click rather than a note.
+    // Every gesture that makes one sits above it -- the piano roll draws no
+    // shorter than a 1/32 (freeMinLengthBeats) and a MIDI import no shorter
+    // than midiio::minNoteLengthBeats -- so this is what catches a note that
+    // came from neither.
+    static constexpr double minLengthBeats = 1.0 / 128.0;
+
+    static double clampStart (double beats)   { return juce::jmax (0.0, beats); }
+    static double clampLength (double beats)  { return juce::jmax (minLengthBeats, beats); }
+    static int clampPitch (int midiNote)      { return juce::jlimit (lowestMidiNote, highestMidiNote, midiNote); }
+    static int clampVelocity (int vel)        { return juce::jlimit (quietestVelocity, loudestVelocity, vel); }
 
     double getStart() const     { return state[ids::start]; }
     double getLength() const    { return state[ids::length]; }
     int getPitch() const        { return state[ids::pitch]; }
     int getVelocity() const     { return state[ids::velocity]; }
 
-    void setStart (double beats, juce::UndoManager* um)   { state.setProperty (ids::start, beats, um); }
-    void setLength (double beats, juce::UndoManager* um)  { state.setProperty (ids::length, beats, um); }
-    void setPitch (int midiNote, juce::UndoManager* um)   { state.setProperty (ids::pitch, midiNote, um); }
-    void setVelocity (int vel, juce::UndoManager* um)     { state.setProperty (ids::velocity, vel, um); }
+    void setStart (double beats, juce::UndoManager* um)   { state.setProperty (ids::start, clampStart (beats), um); }
+    void setLength (double beats, juce::UndoManager* um)  { state.setProperty (ids::length, clampLength (beats), um); }
+    void setPitch (int midiNote, juce::UndoManager* um)   { state.setProperty (ids::pitch, clampPitch (midiNote), um); }
+    void setVelocity (int vel, juce::UndoManager* um)     { state.setProperty (ids::velocity, clampVelocity (vel), um); }
 
     juce::ValueTree state;
 };
@@ -74,12 +110,23 @@ public:
     // one bar of 4/4.
     static constexpr double defaultLengthBeats = 4.0;
 
+    // A sixteenth of a beat at the shortest. A zero or negative pattern has no
+    // bars to draw, and PlaylistClip::getLength falls back to it, so it would
+    // take every placement that inherits its length down with it.
+    static constexpr double minLengthBeats = 1.0 / 16.0;
+
+    static double clampLengthBeats (double beats)  { return juce::jmax (minLengthBeats, beats); }
+
     juce::String getId() const      { return state[ids::id]; }
     juce::String getName() const    { return state[ids::name]; }
     double getLengthBeats() const   { return state[ids::lengthBeats]; }
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
-    void setLengthBeats (double beats, juce::UndoManager* um)    { state.setProperty (ids::lengthBeats, beats, um); }
+
+    void setLengthBeats (double beats, juce::UndoManager* um)
+    {
+        state.setProperty (ids::lengthBeats, clampLengthBeats (beats), um);
+    }
 
     // Which slot of its generator this pattern occupies, if any. The slot name
     // is only the pattern's default name, so a slot pattern can be renamed
@@ -501,7 +548,19 @@ public:
     juce::String getPatternId() const    { return state[ids::patternId]; }
     double getStart() const              { return state[ids::start]; }
 
-    void setStart (double beats, juce::UndoManager* um)  { state.setProperty (ids::start, beats, um); }
+    // A placement of its own is at least this long: a trim may cut a clip down
+    // but never away. The same number as Pattern::minLengthBeats, and by
+    // coincidence rather than by rule -- one is how short a pattern may be,
+    // the other how short a placement of one may be.
+    static constexpr double minLengthBeats = 1.0 / 16.0;
+
+    static double clampStart (double beats)   { return juce::jmax (0.0, beats); }
+    static double clampLength (double beats)  { return juce::jmax (minLengthBeats, beats); }
+
+    // Clamped the way an AudioClip's is: a placement before the start of the
+    // song is never played and never drawn, so the two kinds of placement had
+    // no business disagreeing about it.
+    void setStart (double beats, juce::UndoManager* um)  { state.setProperty (ids::start, clampStart (beats), um); }
 
     // Which of the generator's patterns this placement plays. Only patterns
     // belonging to the clip's own generator make sense here.
@@ -521,7 +580,7 @@ public:
 
     void setLength (double beats, juce::UndoManager* um)
     {
-        state.setProperty (ids::length, std::max (0.0625, beats), um);
+        state.setProperty (ids::length, clampLength (beats), um);
     }
 
     void clearLength (juce::UndoManager* um)  { state.removeProperty (ids::length, um); }
@@ -631,11 +690,23 @@ class TempoChange
 public:
     explicit TempoChange (juce::ValueTree v) : state (std::move (v)) {}
 
+    // What a tempo may be, here rather than only in the spinner that edits
+    // one: a song's tempo also arrives from disk, and every beats-to-seconds
+    // walk divides by it.
+    static constexpr double minBpm = 20.0;
+    static constexpr double maxBpm = 999.0;
+
+    static double clampBpm (double bpm)  { return juce::jlimit (minBpm, maxBpm, bpm); }
+
     double getStartBeat() const  { return state[ids::start]; }
     double getBpm() const        { return juce::jmax (1.0, (double) state[ids::bpm]); }
 
-    void setStartBeat (double beat, juce::UndoManager* um)  { state.setProperty (ids::start, juce::jmax (0.0, beat), um); }
-    void setBpm (double bpm, juce::UndoManager* um)         { state.setProperty (ids::bpm, juce::jlimit (20.0, 999.0, bpm), um); }
+    // Clamped at zero, and refused outright if another change already owns the
+    // beat -- so one change per beat holds on every path that writes one, not
+    // only on the one that makes one. See Song::addTempoChange for why.
+    void setStartBeat (double beat, juce::UndoManager*);
+
+    void setBpm (double bpm, juce::UndoManager* um)  { state.setProperty (ids::bpm, clampBpm (bpm), um); }
 
     juce::ValueTree state;
 };
@@ -656,7 +727,8 @@ public:
                  juce::jmax (1, (int) state[ids::denominator]) };
     }
 
-    void setStartBeat (double beat, juce::UndoManager* um)  { state.setProperty (ids::start, juce::jmax (0.0, beat), um); }
+    // Clamped and refused the same way TempoChange::setStartBeat is.
+    void setStartBeat (double beat, juce::UndoManager*);
 
     void setSignature (TimeSignature sig, juce::UndoManager* um)
     {
@@ -767,15 +839,44 @@ public:
     // is the moment to close it. Called by fromXml, so every load path gets it.
     void ensureAudioClipIds() const;
 
+    // Drops any tempo or time signature change sharing a beat with another,
+    // keeping the *last* in document order. That is the one that was in force:
+    // getTempoAt and secondsFromBeats both walk the stable-sorted list writing
+    // over what they have as they go, so of a pair on one beat the later one
+    // is what the song sounded like. Loading therefore leaves the time axis
+    // exactly where it was and only drops what nothing could hear.
+    //
+    // addTempoChange and addTimeSigChange refuse to make such a pair, so
+    // nothing this code writes needs it; a hand-edited or merged .carve is the
+    // gap. Called by fromXml, so every load path gets it.
+    void dropDuplicateChanges() const;
+
+    // Puts every value in the document back inside the range its setter would
+    // have clamped it to: note pitches, velocities, starts and lengths,
+    // pattern and placement lengths, the song's own tempo and loop range.
+    //
+    // The setters are where a value the app chooses is held to its range, and
+    // that covers everything the app itself can write. A .carve is the other
+    // way in, and nothing on that path had ever been past a setter -- so this
+    // is the same rule applied at the same boundary dropDuplicateChanges is.
+    // Called by fromXml too.
+    void clampValues() const;
+
     juce::String getName() const  { return state[ids::name]; }
-    double getTempo() const       { return state[ids::tempo]; }
+    // The tempo until the first tempo change, clamped the same way one of
+    // those is. The floor on the way out matches TempoChange::getBpm's, and
+    // for the same reason: secondsFromBeats divides by whatever comes back, so
+    // a song arriving from disk with no tempo at all must not make it
+    // infinite.
+    double getTempo() const       { return juce::jmax (1.0, (double) state[ids::tempo]); }
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
-    void setTempo (double bpm, juce::UndoManager* um)            { state.setProperty (ids::tempo, bpm, um); }
+    void setTempo (double bpm, juce::UndoManager* um)            { state.setProperty (ids::tempo, TempoChange::clampBpm (bpm), um); }
 
     // Playback loop range in beats, set from the playlist ruler. An empty
     // range means "loop the whole song", which is what playback did before
-    // the range existed, so older songs keep their behaviour.
+    // the range existed, so older songs keep their behaviour. Both ends are
+    // clamped at zero and ordered, so no drag can leave an inverted range.
     double getLoopStart() const  { return state.getProperty (ids::loopStart, 0.0); }
     double getLoopEnd() const    { return state.getProperty (ids::loopEnd, 0.0); }
     bool hasLoopRange() const    { return getLoopEnd() > getLoopStart(); }
@@ -807,6 +908,10 @@ public:
     std::vector<Return> getReturns() const;
     std::optional<Return> findReturn (const juce::String& returnId) const;
     Return addReturn (const juce::String& name, juce::UndoManager*);
+
+    // Takes the sends into it with it. A send names its return by id, so one
+    // left behind names nothing: EditSync has to recognise it and drop the
+    // live AuxSend, and the dead node rides along in every save from then on.
     void removeReturn (const Return&, juce::UndoManager*);
 
     // Where the last placement on the playlist ends, counting both pattern and
@@ -822,11 +927,27 @@ public:
     // song's own tempo and to 4/4 -- so nothing written before these existed
     // has to be migrated.
     std::vector<TempoChange> getTempoChanges() const;
+
+    // The change on this beat, if there is one. At most one can be: see
+    // addTempoChange.
+    std::optional<TempoChange> findTempoChangeAt (double beat) const;
+
+    // One change per beat: two of a kind on one beat would fight over which of
+    // them wins, and which won would be decided by nothing the user can see.
+    // So a change on a beat that already has one is not made, and the one
+    // already there is returned untouched -- the same shape addAutomationLane
+    // and addModifier's addAssign use. Callers that mean "set the tempo here"
+    // therefore set the bpm on what comes back.
+    //
+    // The beat is clamped at zero first, so two changes aimed at different
+    // positions before the start of the song cannot both pass and then pile up
+    // on beat 0.
     TempoChange addTempoChange (double startBeat, double bpm, juce::UndoManager*);
     void removeTempoChange (const TempoChange&, juce::UndoManager*);
     double getTempoAt (double beat) const;
 
     std::vector<TimeSigChange> getTimeSigChanges() const;
+    std::optional<TimeSigChange> findTimeSigChangeAt (double beat) const;
     TimeSigChange addTimeSigChange (double startBeat, TimeSignature, juce::UndoManager*);
     void removeTimeSigChange (const TimeSigChange&, juce::UndoManager*);
     TimeSignature getTimeSigAt (double beat) const;

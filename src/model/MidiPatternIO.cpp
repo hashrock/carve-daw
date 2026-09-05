@@ -10,7 +10,8 @@ namespace
     constexpr double beatEpsilon = 1.0e-6;
 
     // Nothing may be written with no duration at all: a zero-length note is
-    // one the piano roll cannot grab and the engine never sounds.
+    // one the piano roll cannot grab and the engine never sounds. Comfortably
+    // above Note::minLengthBeats, which is the floor the model itself keeps.
     constexpr double minNoteLengthBeats = 1.0 / 64.0;
 
     // What a note-on with no note-off gets. A sixteenth is short enough to
@@ -43,8 +44,8 @@ bool writePattern (const Pattern& pattern, const juce::File& destination,
 
     for (const auto& note : pattern.getNotes())
     {
-        const auto pitch = juce::jlimit (0, 127, note.getPitch());
-        const auto velocity = (juce::uint8) juce::jlimit (1, 127, note.getVelocity());
+        const auto pitch = Note::clampPitch (note.getPitch());
+        const auto velocity = (juce::uint8) Note::clampVelocity (note.getVelocity());
         const auto start = juce::jmax (0.0, note.getStart());
         const auto end = start + juce::jmax (minNoteLengthBeats, note.getLength());
 
@@ -159,10 +160,12 @@ std::optional<ImportedPattern> readFile (const juce::File& source)
 
         // Channel is dropped on purpose: a pattern plays one instrument, and a
         // drum kit maps pads by note number, so the note is all that carries.
+        // Only the length floor is this file's: Pattern::addNote holds the
+        // pitch and the velocity to the model's own ranges on the way in.
         result.notes.push_back ({ start,
                                   juce::jmax (minNoteLengthBeats, end - start),
                                   message.getNoteNumber(),
-                                  juce::jlimit (1, 127, (int) message.getVelocity()) });
+                                  (int) message.getVelocity() });
 
         result.lengthBeats = juce::jmax (result.lengthBeats, result.notes.back().start
                                                                  + result.notes.back().length);

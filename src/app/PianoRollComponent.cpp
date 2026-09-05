@@ -461,7 +461,7 @@ void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
     // The floor is 1, not 0: velocity 0 is a note-off in MIDI, so a bar
     // dragged all the way down has to mean "as quiet as it goes" rather than
     // "silently gone".
-    velocity = juce::jlimit (1, 127, velocity);
+    velocity = model::Note::clampVelocity (velocity);
 
     // Remembered even when the write below turns out to be a no-op: the user
     // aimed at this value, so it is the one the next drawn note should get.
@@ -609,9 +609,9 @@ void PianoRollComponent::pasteNotes()
                                          child->getDoubleAttribute (model::ids::length.toString())),
                              juce::jlimit (lowestPitch, highestPitch,
                                            child->getIntAttribute (model::ids::pitch.toString())) },
-                           juce::jlimit (1, 127,
-                                         child->getIntAttribute (model::ids::velocity.toString(),
-                                                                 defaultNoteVelocity)) });
+                           model::Note::clampVelocity (
+                               child->getIntAttribute (model::ids::velocity.toString(),
+                                                       defaultNoteVelocity)) });
     }
 
     if (notes.empty())
@@ -716,7 +716,8 @@ void PianoRollComponent::paint (juce::Graphics& g)
         for (const auto& note : pattern->getNotes())
         {
             auto r = noteBounds (note).reduced (0.0f, 1.0f);
-            const auto brightness = 0.55f + 0.45f * (float) note.getVelocity() / 127.0f;
+            const auto brightness = 0.55f + 0.45f * (float) note.getVelocity()
+                                                / (float) model::Note::loudestVelocity;
             const bool selected = isSelected (note.state);
 
             g.setColour (juce::Colour (0xffe08a3c).withMultipliedBrightness (brightness)
@@ -1210,7 +1211,8 @@ juce::Rectangle<float> PianoRollVelocityLane::barBounds (const model::Note& note
 
     // A minimum of two pixels so that the quietest note is still something to
     // look at rather than a gap in the row of bars.
-    const auto height = juce::jmax (2.0f, (bottom - barsTop()) * (float) note.getVelocity() / 127.0f);
+    const auto height = juce::jmax (2.0f, (bottom - barsTop()) * (float) note.getVelocity()
+                                              / (float) model::Note::loudestVelocity);
 
     return { span.getStart(), bottom - height, span.getLength(), height };
 }
@@ -1220,7 +1222,7 @@ int PianoRollVelocityLane::velocityAtY (float y) const
     const auto bottom = barsBottom();
     const auto proportion = (bottom - y) / juce::jmax (1.0f, bottom - barsTop());
 
-    return juce::jlimit (1, 127, juce::roundToInt (proportion * 127.0f));
+    return model::Note::clampVelocity (juce::roundToInt (proportion * (float) model::Note::loudestVelocity));
 }
 
 bool PianoRollVelocityLane::isOverEditableBar (juce::Point<float> position) const

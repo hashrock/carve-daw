@@ -19,24 +19,20 @@
 #include <catch2/catch_test_macros.hpp>
 #include <rapidcheck.h>
 
-#include "model/SongModel.h"
+#include "PropertyGenerators.h"
 
 namespace
 {
 
 using carve::model::Song;
 using carve::model::TimeSignature;
+using carve::test::genBpm;
 
 // Beats land on a sixteenth-note grid, which is what every gesture in the app
 // snaps to, over a range of a few hundred bars. Arbitrary doubles would only
 // buy floating-point noise the app can never produce.
 constexpr double gridUnit = 0.25;
 constexpr int maxGridSteps = 2048;          // 512 beats
-
-// What the model itself allows: TempoChange::setBpm clamps to this, so
-// generating outside it would only be testing the clamp.
-constexpr double minBpm = 20.0;
-constexpr double maxBpm = 999.0;
 
 // Beats are doubles all the way through, so every comparison needs a hair of
 // slack. Generous next to the ~1e-12 these walks actually accumulate.
@@ -58,8 +54,7 @@ using SigChanges = std::vector<std::pair<double, TimeSignature>>;
 
 rc::Gen<double> genBeat()
 {
-    return rc::gen::map (rc::gen::inRange (0, maxGridSteps),
-                         [] (int steps) { return steps * gridUnit; });
+    return carve::test::genGridBeat (gridUnit, maxGridSteps - 1);
 }
 
 // A pair of beats already in order, for the properties that say a later
@@ -74,49 +69,23 @@ rc::Gen<std::pair<double, double>> genOrderedBeats()
                          });
 }
 
-rc::Gen<double> genBpm()
-{
-    // Tenths, so a fractional tempo is reachable without generating a double
-    // that no tempo field could hold.
-    return rc::gen::map (rc::gen::inRange ((int) (minBpm * 10.0), (int) (maxBpm * 10.0) + 1),
-                         [] (int tenths) { return tenths / 10.0; });
-}
-
-// One change per beat.
+// Tempo changes, unconstrained: two specs may name the same beat.
 //
-// PlaylistComponent enforces this on both the add and the drag path, and says
-// why: two changes on one beat "would fight over which of them wins". Below
-// that, collectSorted orders the changes with a non-stable std::sort, so which
-// of such a pair wins is not document order but whatever the sort left -- and
-// the walks here would then be pinned to that. Songs the app writes never hold
-// one, so these properties are scoped to those.
+// They used to be de-duplicated here, because two changes on one beat would
+// fight over which of them wins and the model had no opinion about it. It has
+// one now -- addTempoChange keeps the change already on the beat and makes no
+// second -- so a duplicate is a thing to feed the model rather than a thing to
+// generate around, and these songs exercise that. SongStateProperties holds
+// the rule itself; here it only means the walks below still see one change per
+// beat however the specs came out.
 //
-// That is a scope, not a guarantee: Song::fromXml builds the tree straight off
-// disk and sanitises nothing, so a hand-edited or merged .carve file can hold
-// such a pair and get an arbitrary winner. Closing that would mean deciding
-// what a duplicate means -- a model-level call, and a wider change than the
-// conversions these properties cover.
-//
-// Bar alignment is the other rule that view enforces, but that one is not
+// Bar alignment is the other rule the playlist enforces, but that one is not
 // arbitrary below it: toBarsAndBeats and beatOfBar both spell out what a
 // mid-bar change does (it cuts the bar it lands in short), so the properties
 // here hold it to that rather than generating around it. See sigChanges.
-TempoSpecs onePerBeat (TempoSpecs specs)
-{
-    std::sort (specs.begin(), specs.end(),
-               [] (const auto& a, const auto& b) { return a.first < b.first; });
-
-    specs.erase (std::unique (specs.begin(), specs.end(),
-                              [] (const auto& a, const auto& b) { return a.first == b.first; }),
-                 specs.end());
-
-    return specs;
-}
-
 rc::Gen<TempoSpecs> genTempoChanges()
 {
-    return rc::gen::map (rc::gen::container<TempoSpecs> (rc::gen::pair (genBeat(), genBpm())),
-                         onePerBeat);
+    return rc::gen::container<TempoSpecs> (rc::gen::pair (genBeat(), genBpm()));
 }
 
 rc::Gen<SigSteps> genSigSteps()
@@ -149,8 +118,10 @@ SigChanges sigChanges (const SigSteps& steps, bool barAligned)
     {
         // Only the first change may sit where the cursor already is, which is
         // beat 0 -- a change there states what the song is in rather than
-        // changing it. Every one after that has to advance, by onePerBeat's
-        // rule.
+        // changing it. Every one after that has to advance: a step of zero
+        // would name a beat that already has a change, and the model would
+        // keep the one already there while this walk carried on in the
+        // signature it did not write.
         const auto advance = changes.empty() ? step : std::max (1, step);
 
         beat += advance * (barAligned ? current.getBeatsPerBar() : gridUnit);

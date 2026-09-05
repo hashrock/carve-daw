@@ -28,8 +28,11 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     bpmLabel.setJustificationType (juce::Justification::centred);
     bpmLabel.onTextChange = [this]
     {
+        // Still checked here rather than left to setTempo's clamp: text that
+        // parses to nothing reads as 0, and clamping that to the slowest
+        // tempo the model allows is not what a typo means.
         const auto bpm = bpmLabel.getText().getDoubleValue();
-        if (bpm >= 20.0 && bpm <= 999.0)
+        if (bpm >= model::TempoChange::minBpm && bpm <= model::TempoChange::maxBpm)
         {
             undoManager.beginNewTransaction();
             song.setTempo (bpm, &undoManager);

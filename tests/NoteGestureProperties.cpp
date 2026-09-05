@@ -26,6 +26,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <rapidcheck.h>
 
+#include "PropertyGenerators.h"
 #include "app/NoteGestures.h"
 
 namespace
@@ -38,6 +39,7 @@ using carve::app::gestures::NoteSpan;
 using carve::app::gestures::PitchRange;
 using carve::app::gestures::QuantiseSettings;
 using carve::app::gestures::quantisedStart;
+using carve::test::genUnitInterval;
 
 // Beats land on a 1/32 grid over a few dozen bars, the same reasoning as in
 // SongTimeProperties: arbitrary doubles would only buy floating-point noise
@@ -51,11 +53,12 @@ constexpr double tolerance = 1.0e-9;
 
 rc::Gen<double> genBeat()
 {
-    return rc::gen::map (rc::gen::inRange (0, maxGridSteps + 1),
-                         [] (int steps) { return steps * gridUnit; });
+    return carve::test::genGridBeat (gridUnit, maxGridSteps);
 }
 
-// How far a gesture is asking to move, in either direction.
+// How far a gesture is asking to move, in either direction. The difference of
+// two positions rather than a signed range, so it shrinks towards zero from
+// both sides the way a drag that went nowhere would.
 rc::Gen<double> genDelta()
 {
     return rc::gen::map (rc::gen::pair (genBeat(), genBeat()),
@@ -81,13 +84,6 @@ rc::Gen<double> genGrid()
 
     return rc::gen::map (rc::gen::inRange (0, (int) units.size()),
                          [] (int i) { return units[(std::size_t) i]; });
-}
-
-// Strength and swing are clamped to 0..1 where they are set, so anything
-// outside would only be testing the clamp.
-rc::Gen<double> genUnitInterval()
-{
-    return rc::gen::map (rc::gen::inRange (0, 101), [] (int n) { return n / 100.0; });
 }
 
 rc::Gen<QuantiseSettings> genQuantiseSettings()

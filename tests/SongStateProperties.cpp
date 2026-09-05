@@ -34,12 +34,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <rapidcheck.h>
 
-#include "model/SongModel.h"
+#include "PropertyGenerators.h"
 
 namespace
 {
 
 using namespace carve::model;
+
+using carve::test::genBpm;
 
 // Beats land on a sixteenth-note grid, which is what every gesture in the app
 // snaps to; the same reasoning as in SongTimeProperties.
@@ -52,14 +54,9 @@ constexpr int maxGridSteps = 64;            // 16 beats
 constexpr int maxGenerators = 4;
 constexpr int maxReturns = 4;
 
-// What TempoChange::setBpm clamps to, so generating outside it would only be
-// testing the clamp -- the same range SongTimeProperties generates over.
-constexpr double minBpm = 20.0;
-constexpr double maxBpm = 999.0;
-
-// The stretch of keyboard the piano roll draws, which is the only place notes
-// come from.
-int pitchOf (double unitInterval)  { return 24 + (int) (unitInterval * 72.0); }
+// Wider than the keyboard the piano roll draws, so that Note::setPitch's own
+// clamp is what keeps a note on the MIDI range rather than the generator.
+int pitchOf (double unitInterval)  { return (int) (unitInterval * 200.0) - 36; }
 
 //==============================================================================
 // The command language
@@ -100,8 +97,10 @@ enum Op
     setEffectState,
     setBusVolume,
     addTempoChange,
+    moveTempoChange,
     removeTempoChange,
     addTimeSigChange,
+    moveTimeSigChange,
     removeTimeSigChange,
     setLoopRange,
     clearLoopRange,
@@ -123,8 +122,7 @@ rc::Gen<Step> genStep()
                            rc::gen::inRange (0, 64),
                            rc::gen::inRange (0, 64),
                            rc::gen::inRange (-8, maxGridSteps + 1),
-                           rc::gen::map (rc::gen::inRange (0, 101),
-                                         [] (int n) { return n / 100.0; }));
+                           carve::test::genUnitInterval());
 }
 
 rc::Gen<Steps> genSteps()
@@ -221,29 +219,6 @@ std::optional<GeneratorAndEffect> pickEffect (const Song& song, int generatorInd
     return std::nullopt;
 }
 
-// Whether a tempo or time signature change already sits on this beat. One
-// change per beat is what PlaylistComponent enforces on both the add and the
-// drag path; SongTimeProperties explains what a duplicate would mean and why
-// nothing in the app writes one. checkInvariants holds the songs built here to
-// it, so the guard and the property it protects stay a pair.
-//
-// Asked about where the change will *land*, not where the step pointed. Both
-// setStartBeat clamp at zero, so two steps aiming at different negative beats
-// would otherwise both pass a guard checked against the raw request and then
-// pile up on beat 0 -- which is exactly what this property caught the first
-// time it was run against a driver that could point off the front of the song.
-// The app is not exposed to it, because the ruler never asks for a bar before
-// the first, but the guard and the clamp disagreeing is worth stating once.
-template <typename Changes>
-bool hasChangeAt (const Changes& changes, double beat)
-{
-    for (const auto& change : changes)
-        if (change.getStartBeat() == std::max (0.0, beat))
-            return true;
-
-    return false;
-}
-
 // Somewhere for an audio placement to point. Never read -- nothing here opens
 // a file -- but the model stores the path, so it has to be one a juce::File
 // will keep verbatim rather than reject as relative.
@@ -264,18 +239,11 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 {
     const auto [op, a, b, c, x] = step;
 
-    // Where the step points, in beats. Occasionally negative, because several
-    // of the model's setters clamp -- AudioClip::setStart and setLengthSeconds,
-    // TempoChange::setStartBeat, AutomationPoint::setBeat, PlaylistClip::
-    // setLength -- and a driver that only ever asked for positions inside the
-    // song would leave every one of those clamps untested.
+    // Where the step points, in beats. Occasionally negative, and every setter
+    // it reaches clamps -- which is the point: a driver that only ever asked
+    // for positions inside the song would leave every one of those clamps
+    // untested, and the invariants below unfalsifiable.
     const auto beat = c * gridUnit;
-
-    // Where it points once the app's own gestures have had their say. Note
-    // starts, pattern clip starts and pattern lengths are not clamped by the
-    // model at all: the piano roll and the playlist hold that line, so a
-    // negative one is a state no gesture can produce.
-    const auto insideSong = std::max (0.0, beat);
 
     // One transaction per step, which is the rule every gesture in the app
     // follows: a drag, a paint stroke or a quantise is one press of ⌘Z.
@@ -303,7 +271,7 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
             if (auto generator = pickPatternGenerator (song, a))
             {
                 const auto slot = PatternSlot::fromFlatIndex (b % PatternSlot::numSlots);
-                generator->getOrCreatePatternInSlot (slot, &um, gridUnit + insideSong);
+                generator->getOrCreatePatternInSlot (slot, &um, gridUnit + beat);
             }
             return;
         }
@@ -333,14 +301,14 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
         case setPatternLength:
         {
             if (auto picked = pickPattern (song, a, b))
-                picked->pattern.setLengthBeats (gridUnit + insideSong, &um);
+                picked->pattern.setLengthBeats (gridUnit + beat, &um);
             return;
         }
 
         case addNote:
         {
             if (auto picked = pickPattern (song, a, b))
-                picked->pattern.addNote (insideSong, gridUnit * (1 + b % 8),
+                picked->pattern.addNote (beat, gridUnit * (1 + b % 8),
                                          pitchOf (x), 1 + (int) (x * 126.0), &um);
             return;
         }
@@ -350,7 +318,7 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
             if (auto picked = pickPattern (song, a, b))
                 if (auto note = pick (picked->pattern.getNotes(), c))
                 {
-                    note->setStart (insideSong, &um);
+                    note->setStart (beat, &um);
                     note->setPitch (pitchOf (x), &um);
                 }
             return;
@@ -367,14 +335,14 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
         case addClip:
         {
             if (auto picked = pickPattern (song, a, b))
-                song.getPlaylist().addClip (picked->generator, picked->pattern, insideSong, &um);
+                song.getPlaylist().addClip (picked->generator, picked->pattern, beat, &um);
             return;
         }
 
         case moveClip:
         {
             if (auto clip = pick (song.getPlaylist().getClips(), a))
-                clip->setStart (insideSong, &um);
+                clip->setStart (beat, &um);
             return;
         }
 
@@ -514,10 +482,24 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
         case addTempoChange:
         {
-            if (hasChangeAt (song.getTempoChanges(), beat))
-                return;
+            // No guard: addTempoChange keeps the change already on the beat
+            // and makes no second, so asking twice is the model's business
+            // rather than the driver's. That is what makes the "one change per
+            // beat" invariant below a property of the document.
+            song.addTempoChange (beat,
+                                 TempoChange::minBpm
+                                     + x * (TempoChange::maxBpm - TempoChange::minBpm),
+                                 &um);
+            return;
+        }
 
-            song.addTempoChange (beat, minBpm + x * (maxBpm - minBpm), &um);
+        case moveTempoChange:
+        {
+            // The drag path. It may aim at a beat another change already owns,
+            // which is exactly the case setStartBeat has to refuse: a marker
+            // dragged onto another must not stack on it.
+            if (auto change = pick (song.getTempoChanges(), a))
+                change->setStartBeat (beat, &um);
             return;
         }
 
@@ -530,10 +512,14 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
         case addTimeSigChange:
         {
-            if (hasChangeAt (song.getTimeSigChanges(), beat))
-                return;
-
             song.addTimeSigChange (beat, { 1 + a % 16, 1 << (b % 5) }, &um);
+            return;
+        }
+
+        case moveTimeSigChange:
+        {
+            if (auto change = pick (song.getTimeSigChanges(), a))
+                change->setStartBeat (beat, &um);
             return;
         }
 
@@ -547,7 +533,7 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
         case setLoopRange:
             // Either way round: the ruler is dragged in both directions and
             // setLoopRange is what normalises it.
-            song.setLoopRange (insideSong, a * gridUnit, &um);
+            song.setLoopRange (beat, beat + (a - 32) * gridUnit, &um);
             return;
 
         case clearLoopRange:
@@ -740,8 +726,13 @@ void requireUnique (std::vector<T>& seen, const T& key)
 
 // Both change lists come back in beat order, whatever order the changes were
 // added in; every walk over them assumes it, and collectSorted is the only
-// thing that makes it true. One change per beat is the app's rule rather than
-// the model's -- see hasChangeAt -- and holds for the songs a sequence builds.
+// thing that makes it true.
+//
+// Strictly ascending, because at most one change may sit on a beat: two of a
+// kind on one beat would fight over which of them wins, and which won would be
+// decided by nothing the user can see. addTempoChange and addTimeSigChange
+// refuse to make such a pair and dropDuplicateChanges drops one arriving from
+// disk, so this is the document's rule rather than a rule the driver keeps.
 template <typename Changes>
 void checkChangeList (const Changes& changes)
 {
@@ -749,7 +740,7 @@ void checkChangeList (const Changes& changes)
 
     for (const auto& change : changes)
     {
-        RC_ASSERT (change.getStartBeat() > previousBeat);
+        RC_ASSERT (change.getStartBeat() > previousBeat + sameBeatTolerance);
 
         // TempoChange::setStartBeat and TimeSigChange::setStartBeat both clamp
         // at zero, so a change dragged left off the ruler stops there.
@@ -769,11 +760,30 @@ void checkInvariants (const Song& song)
         std::vector<juce::String> slots;
 
         for (const auto& pattern : generator.getPatterns())
+        {
             if (auto slot = pattern.getSlot())
             {
                 RC_ASSERT (slot->isValid());
                 requireUnique (slots, slot->getKey());
             }
+
+            // A pattern with no length has no bars to draw, and every
+            // placement that inherits its length would go with it.
+            RC_ASSERT (pattern.getLengthBeats() >= Pattern::minLengthBeats);
+
+            // What a note may be. The piano roll held these lines already; the
+            // model holds them now, so a MIDI import or a hand-written file
+            // cannot get past them either.
+            for (const auto& note : pattern.getNotes())
+            {
+                RC_ASSERT (note.getStart() >= 0.0);
+                RC_ASSERT (note.getLength() >= Note::minLengthBeats);
+                RC_ASSERT (note.getPitch() >= Note::lowestMidiNote);
+                RC_ASSERT (note.getPitch() <= Note::highestMidiNote);
+                RC_ASSERT (note.getVelocity() >= Note::quietestVelocity);
+                RC_ASSERT (note.getVelocity() <= Note::loudestVelocity);
+            }
+        }
 
         // Ids are what EditSync matches a live plugin to its model entry by:
         // two effects sharing one would have the resync pick whichever it
@@ -788,16 +798,19 @@ void checkInvariants (const Song& song)
 
         // At most one send per (generator, return), which is what makes a send
         // addressable by return id at all -- setSendGain reuses the existing
-        // node rather than appending a second.
+        // node rather than appending a second -- and the return it names is
+        // still there, because removeReturn takes its sends with it.
         //
-        // Not asserted: that the return it names still exists. Deleting a
-        // return leaves the sends into it behind, and EditSync handles that
-        // outright ("dangling send: the return was deleted"), so a dangling
-        // send is a state the app reaches on purpose.
+        // EditSync still recognises a send naming nothing ("dangling send: the
+        // return was deleted"): that is what a song saved before removeReturn
+        // cleaned up can hold, and nothing in the model can produce now.
         std::vector<juce::String> sendTargets;
 
         for (const auto& send : generator.getSends())
+        {
             requireUnique (sendTargets, send.getReturnId());
+            RC_ASSERT (song.findReturn (send.getReturnId()).has_value());
+        }
 
         // One lane per parameter: addAutomationLane hands back the existing
         // one, and two lanes for one parameter would fight over the curve.
@@ -836,15 +849,15 @@ void checkInvariants (const Song& song)
     // is a clip the playlist draws nothing for and the engine plays nothing
     // from -- see PlaylistComponent::placementFor, which answers nothing at
     // all for one.
-    //
-    // Where it sits is not asserted: PlaylistClip::setStart writes whatever it
-    // is given, and the rule that a clip never runs off the front of the song
-    // is PlaylistComponent::dragSelectionTo's rather than the document's.
     for (const auto& clip : playlist.getClips())
     {
         auto generator = song.findGenerator (clip.getGeneratorId());
         RC_ASSERT (generator.has_value());
         RC_ASSERT (generator->findPattern (clip.getPatternId()).has_value());
+
+        // A placement before the start of the song is never played and never
+        // drawn, whichever of the two kinds of placement it is.
+        RC_ASSERT (clip.getStart() >= 0.0);
 
         // A placement with its own length carries a real one; setLength floors
         // it rather than letting a trim collapse the clip to nothing.
@@ -859,9 +872,8 @@ void checkInvariants (const Song& song)
         RC_ASSERT (clip.getId().isNotEmpty());
         RC_ASSERT (song.findGenerator (clip.getGeneratorId()).has_value());
 
-        // Unlike a pattern clip, an audio one clamps its own position and
-        // length: it is measured in seconds against a file, and neither a
-        // negative start nor a zero length names any of it.
+        // Measured in seconds against a file, so neither a negative start,
+        // a negative offset into it, nor a zero length names any of it.
         RC_ASSERT (clip.getStart() >= 0.0);
         RC_ASSERT (clip.getOffsetSeconds() >= 0.0);
         RC_ASSERT (clip.getLengthSeconds() >= AudioClip::minLengthSeconds);
@@ -873,10 +885,17 @@ void checkInvariants (const Song& song)
     for (const auto& change : song.getTimeSigChanges())
         RC_ASSERT (change.getSignature().getBeatsPerBar() > 0.0);
 
-    // setLoopRange normalises a right-to-left drag, so a range is never
-    // inverted however it was dragged.
+    // setLoopRange normalises a right-to-left drag and clamps both ends, so a
+    // range is never inverted and never starts before the song, however it was
+    // dragged.
     RC_ASSERT (song.getLoopStart() >= 0.0);
-    RC_ASSERT (song.getLoopEnd() >= song.getLoopStart() || ! song.hasLoopRange());
+    RC_ASSERT (song.getLoopEnd() >= song.getLoopStart());
+
+    // Every beats-to-seconds walk divides by the tempo. Asserted against what
+    // is stored rather than against getTempo(), which floors what it returns:
+    // the point is that nothing put a tempo the walks could not use into the
+    // document, not that the getter would cover for one.
+    RC_ASSERT ((double) song.state[ids::tempo] >= TempoChange::minBpm);
 }
 
 //==============================================================================
@@ -1061,5 +1080,234 @@ TEST_CASE ("A loaded song saves back to itself", "[song][xml]")
 
         RC_ASSERT (twice.has_value());
         RC_ASSERT (twice->toXmlString() == onceXml);
+    }));
+}
+
+//==============================================================================
+// One change per beat
+//
+// The rule used to live in PlaylistComponent, which refused to make a second
+// change on a beat that already had one. Below it the model had no opinion:
+// two changes on one beat both survived, and which of them was in force fell
+// out of a non-stable sort. A hand-edited or merged .carve could hold such a
+// pair, and the app had no way to notice.
+//
+// It is the document's rule now, on all three paths that can write a change:
+// addTempoChange and addTimeSigChange make no second, setStartBeat refuses to
+// drag one onto another, and fromXml drops one arriving from disk. These pin
+// the first and the third; the drag is a step in the sequences above, so
+// checkChangeList holds it.
+
+namespace
+{
+
+// Beats that reach either side of zero, so the clamp inside the add methods is
+// part of what is being pinned rather than something the generator steps
+// around -- and that sometimes land a hair away from a beat already asked for,
+// which is what sameBeatTolerance exists for. A drag writes computed positions
+// (a rounded beat, a bar line walked to from the start of the song), so a
+// near-miss duplicate is the realistic case, not the exact one.
+rc::Gen<double> genSignedBeat()
+{
+    return rc::gen::map (rc::gen::pair (rc::gen::inRange (-16, maxGridSteps + 1),
+                                        rc::gen::inRange (-1, 2)),
+                         [] (const std::pair<int, int>& pair)
+                         {
+                             return pair.first * gridUnit + pair.second * 1.0e-12;
+                         });
+}
+
+// Where a change asked for at this beat lands: both setStartBeat methods, and
+// both add methods, clamp at the start of the song.
+double landsOn (double beat)  { return std::max (0.0, beat); }
+
+// What a change of either kind is carrying, so the check below can be written
+// once for both.
+double payloadOf (const TempoChange& change)          { return change.getBpm(); }
+TimeSignature payloadOf (const TimeSigChange& change)  { return change.getSignature(); }
+
+// The payload the change on this beat should be carrying. `lastWins` is the
+// difference between the two paths: adding refuses the second request, so the
+// first one's payload stays, while loading keeps the change that was in force,
+// which is the last in the document.
+template <typename Payload>
+std::optional<Payload> payloadOn (const std::vector<std::pair<double, Payload>>& specs,
+                                  double beat, bool lastWins)
+{
+    std::optional<Payload> found;
+
+    for (const auto& [asked, payload] : specs)
+        if (isSameBeat (landsOn (asked), beat))
+            if (lastWins || ! found)
+                found = payload;
+
+    return found;
+}
+
+// The changes stand on exactly the beats that were asked for, one each.
+//
+// Counted rather than compared against a list this rebuilds, so it says
+// nothing about *how* the model got there -- only that every request is
+// represented once and nothing else is.
+template <typename Changes, typename Payload>
+void checkChangesMatch (const Changes& changes,
+                        const std::vector<std::pair<double, Payload>>& specs,
+                        bool lastWins)
+{
+    checkChangeList (changes);
+
+    for (const auto& change : changes)
+    {
+        const auto expected = payloadOn (specs, change.getStartBeat(), lastWins);
+
+        // Every change stands where something asked for one...
+        RC_ASSERT (expected.has_value());
+
+        // ...carrying what that request wanted.
+        RC_ASSERT (*expected == payloadOf (change));
+    }
+
+    // ...and every request is represented, exactly once.
+    for (const auto& [asked, payload] : specs)
+    {
+        int found = 0;
+
+        for (const auto& change : changes)
+            if (isSameBeat (landsOn (asked), change.getStartBeat()))
+                ++found;
+
+        RC_ASSERT (found == 1);
+    }
+}
+
+using TempoSpecs = std::vector<std::pair<double, double>>;
+using SigSpecs = std::vector<std::pair<double, TimeSignature>>;
+
+rc::Gen<TempoSpecs> genTempoSpecs()
+{
+    return rc::gen::container<TempoSpecs> (rc::gen::pair (genSignedBeat(), genBpm()));
+}
+
+rc::Gen<SigSpecs> genSigSpecs()
+{
+    const auto signature = rc::gen::map (rc::gen::pair (rc::gen::inRange (1, 17),
+                                                        rc::gen::inRange (0, 5)),
+                                         [] (const std::pair<int, int>& pair)
+                                         {
+                                             return TimeSignature { pair.first, 1 << pair.second };
+                                         });
+
+    return rc::gen::container<SigSpecs> (rc::gen::pair (genSignedBeat(), signature));
+}
+
+} // namespace
+
+TEST_CASE ("A tempo change never shares its beat", "[song][changes]")
+{
+    REQUIRE (rc::check ("adding on an occupied beat leaves the change already there", [] {
+        const auto specs = *genTempoSpecs();
+
+        auto song = Song::create ("property test");
+
+        for (const auto& [beat, bpm] : specs)
+            song.addTempoChange (beat, bpm, nullptr);
+
+        checkChangesMatch (song.getTempoChanges(), specs, false);
+    }));
+}
+
+TEST_CASE ("A time signature change never shares its beat", "[song][changes]")
+{
+    REQUIRE (rc::check ("adding on an occupied beat leaves the change already there", [] {
+        const auto specs = *genSigSpecs();
+
+        auto song = Song::create ("property test");
+
+        for (const auto& [beat, signature] : specs)
+            song.addTimeSigChange (beat, signature, nullptr);
+
+        checkChangesMatch (song.getTimeSigChanges(), specs, false);
+    }));
+}
+
+TEST_CASE ("A song arriving with a duplicate loses it", "[song][changes][xml]")
+{
+    REQUIRE (rc::check ("loading keeps the change that was in force", [] {
+        // Written straight into the tree rather than through the model, which
+        // is the whole point: this is the shape a hand-edited or merged .carve
+        // can have and nothing inside the app can produce.
+        auto song = Song::create ("property test");
+        auto tempos = juce::ValueTree (ids::TEMPOS);
+        song.state.appendChild (tempos, nullptr);
+
+        const auto specs = *genTempoSpecs();
+
+        for (const auto& [beat, bpm] : specs)
+        {
+            juce::ValueTree change (ids::TEMPO);
+            change.setProperty (ids::start, landsOn (beat), nullptr);
+            change.setProperty (ids::bpm, bpm, nullptr);
+            tempos.appendChild (change, nullptr);
+        }
+
+        const auto loaded = Song::fromXml (song.toXmlString());
+        RC_ASSERT (loaded.has_value());
+
+        // Last-wins, because that is the one getTempoAt and secondsFromBeats
+        // had in force: both write over what they have for every change at or
+        // before the beat. So the load drops only what nothing could hear.
+        checkChangesMatch (loaded->getTempoChanges(), specs, true);
+    }));
+}
+
+//==============================================================================
+// Values a .carve can arrive with
+
+TEST_CASE ("A song arriving out of range comes back inside it", "[song][xml]")
+{
+    REQUIRE (rc::check ("loading holds every value to what its setter would have", [] {
+        // Written straight onto the tree, so nothing here has been past a
+        // setter -- which is exactly the state a hand-written or hand-edited
+        // .carve is in, and the one the clamps in the setters cannot help
+        // with. The generators reach well outside every range on purpose.
+        auto song = Song::create ("property test");
+        auto generator = song.addGenerator ("Wild", "4osc", nullptr);
+        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 4.0);
+
+        const auto wild = [] { return *rc::gen::inRange (-500, 501); };
+
+        pattern.state.setProperty (ids::lengthBeats, wild() * 0.25, nullptr);
+
+        const auto noteCount = *rc::gen::inRange (0, 8);
+
+        for (int i = 0; i < noteCount; ++i)
+        {
+            juce::ValueTree note (ids::NOTE);
+            note.setProperty (ids::start, wild() * 0.25, nullptr);
+            note.setProperty (ids::length, wild() * 0.25, nullptr);
+            note.setProperty (ids::pitch, wild(), nullptr);
+            note.setProperty (ids::velocity, wild(), nullptr);
+            pattern.state.appendChild (note, nullptr);
+        }
+
+        auto clip = song.getPlaylist().addClip (generator, pattern, 0.0, nullptr);
+        clip.state.setProperty (ids::start, wild() * 0.25, nullptr);
+        clip.state.setProperty (ids::length, wild() * 0.25, nullptr);
+
+        song.state.setProperty (ids::tempo, wild(), nullptr);
+        song.state.setProperty (ids::loopStart, wild() * 0.25, nullptr);
+        song.state.setProperty (ids::loopEnd, wild() * 0.25, nullptr);
+
+        const auto loaded = Song::fromXml (song.toXmlString());
+        RC_ASSERT (loaded.has_value());
+
+        // The same invariants every edited song is held to. Which is the
+        // point: where a value came from should not decide whether the rest of
+        // the app can trust it.
+        checkInvariants (*loaded);
+
+        // Nothing was dropped on the way: clamping moves values, it does not
+        // remove notes.
+        RC_ASSERT (loaded->getGenerator (0).getPattern (0).getNumNotes() == noteCount);
     }));
 }

@@ -112,10 +112,17 @@ carve_configure_target(carve-render)
 
 # --- Tests ---
 #
-# Off by default: a plain build of the app has no use for Catch2 or RapidCheck,
-# and nothing here is worth fetching on every configure of the app.
+# On by default. It was off to begin with, on the grounds that a plain build of
+# the app has no use for Catch2 or RapidCheck -- but a test suite nobody runs
+# without knowing to ask for it is a test suite nobody runs, and the two are a
+# rounding error next to the ~500MB tracktion checkout that every configure
+# already pays for. Turn it off with -DCARVE_BUILD_TESTS=OFF.
 #
-#   cmake -B build-tests -DCARVE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+#   ./run.sh --test                   builds and runs them
+#
+# ...or by hand, against the tracktion checkout the app build already fetched:
+#
+#   cmake -B build-tests -DCMAKE_BUILD_TYPE=Debug \
 #         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
 #   cmake --build build-tests --target carve-tests --parallel
 #   ./build-tests/carve-tests_artefacts/Debug/carve-tests
@@ -132,7 +139,7 @@ carve_configure_target(carve-render)
 # replay a failure, RapidCheck reads its settings from the environment:
 #
 #   RC_PARAMS="max_success=20000 max_size=200 seed=1" ...carve-tests
-option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" OFF)
+option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" ON)
 
 if(CARVE_BUILD_TESTS)
     FetchContent_Declare(Catch2

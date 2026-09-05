@@ -34,9 +34,27 @@ Synapse Orion 風の「Generator 中心・パターンベース」DAW。
 ./run.sh                # ビルドして GUI 起動 (初回は tracktion+JUCE 取得で ~500MB)
 ./run.sh --asan         # AddressSanitizer ビルドで起動
 ./run.sh --render ...   # ヘッドレスレンダラ (引数はそのまま渡る)
+./run.sh --test         # プロパティテスト
 ```
 
 素の CMake なら `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`。
+
+### テスト
+
+Catch2 + RapidCheck による property-based test。既定で有効なので、追加のフラグなしに走る。
+
+```sh
+./run.sh --test                       # ビルドして全プロパティを実行
+./run.sh --test "[song]"              # タグで絞る (Catch2 の引数はそのまま渡る)
+```
+
+プロパティは既定で各 100 ケース。強く回したいときや反例を再現したいときは RapidCheck の環境変数を使う:
+
+```sh
+RC_PARAMS="max_success=20000 max_size=200 seed=1" ./run.sh --test
+```
+
+対象は「モデル層の算術」「ドキュメントの編集操作（undo/redo・XML 往復を含む）」「ピアノロールのノート移動ジェスチャ」。エンジン（tracktion）と GUI コンポーネントは対象外で、テストバイナリは engine をリンクしない。フェッチを避けたいときは `-DCARVE_BUILD_TESTS=OFF`。
 
 ### CLI
 
