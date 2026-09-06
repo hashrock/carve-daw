@@ -294,12 +294,34 @@ public:
 
     Icon getIcon() const  { return icon; }
 
+    // No background at all: the symbol sits straight on the bar, and only
+    // lights up under the pointer or when toggled on. For the controls that
+    // are glanced at rather than read -- loop, undo, redo -- where a row of
+    // bordered boxes was more frame than content.
+    void setFlat (bool shouldBeFlat)
+    {
+        flat = shouldBeFlat;
+        repaint();
+    }
+
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         auto& lf = getLookAndFeel();
-        lf.drawButtonBackground (g, *this,
-                                 findColour (getToggleState() ? buttonOnColourId : buttonColourId),
-                                 highlighted, down);
+
+        if (flat)
+        {
+            if (highlighted || down)
+            {
+                g.setColour (juce::Colours::white.withAlpha (down ? 0.16f : 0.08f));
+                g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f), 4.0f);
+            }
+        }
+        else
+        {
+            lf.drawButtonBackground (g, *this,
+                                     findColour (getToggleState() ? buttonOnColourId : buttonColourId),
+                                     highlighted, down);
+        }
 
         const auto font = lf.getTextButtonFont (*this, getHeight());
         const auto text = getButtonText();
@@ -335,6 +357,7 @@ private:
     static constexpr float iconGap = 5.0f;
 
     Icon icon;
+    bool flat = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IconButton)
 };

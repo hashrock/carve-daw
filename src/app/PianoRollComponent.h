@@ -231,6 +231,11 @@ private:
 
     static bool isEraseGesture (const juce::ModifierKeys& mods)  { return mods.isRightButtonDown() || mods.isAltDown(); }
 
+    // The key that turns a move into a copy. Cmd is the one the help bar
+    // names; Ctrl is taken too, since it does nothing else in the roll and is
+    // what the same gesture is called on other platforms.
+    static bool isDuplicateModifier (const juce::ModifierKeys& mods)  { return mods.isCommandDown() || mods.isCtrlDown(); }
+
     juce::MouseCursor cursorFor (juce::Point<float>, const juce::ModifierKeys&) const;
     void updateCursor (const juce::MouseEvent&);
 
@@ -329,6 +334,13 @@ private:
     // Returns false if there was nothing to copy, which leaves the drag a
     // plain move.
     bool duplicateSelectionForDrag();
+
+    // The modifier pressed part way through a move: the notes being dragged
+    // carry on, and copies are put down where they started, so the result is
+    // the same as having held it from the press. Released again before the
+    // mouse goes up, those copies are taken back. Held here so they can be.
+    std::vector<juce::ValueTree> originCopies;
+    void syncDragDuplicate (const juce::ModifierKeys& mods);
 
     // Rubber band, plus the selection it started from so Cmd/Shift adds to it.
     juce::Rectangle<float> rubberBand;

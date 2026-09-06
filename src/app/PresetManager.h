@@ -68,7 +68,19 @@ public:
 
     bool remove (const juce::String& presetName);
 
+    // An external plugin's own presets -- the programs it ships with, or that
+    // its host-side program list holds -- so they can be picked from here
+    // without opening the plugin's UI and hunting for its browser. Empty for
+    // an internal plugin, and for an external one that reports none (JUCE
+    // gives every instance at least one program; a lone unnamed one is not
+    // worth a menu).
+    juce::StringArray getPluginProgramNames() const;
+    int getCurrentPluginProgram() const;
+    bool selectPluginProgram (int index);
+
 private:
+    juce::AudioPluginInstance* getExternalInstance() const;
+
     std::unique_ptr<juce::XmlElement> capture (const juce::String& presetName) const;
     bool apply (const juce::XmlElement& preset);
 
@@ -100,6 +112,7 @@ private:
     void promptForNameAndSave();
     void confirmAndDelete();
     void setCurrentPreset (const juce::String& presetName);
+    void showPluginProgram (int index);
 
     PluginPresets presets;
     juce::String currentPreset;

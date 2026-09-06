@@ -1,5 +1,7 @@
 #include "EditSync.h"
 
+#include <utility>
+
 #include "EngineIds.h"
 
 namespace carve::sync
@@ -38,6 +40,7 @@ namespace
     {
         return ! isEffect (plugin)
                 && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
     }
@@ -120,19 +123,46 @@ namespace
                                      synth.ampAttack->getValueRange().getStart(), nullptr);
     }
 
-    void ensureInternalInstrument (te::Edit& edit, te::AudioTrack& track)
+    // The 4OSC and the drum synth. Both are internal plugins whose settings are
+    // their own ValueTree, which the song keeps under the generator (see
+    // Generator::getInternalState) -- so a loaded song hands that tree back to
+    // the plugin cache and gets its sounds back, and only a generator with no
+    // stored state gets a factory-fresh one.
+    void ensureInternalInstrument (te::Edit& edit, te::AudioTrack& track,
+                                   const model::Generator& generator)
     {
-        if (dynamic_cast<te::FourOscPlugin*> (findInstrument (track)) != nullptr)
+        const bool wantsDrums = generator.isDrumSynth();
+        auto* existing = findInstrument (track);
+
+        if (existing != nullptr
+             && (wantsDrums ? dynamic_cast<plugins::DrumSynthPlugin*> (existing) != nullptr
+                            : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
         removeInstruments (track);
 
-        if (auto synth = dynamic_cast<te::FourOscPlugin*> (
-                edit.getPluginCache().createNewPlugin (te::FourOscPlugin::xmlTypeName, {}).get()))
+        const char* typeName = wantsDrums ? plugins::DrumSynthPlugin::xmlTypeName
+                                          : te::FourOscPlugin::xmlTypeName;
+
+        te::Plugin::Ptr plugin;
+
+        if (auto stored = generator.getInternalState();
+            stored.isValid() && stored[te::IDs::type].toString() == typeName)
         {
-            applyNewSynthDefaults (*synth);
-            track.pluginList.insertPlugin (*synth, 0, nullptr);
+            auto copy = stored.createCopy();
+            copy.removeProperty (te::IDs::id, nullptr);   // files saved before ids were stripped
+            plugin = edit.getPluginCache().createNewPlugin (copy);
         }
+        else
+        {
+            plugin = edit.getPluginCache().createNewPlugin (typeName, {});
+
+            if (auto synth = dynamic_cast<te::FourOscPlugin*> (plugin.get()))
+                applyNewSynthDefaults (*synth);
+        }
+
+        if (plugin != nullptr)
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
     }
 
     // SamplerPlugin keeps its sounds as SOUND children of its own state tree,
@@ -263,7 +293,8 @@ namespace
                 ensureExternalInstrument (edit, track, generator, *description);
             return;
         }
-        ensureInternalInstrument (edit, track);
+
+        ensureInternalInstrument (edit, track, generator);
     }
 
     bool samplerSoundsAreLoaded (te::Edit& edit)
@@ -291,7 +322,9 @@ namespace
         else if (auto stored = effect.getInternalState(); stored.isValid())
         {
             // Rebuild it from the state we saved, so its parameters come back.
-            plugin = edit.getPluginCache().createNewPlugin (stored.createCopy());
+            auto copy = stored.createCopy();
+            copy.removeProperty (te::IDs::id, nullptr);   // see captureInternalState
+            plugin = edit.getPluginCache().createNewPlugin (copy);
         }
         else
         {
@@ -754,6 +787,40 @@ namespace
 
     // Copies one live effect plugin's state back into its model node --
     // external plugins as base64, internal ones as their own tree.
+    // An internal plugin's state tree as the song should keep it: its own
+    // properties, minus what only means something in this session.
+    juce::ValueTree captureInternalState (const te::Plugin& plugin)
+    {
+        // sidechainSourceID is an EditItemID, unique only within this session
+        // -- saved as-is it could collide with a different track's id after a
+        // reload. The model's own sidechainSource property is the durable
+        // form, and the sync rebuilds the live value from it.
+        auto captured = plugin.state.createCopy();
+        captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
+
+        // The plugin's own EditItemID likewise: handed back to an Edit that is
+        // still alive (the app reuses its Edit across songs), a saved id can
+        // name some other live plugin, which is the one the cache would then
+        // return in place of building ours. Without it the plugin gets a
+        // fresh id, which is all an id is for.
+        captured.removeProperty (te::IDs::id, nullptr);
+
+        // Curves are generated from the model's automation lanes; captured
+        // as-is they would come back twice, in seconds that a tempo change
+        // has already invalidated. Modifier assignments likewise: they name
+        // the modifier by its session-local itemID.
+        for (int i = captured.getNumChildren(); --i >= 0;)
+        {
+            const auto child = captured.getChild (i);
+
+            if (child.hasType (juce::Identifier ("AUTOMATIONCURVE"))
+                 || child.hasType (juce::Identifier ("MODIFIERASSIGNMENTS")))
+                captured.removeChild (i, nullptr);
+        }
+
+        return captured;
+    }
+
     void captureEffectState (model::Effect effect, te::Plugin& plugin)
     {
         if (auto external = dynamic_cast<te::ExternalPlugin*> (&plugin))
@@ -769,27 +836,7 @@ namespace
             return;
         }
 
-        // sidechainSourceID is an EditItemID, unique only within this session
-        // -- saved as-is it could collide with a different track's id after a
-        // reload. The model's own sidechainSource property is the durable
-        // form, and the sync rebuilds the live value from it.
-        auto captured = plugin.state.createCopy();
-        captured.removeProperty (juce::Identifier ("sidechainSourceID"), nullptr);
-
-        // Curves are generated from the model's automation lanes; captured
-        // as-is they would come back twice, in seconds that a tempo change
-        // has already invalidated. Modifier assignments likewise: they name
-        // the modifier by its session-local itemID.
-        for (int i = captured.getNumChildren(); --i >= 0;)
-        {
-            const auto child = captured.getChild (i);
-
-            if (child.hasType (juce::Identifier ("AUTOMATIONCURVE"))
-                 || child.hasType (juce::Identifier ("MODIFIERASSIGNMENTS")))
-                captured.removeChild (i, nullptr);
-        }
-
-        effect.setInternalState (captured, nullptr);
+        effect.setInternalState (captureInternalState (plugin), nullptr);
     }
 
     // Applies the model's automation lanes to the live plugins' curves.
@@ -1281,7 +1328,7 @@ namespace
 
 } // namespace
 
-void syncSongToEdit (const model::Song& song, te::Edit& edit)
+void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments)
 {
     syncTempoSequence (song, edit);
     syncMasterBus (song, edit);
@@ -1369,6 +1416,9 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit)
         if (track.getName() != generator.getName())
             track.setName (generator.getName());
 
+        if (rebuildInstruments)
+            removeInstruments (track);
+
         ensureInstrument (edit, track, generator);
         syncEffects (edit, track, generator);
         syncSends (song, edit, track, generator);
@@ -1422,6 +1472,18 @@ void EditSync::captureLivePluginState()
             if (auto plugin = findEffectPlugin (*tracks[i], effect.getId()))
                 captureEffectState (effect, *plugin);
 
+        // The built-in instruments keep their knobs in their own tree, and
+        // until this copied it into the song every 4OSC came back at its
+        // defaults on reload.
+        if (generator.isInternalInstrument())
+        {
+            if (auto instrument = findInstrument (*tracks[i]))
+                if (dynamic_cast<te::ExternalPlugin*> (instrument) == nullptr)
+                    generator.setInternalState (captureInternalState (*instrument), nullptr);
+
+            continue;
+        }
+
         if (generator.getType() != "plugin")
             continue;
 
@@ -1454,7 +1516,7 @@ EditSync::~EditSync()
 void EditSync::resyncNow()
 {
     cancelPendingUpdate();
-    syncSongToEdit (song, edit);
+    syncSongToEdit (song, edit, std::exchange (firstSync, false));
 }
 
 void EditSync::applyTempoOnly()

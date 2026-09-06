@@ -15,19 +15,24 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     };
 
     mixerButton.onClick = [this] { if (onOpenMixer) onOpenMixer(); };
-    exportButton.onClick = [this] { if (onExport) onExport(); };
+    logoButton.onClick = [this] { showFileMenu(); };
 
     undoButton.onClick = [this] { undoManager.undo(); };
     redoButton.onClick = [this] { undoManager.redo(); };
-    saveButton.onClick = [this] { if (onSave) onSave(); };
-    openButton.onClick = [this] { if (onOpen) onOpen(); };
+    undoButton.setTooltip ("Undo (cmd-Z)");
+    redoButton.setTooltip ("Redo (shift-cmd-Z)");
 
-    // Loop lights up like the tool buttons do rather than showing a tick box:
-    // it reads as a state of the transport, which is what it is.
+    // Loop, undo and redo are symbols on the bar rather than boxes: loop lit
+    // in the accent colour while it is on, which is what a toggle looks like
+    // when it has no frame to fill.
+    for (auto* b : { &loopButton, &undoButton, &redoButton })
+        b->setFlat (true);
+
     loopButton.setClickingTogglesState (true);
-    loopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
-    loopButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    loopButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xffe08a3c));
+    loopButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
     loopButton.setToggleState (true, juce::dontSendNotification);
+    loopButton.setTooltip ("Loop playback");
 
     bpmLabel.setEditable (false, true, false);
     bpmLabel.setJustificationType (juce::Justification::centred);
@@ -51,12 +56,39 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     documentLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &playButton, &stopButton, &loopButton, &bpmLabel, &positionLabel,
-             &mixerButton, &exportButton, &documentLabel,
-             &undoButton, &redoButton, &saveButton, &openButton })
+             &logoButton, &playButton, &stopButton, &loopButton, &undoButton, &redoButton,
+             &bpmLabel, &positionLabel, &mixerButton, &documentLabel })
         addAndMakeVisible (c);
 
     startTimerHz (15);
+}
+
+void TransportBar::showFileMenu()
+{
+    enum { openId = 1, saveId, saveAsId, exportId };
+
+    juce::PopupMenu menu;
+    menu.addItem (openId, "Open...");
+    menu.addItem (saveId, "Save");
+    menu.addItem (saveAsId, "Save As...");
+    menu.addSeparator();
+    menu.addItem (exportId, "Export Audio...");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (logoButton),
+                        [safe = juce::Component::SafePointer (this)] (int result)
+    {
+        if (safe == nullptr)
+            return;
+
+        switch (result)
+        {
+            case openId:    if (safe->onOpen)   safe->onOpen();   break;
+            case saveId:    if (safe->onSave)   safe->onSave();   break;
+            case saveAsId:  if (safe->onSaveAs) safe->onSaveAs(); break;
+            case exportId:  if (safe->onExport) safe->onExport(); break;
+            default: break;
+        }
+    });
 }
 
 void TransportBar::setSong (model::Song newSong)
@@ -135,29 +167,21 @@ void TransportBar::resized()
         area.removeFromLeft (gap);
     };
 
-    // Each button carries a symbol as well as its word, so they are a little
-    // wider than word-only buttons would be.
+    place (logoButton, area.getHeight() + 14, 10);
+
+    // Play and Stop carry a symbol as well as their word; the three symbols
+    // after them stand alone, so they sit tighter.
     place (playButton, 82);
-    place (stopButton, 74);
-    place (loopButton, 72);
+    place (stopButton, 74, 10);
+    place (loopButton, 30, 2);
+    place (undoButton, 30, 2);
+    place (redoButton, 30, 12);
     place (bpmLabel, 90);
     place (positionLabel, 110);
-
     place (mixerButton, 76);
-    place (exportButton, 82);
 
-    auto right = area;
-    openButton.setBounds (right.removeFromRight (74));
-    right.removeFromRight (6);
-    saveButton.setBounds (right.removeFromRight (72));
-    right.removeFromRight (18);
-    redoButton.setBounds (right.removeFromRight (74));
-    right.removeFromRight (6);
-    undoButton.setBounds (right.removeFromRight (74));
-
-    // whatever is left in the middle
-    right.removeFromRight (12);
-    documentLabel.setBounds (right);
+    // whatever is left goes to the document name
+    documentLabel.setBounds (area.withTrimmedLeft (12));
 }
 
 } // namespace carve::app

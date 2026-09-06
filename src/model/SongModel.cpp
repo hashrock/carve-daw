@@ -468,6 +468,23 @@ juce::String Generator::getPluginState() const
     return state.getChildWithName (ids::PLUGIN)[ids::state];
 }
 
+juce::ValueTree Generator::getInternalState() const
+{
+    return state.getChildWithName (ids::INSTRUMENT).getChildWithName (te_pluginStateType);
+}
+
+void Generator::setInternalState (const juce::ValueTree& pluginState, juce::UndoManager* um)
+{
+    state.removeChild (state.getChildWithName (ids::INSTRUMENT), um);
+
+    if (pluginState.isValid())
+    {
+        juce::ValueTree holder (ids::INSTRUMENT);
+        holder.appendChild (pluginState.createCopy(), nullptr);
+        state.appendChild (holder, um);
+    }
+}
+
 //==============================================================================
 // Playlist
 

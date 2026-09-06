@@ -15,6 +15,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
     transportBar = std::make_unique<TransportBar> (*edit, song, undoManager);
     transportBar->onSave = [this] { saveSong(); };
+    transportBar->onSaveAs = [this] { saveSongAs(); };
     transportBar->onOpen = [this] { openSong(); };
 
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
