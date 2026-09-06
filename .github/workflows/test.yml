@@ -32,12 +32,19 @@ jobs:
       # because that is where the pinned tag and commit live, with a loose
       # restore key so an unrelated edit to it still starts from the last
       # checkout rather than cloning again.
+      #
+      # The repository name is in the key because the checkout path is
+      # derived from it, and FetchContent's sub-build bakes that path into
+      # its CMakeCache.txt: a cache made under one name is refused outright
+      # under another ("The current CMakeCache.txt directory ... is different
+      # than the directory ... where CMakeCache.txt was created"), which is
+      # what broke every run after the repository was renamed.
       - name: Cache fetched dependencies
         uses: actions/cache@v4
         with:
           path: build-tests/_deps
-          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: deps-${{ runner.os }}-
+          key: deps-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ runner.os }}-${{ github.repository }}-
 
       # tracktion pins JUCE as a submodule with an SSH URL
       # (git@github.com:juce-framework/JUCE.git), which clones only for someone
