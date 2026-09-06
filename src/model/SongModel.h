@@ -141,6 +141,8 @@ public:
     // only browsed past, so they can be dropped again.
     bool hasDefaultSlotName() const;
 
+    // Notes, and only notes: a PATTERN may hold other kinds of child, so
+    // these three agree with each other rather than with getNumChildren().
     int getNumNotes() const;
     Note getNote (int index) const;
     std::vector<Note> getNotes() const;
@@ -554,8 +556,13 @@ public:
     // the other how short a placement of one may be.
     static constexpr double minLengthBeats = 1.0 / 16.0;
 
-    static double clampStart (double beats)   { return juce::jmax (0.0, beats); }
-    static double clampLength (double beats)  { return juce::jmax (minLengthBeats, beats); }
+    // Four octaves either way. Past that a transposed pattern runs off the
+    // ends of the MIDI range rather than sounding lower or higher.
+    static constexpr int maxTransposeSemitones = 48;
+
+    static double clampStart (double beats)    { return juce::jmax (0.0, beats); }
+    static double clampLength (double beats)   { return juce::jmax (minLengthBeats, beats); }
+    static int clampTranspose (int semitones)  { return juce::jlimit (-maxTransposeSemitones, maxTransposeSemitones, semitones); }
 
     // Clamped the way an AudioClip's is: a placement before the start of the
     // song is never played and never drawn, so the two kinds of placement had
@@ -590,10 +597,39 @@ public:
 
     void setTranspose (int semitones, juce::UndoManager* um)
     {
-        state.setProperty (ids::transpose, juce::jlimit (-48, 48, semitones), um);
+        state.setProperty (ids::transpose, clampTranspose (semitones), um);
     }
 
     juce::ValueTree state;
+};
+
+// What a pattern placement says about itself beyond where it sits and what it
+// plays, for the callers that build one from an existing clip -- a duplicate,
+// a paste. No length means "as long as the pattern" and no transpose means "as
+// written", which is exactly what a fresh clip has, so a copy of an ordinary
+// clip stays identical in the saved file to the clip it came from.
+struct ClipPlacement
+{
+    std::optional<double> length;
+    int transpose = 0;
+
+    // Everything the source clip states outright, ready to place elsewhere.
+    // Deliberately not a copy of its tree: a paste may retarget the clip at
+    // another generator's pattern, and the clipboard carries scratch
+    // attributes that have no business in the document.
+    static ClipPlacement of (const PlaylistClip& source)
+    {
+        ClipPlacement placement;
+        placement.transpose = source.getTranspose();
+
+        // A stored length of zero or less means "inherit" just as an absent
+        // one does -- see getLength -- so it is carried over as absent, rather
+        // than clamped up into a sixteenth-of-a-beat clip.
+        if (const double stored = source.state.getProperty (ids::length, 0.0); stored > 0.0)
+            placement.length = stored;
+
+        return placement;
+    }
 };
 
 // An audio file placed on an audio generator's row. Where a PlaylistClip
@@ -650,12 +686,25 @@ class Playlist
 public:
     explicit Playlist (juce::ValueTree v) : state (std::move (v)) {}
 
+    // Pattern placements only. The audio ones are children of this same node
+    // and are reached through getAudioClips(), so neither count includes the
+    // other.
     int getNumClips() const;
     PlaylistClip getClip (int index) const;
     std::vector<PlaylistClip> getClips() const;
 
     PlaylistClip addClip (const Generator& generator, const Pattern& pattern,
                           double startBeats, juce::UndoManager* um);
+
+    // The same, for a placement that does not simply inherit its pattern's
+    // length. One write rather than an add followed by a setLength and a
+    // setTranspose: each of those re-entered every listener that rebuilds
+    // itself off the playlist, and the states in between were a clip that
+    // played the wrong thing for the wrong length.
+    PlaylistClip addClip (const Generator& generator, const Pattern& pattern,
+                          double startBeats, const ClipPlacement& placement,
+                          juce::UndoManager* um);
+
     void removeClip (const PlaylistClip& clip, juce::UndoManager* um);
 
     // Audio placements live alongside the pattern ones as their own node type,
