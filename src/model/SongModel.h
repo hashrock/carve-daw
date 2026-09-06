@@ -386,7 +386,16 @@ public:
     // separate kind of thing.
     static constexpr const char* audioType = "audio";
 
-    bool isDrumKit() const  { return getType() == drumKitType; }
+    // The built-in synth and the built-in drum machine. Both are internal
+    // tracktion plugins, so their settings are kept the way an internal
+    // effect's are: the plugin's own tree, under INSTRUMENT (see
+    // getInternalState), rather than as an opaque blob.
+    static constexpr const char* synthType = "internal-synth";
+    static constexpr const char* drumSynthType = "drum-synth";
+
+    bool isDrumKit() const    { return getType() == drumKitType; }
+    bool isDrumSynth() const  { return getType() == drumSynthType; }
+    bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType; }
 
@@ -423,6 +432,14 @@ public:
     std::optional<juce::PluginDescription> getPluginDescription() const;
     void setPluginState (const juce::String& base64, juce::UndoManager*);
     juce::String getPluginState() const;
+
+    // For an internal instrument (4OSC, the drum synth): its plugin's own
+    // ValueTree, captured on save and handed back to the plugin cache on
+    // load, the same way an internal effect keeps its settings. Kept under an
+    // INSTRUMENT node of our own so it can never be mistaken for the PLUGIN
+    // node that describes an external instrument.
+    juce::ValueTree getInternalState() const;
+    void setInternalState (const juce::ValueTree& pluginState, juce::UndoManager*);
 
     // For type "sampler": the samples it plays, in the order the sampler gets
     // them. Empty for every other type, and the SOUNDS node stays out of the

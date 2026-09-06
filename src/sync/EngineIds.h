@@ -2,6 +2,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "plugins/DrumSynthPlugin.h"
+
 namespace te = tracktion;
 
 namespace carve::sync
@@ -29,6 +31,7 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
     for (auto plugin : track.pluginList.getPlugins())
         if (! isEffectPlugin (*plugin)
              && (dynamic_cast<te::FourOscPlugin*> (plugin) != nullptr
+                  || dynamic_cast<plugins::DrumSynthPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::SamplerPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr))
             return plugin;

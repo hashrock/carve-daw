@@ -487,6 +487,38 @@ bool PianoRollComponent::duplicateSelectionForDrag()
     return true;
 }
 
+void PianoRollComponent::syncDragDuplicate (const juce::ModifierKeys& mods)
+{
+    if (! pattern || dragMode != DragMode::move || selectedNotes.size() != dragOriginStarts.size())
+        return;
+
+    const bool wantCopies = isDuplicateModifier (mods);
+
+    if (wantCopies && originCopies.empty())
+    {
+        // Copies go where the drag began, not where the notes are now, so the
+        // originals appear to have stayed put and the dragged ones to be new
+        // -- the same picture a copy held from the press gives.
+        const auto notes = selectedNotes;
+
+        for (size_t i = 0; i < notes.size(); ++i)
+        {
+            const model::Note note (notes[i]);
+            originCopies.push_back (pattern->addNote (dragOriginStarts[i], note.getLength(),
+                                                      dragOriginPitches[i], note.getVelocity(),
+                                                      &undoManager).state);
+        }
+    }
+    else if (! wantCopies && ! originCopies.empty())
+    {
+        // Let go of the key before the mouse: back to a plain move.
+        for (const auto& state : originCopies)
+            pattern->removeNote (model::Note (state), &undoManager);
+
+        originCopies.clear();
+    }
+}
+
 void PianoRollComponent::resizeSelectionTo (double length)
 {
     if (! pattern)
@@ -894,6 +926,11 @@ void PianoRollComponent::modifierKeysChanged (const juce::ModifierKeys& modifier
     if (dragMode == DragMode::none && isMouseOver (false))
         setMouseCursor (cursorFor (getMouseXYRelative().toFloat(), modifiers));
 
+    // A move in progress becomes a copy the moment the key goes down, not on
+    // the next mouse movement -- the copies should appear under a still hand.
+    if (dragMode == DragMode::move && ! pendingDuplicate)
+        syncDragDuplicate (modifiers);
+
     // alt and cmd change what the next drag will do, and the help bar says so
     notifyShortcutContext();
 }
@@ -1012,7 +1049,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         // Whichever tool is up. Drawing a part is exactly when copying the bar
         // just drawn is worth having, and reaching for the select tool first
         // is the interruption Shift-to-select exists to avoid.
-        if (e.mods.isCommandDown())
+        if (isDuplicateModifier (e.mods))
         {
             pendingDuplicate = true;
 
@@ -1123,6 +1160,11 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
             pendingToggleNote.reset();
             duplicateSelectionForDrag();
         }
+        else
+        {
+            // The modifier can also arrive (or go) once the drag is under way.
+            syncDragDuplicate (e.mods);
+        }
 
         // The row moves on how far the pointer has travelled since the press,
         // rounded to the nearest row -- not on which row the pointer is over.
@@ -1156,6 +1198,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 
     pendingDuplicate = false;
     pendingToggleNote.reset();
+    originCopies.clear();   // they stay in the pattern; only the handle on them goes
 
     dragMode = DragMode::none;
     draggedNote.reset();

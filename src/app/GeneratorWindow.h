@@ -8,6 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "DrumPadGrid.h"
+#include "DrumSynthEditor.h"
 #include "FourOscEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
@@ -147,6 +148,50 @@ public:
     std::function<bool (const juce::StringArray&)> isInterestedInPadFiles;
     std::function<void()> onLoadSample;
 
+    // The drum synth's pads audition through this, the same route as the
+    // piano roll's previews.
+    std::function<void (int note, int velocity)> onPreviewNote;
+
+    // Fired when what the view would like to be has changed: a new editor was
+    // put up, or a plugin's own UI changed its size. The window fits itself
+    // around it (see GeneratorWindow::fitToInstrument).
+    std::function<void()> onPreferredSizeChanged;
+
+    // What the view wants to be, when it is showing something with a size of
+    // its own: a plugin's editor plus the preset bar, or one of the built-in
+    // editors at its natural size. Nothing for the pads and the sampler, which
+    // take whatever they are given.
+    std::optional<juce::Point<int>> getPreferredSize() const
+    {
+        if (externalEditor != nullptr)
+            return juce::Point<int> (externalEditor->getWidth(),
+                                     externalEditor->getHeight() + (presetBar != nullptr ? PresetBar::height : 0));
+
+        if (fourOsc != nullptr)
+            return juce::Point<int> (FourOscEditor::width, FourOscEditor::height);
+
+        if (drumSynth != nullptr)
+            return juce::Point<int> (drumSynth->getWidth(), drumSynth->getHeight());
+
+        return std::nullopt;
+    }
+
+    // A plugin can resize its own editor (a collapsible panel, a zoom menu);
+    // this is where that arrives. Only a change of *size* counts -- resized()
+    // below moves the editor to centre it, and that must not come back round
+    // as a request to fit the window again.
+    void childBoundsChanged (juce::Component* child) override
+    {
+        if (child != nullptr && child == externalEditor.get()
+             && child->getBounds().withZeroOrigin() != lastEditorSize)
+        {
+            lastEditorSize = child->getBounds().withZeroOrigin();
+
+            if (onPreferredSizeChanged)
+                onPreferredSizeChanged();
+        }
+    }
+
     InstrumentView()
     {
         info.setJustificationType (juce::Justification::centred);
@@ -221,6 +266,18 @@ public:
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
+            else if (auto drums = dynamic_cast<plugins::DrumSynthPlugin*> (instrument))
+            {
+                drumSynth = std::make_unique<DrumSynthEditor> (*drums);
+                drumSynth->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (drumSynth.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
             else if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
             {
                 if (auto instance = external->getAudioPluginInstance())
@@ -250,7 +307,13 @@ public:
             showInfo ("No generator selected");
         }
 
+        if (externalEditor != nullptr)
+            lastEditorSize = externalEditor->getBounds().withZeroOrigin();
+
         resized();
+
+        if (onPreferredSizeChanged)
+            onPreferredSizeChanged();
     }
 
     // Pad states and the sampler's sound name, pushed on every model refresh
@@ -311,6 +374,9 @@ public:
             fourOsc->setSize (FourOscEditor::width, FourOscEditor::height);
         }
 
+        if (drumSynth != nullptr)
+            viewport.setBounds (area);   // the editor sized itself
+
         if (externalEditor != nullptr || presetBar != nullptr)
         {
             if (presetBar != nullptr)
@@ -359,18 +425,21 @@ private:
         viewport.setViewedComponent (nullptr, false);
         removeChildComponent (&viewport);
         fourOsc.reset();
+        drumSynth.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
     }
 
     Kind shownKind = Kind::none;
     te::Plugin* shownInstrument = nullptr;
+    juce::Rectangle<int> lastEditorSize;
     juce::Label info;
     DrumPadGrid pads;
     juce::TextButton loadSampleButton { "Load Sample..." };
     juce::Label sampleName;
     juce::Viewport viewport;
     std::unique_ptr<FourOscEditor> fourOsc;
+    std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
 
@@ -410,12 +479,15 @@ public:
         content.body.addAndMakeVisible (instrumentView);
         content.body.addChildComponent (rollContent);
         content.onLayout = [this] { layoutBody(); };
+        instrumentView.onPreferredSizeChanged = [this] { fitToInstrument(); };
 
-        // The roll's size, so the bigger of the two views fits without a
-        // resize on every tab switch.
-        content.setSize (1000, headerHeight + 554 + PianoRollRuler::preferredHeight
-                                             + PianoRollVelocityLane::preferredHeight
-                                             + ShortcutHelpBar::preferredHeight);
+        // The roll's size. The Inst tab sizes the window to whatever it shows
+        // and the roll gets this back when it returns, so each tab is seen at
+        // the size it wants rather than the bigger of the two.
+        rollContentSize = { 1000, headerHeight + 554 + PianoRollRuler::preferredHeight
+                                                 + PianoRollVelocityLane::preferredHeight
+                                                 + ShortcutHelpBar::preferredHeight };
+        content.setSize (rollContentSize.x, rollContentSize.y);
 
         setContentNonOwned (&content, true);
         setUsingNativeTitleBar (true);
@@ -444,6 +516,11 @@ public:
 
     void showTab (Tab tab)
     {
+        // Leaving the roll: remember the size it was being used at, which is
+        // the user's if they resized the window, so it comes back the same.
+        if (activeTab == Tab::pianoRoll && tab != Tab::pianoRoll && ! fitting)
+            rollContentSize = { content.getWidth(), content.getHeight() };
+
         activeTab = tab;
         instrumentView.setVisible (tab == Tab::instrument);
         rollContent.setVisible (tab == Tab::pianoRoll);
@@ -451,11 +528,19 @@ public:
         content.header.rollTab.setToggleState (tab == Tab::pianoRoll, juce::dontSendNotification);
 
         if (tab == Tab::pianoRoll)
+        {
+            setContentSizeOnScreen (rollContentSize);
             rollContent.focusRoll();
+        }
+        else
+        {
+            fitToInstrument();
+        }
     }
 
     void setPreviewNoteCallback (std::function<void (int, int)> callback)
     {
+        instrumentView.onPreviewNote = callback;
         rollContent.setPreviewNoteCallback (std::move (callback));
     }
 
@@ -516,6 +601,10 @@ private:
     static constexpr int tabRowHeight = 26;
     static constexpr int headerHeight = tabRowHeight + PatternPicker::preferredHeight;
 
+    // Narrower than this and the header's tabs and picker would not fit,
+    // however small the plugin's editor is.
+    static constexpr int minContentWidth = 520;
+
     void updateTitle (const juce::String& patternName)
     {
         setName (patternName.isNotEmpty() ? titlePrefix + patternName : "Generator");
@@ -526,6 +615,40 @@ private:
         const auto area = content.body.getLocalBounds();
         instrumentView.setBounds (area);
         rollContent.setBounds (area);
+    }
+
+    // Sizes the window to the instrument being shown -- a plugin's own UI is a
+    // fixed picture, and a window that is bigger leaves it floating in dark
+    // space while a smaller one cuts it off. Only while the Inst tab is up:
+    // an editor arriving behind the roll must not yank the roll about.
+    void fitToInstrument()
+    {
+        if (activeTab != Tab::instrument)
+            return;
+
+        if (const auto wanted = instrumentView.getPreferredSize())
+            setContentSizeOnScreen ({ juce::jmax (minContentWidth, wanted->x), headerHeight + wanted->y });
+    }
+
+    // Resizes the content, capped at what the display can show, and keeps the
+    // window on the screen if growing it would have pushed it off.
+    void setContentSizeOnScreen (juce::Point<int> size)
+    {
+        auto screen = juce::Rectangle<int> (1280, 800);
+
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
+            screen = display->userArea;
+
+        const auto border = getContentComponentBorder();
+        const auto width = juce::jmin (size.x, screen.getWidth() - border.getLeftAndRight());
+        const auto height = juce::jmin (size.y, screen.getHeight() - border.getTopAndBottom());
+
+        if (width == content.getWidth() && height == content.getHeight())
+            return;
+
+        const juce::ScopedValueSetter<bool> svs (fitting, true);
+        setContentComponentSize (width, height);
+        setBoundsConstrained (getBounds());
     }
 
     struct Header : public juce::Component
@@ -588,6 +711,8 @@ private:
     std::function<bool (const juce::KeyPress&)> onKey;
     juce::String titlePrefix;
     Tab activeTab = Tab::pianoRoll;
+    juce::Point<int> rollContentSize;
+    bool fitting = false;   // a resize of our own doing, not the user's
 
     Content content;
     InstrumentView instrumentView;

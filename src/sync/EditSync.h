@@ -20,7 +20,14 @@ namespace carve::sync
 // instrument, and its placements become WaveAudioClips pointing straight at
 // the files. Those are matched by id and updated in place rather than rebuilt,
 // because re-inserting one re-reads the file and cuts what it is playing.
-void syncSongToEdit (const model::Song& song, te::Edit& edit);
+//
+// rebuildInstruments throws away every generator track's instrument first, so
+// each comes back from what the song says rather than from whatever the track
+// had. The Edit outlives the song in the app -- loading a file rebinds a new
+// EditSync to the same Edit, tracks and all -- and an instrument left over
+// from the previous song would otherwise be taken for this one's and keep
+// its old patch. EditSync passes this on its first sync only.
+void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments = false);
 
 // Samplers pick their sounds up out of their own state from a message-loop
 // callback, so anything that renders straight after syncing would get silence.
@@ -45,6 +52,9 @@ public:
     void captureLivePluginState();
 
 private:
+    // True until the first sync has run: see syncSongToEdit's rebuildInstruments.
+    bool firstSync = true;
+
     // A full resync tears down and rebuilds every MIDI clip, which glitches
     // playback. Mixer moves arrive continuously while a fader is dragged and
     // only ever touch track plugins, so they take a cheap path instead.

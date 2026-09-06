@@ -41,7 +41,9 @@ set(CARVE_CORE_SOURCES
     src/sync/EditSync.h
     src/sync/EditSync.cpp
     src/plugins/DistortionPlugin.h
-    src/plugins/DistortionPlugin.cpp)
+    src/plugins/DistortionPlugin.cpp
+    src/plugins/DrumSynthPlugin.h
+    src/plugins/DrumSynthPlugin.cpp)
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})

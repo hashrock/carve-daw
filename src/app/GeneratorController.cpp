@@ -30,6 +30,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 {
     juce::PopupMenu menu;
     menu.addItem (1, "4OSC (internal synth)");
+    menu.addItem (6, "808 Drums (internal drum synth)");
     menu.addItem (3, "Sampler (choose a sample)...");
     menu.addItem (4, "Drum Kit (16 pads)");
     menu.addItem (5, "Audio track");
@@ -56,7 +57,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     {
         if (result == 1)
             addGenerator ("Synth " + juce::String (song.getNumGenerators() + 1),
-                          "internal-synth", nullptr);
+                          model::Generator::synthType, nullptr);
         else if (result == 2)
         {
             if (onManagePlugins)
@@ -74,6 +75,11 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             // filled a pad at a time, so there is nothing to name it after.
             addGenerator ("Drum Kit " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::drumKitType, nullptr);
+        }
+        else if (result == 6)
+        {
+            addGenerator ("Drums " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::drumSynthType, nullptr);
         }
         else if (result == 5)
         {

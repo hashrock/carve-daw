@@ -75,6 +75,49 @@ PluginPresets::PluginPresets (te::Plugin& pluginToEdit)
 {
 }
 
+juce::AudioPluginInstance* PluginPresets::getExternalInstance() const
+{
+    if (auto external = dynamic_cast<te::ExternalPlugin*> (plugin.get()))
+        return external->getAudioPluginInstance();
+
+    return nullptr;
+}
+
+juce::StringArray PluginPresets::getPluginProgramNames() const
+{
+    juce::StringArray names;
+
+    if (auto instance = getExternalInstance())
+    {
+        const int count = instance->getNumPrograms();
+
+        if (count > 1 || (count == 1 && instance->getProgramName (0).trim().isNotEmpty()))
+            for (int i = 0; i < count; ++i)
+                names.add (instance->getProgramName (i));
+    }
+
+    return names;
+}
+
+int PluginPresets::getCurrentPluginProgram() const
+{
+    if (auto instance = getExternalInstance())
+        return instance->getCurrentProgram();
+
+    return -1;
+}
+
+bool PluginPresets::selectPluginProgram (int index)
+{
+    auto instance = getExternalInstance();
+
+    if (instance == nullptr || ! juce::isPositiveAndBelow (index, instance->getNumPrograms()))
+        return false;
+
+    instance->setCurrentProgram (index);
+    return true;
+}
+
 juce::File PluginPresets::getFolder() const
 {
     auto* p = plugin.get();
@@ -295,6 +338,12 @@ namespace
     constexpr int revealId     = 4;
     constexpr int noPresetsId  = 5;
     constexpr int presetIdBase = 100;
+
+    // The plugin's own programs, after ours. A plugin can carry thousands, so
+    // the two ranges are kept well apart, and past this many the list goes
+    // into pages so the menu stays a menu rather than a scroll.
+    constexpr int programIdBase = 100000;
+    constexpr int programsPerPage = 32;
 } // namespace
 
 PresetBar::PresetBar (te::Plugin& plugin)
@@ -310,6 +359,12 @@ PresetBar::PresetBar (te::Plugin& plugin)
     addAndMakeVisible (nameLabel);
 
     setCurrentPreset ({});
+
+    // An external plugin opens on whatever program it is sitting on, so say
+    // which rather than "(not saved)" as if nothing were loaded.
+    if (const auto program = presets.getCurrentPluginProgram();
+        program >= 0 && ! presets.getPluginProgramNames().isEmpty())
+        showPluginProgram (program);
 }
 
 void PresetBar::paint (juce::Graphics& g)
@@ -333,6 +388,14 @@ void PresetBar::setCurrentPreset (const juce::String& presetName)
                        juce::dontSendNotification);
 }
 
+void PresetBar::showPluginProgram (int index)
+{
+    // A plugin program is not one of our presets: nothing to overwrite or
+    // delete, so the current preset is cleared and only the name is shown.
+    currentPreset.clear();
+    nameLabel.setText (presets.getPluginProgramNames()[index], juce::dontSendNotification);
+}
+
 void PresetBar::showMenu()
 {
     if (! presets.isAlive())
@@ -348,6 +411,41 @@ void PresetBar::showMenu()
 
     for (int i = 0; i < names.size(); ++i)
         menu.addItem (presetIdBase + i, names[i], true, names[i] == currentPreset);
+
+    // Then the plugin's own, when it has any. Ours come first because they are
+    // the ones the user made; the plugin's factory list can run to hundreds.
+    if (const auto programs = presets.getPluginProgramNames(); ! programs.isEmpty())
+    {
+        const int current = presets.getCurrentPluginProgram();
+
+        menu.addSeparator();
+        menu.addSectionHeader ("Plugin Presets");
+
+        auto addProgram = [&] (juce::PopupMenu& into, int i)
+        {
+            into.addItem (programIdBase + i, programs[i], true, i == current);
+        };
+
+        if (programs.size() <= programsPerPage)
+        {
+            for (int i = 0; i < programs.size(); ++i)
+                addProgram (menu, i);
+        }
+        else
+        {
+            for (int first = 0; first < programs.size(); first += programsPerPage)
+            {
+                const int last = juce::jmin (programs.size(), first + programsPerPage) - 1;
+                juce::PopupMenu page;
+
+                for (int i = first; i <= last; ++i)
+                    addProgram (page, i);
+
+                menu.addSubMenu (juce::String (first + 1) + " - " + juce::String (last + 1),
+                                 page, true, nullptr, current >= first && current <= last);
+            }
+        }
+    }
 
     menu.addSeparator();
     menu.addItem (saveAsId, "Save Preset As...");
@@ -386,6 +484,14 @@ void PresetBar::showMenu()
 
             default:
                 break;
+        }
+
+        if (result >= programIdBase)
+        {
+            if (safe->presets.selectPluginProgram (result - programIdBase))
+                safe->showPluginProgram (result - programIdBase);
+
+            return;
         }
 
         // The rest of the menu is the saved presets themselves.
