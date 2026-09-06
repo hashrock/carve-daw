@@ -10,14 +10,14 @@ namespace
     void styleHeader (juce::Label& label, const juce::String& text)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (11.0f));
+        label.setFont (juce::FontOptions (12.0f));
         label.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     }
 
     void styleField (juce::Label& label, const juce::String& text)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (12.0f));
+        label.setFont (juce::FontOptions (13.0f));
         label.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
     }
 
@@ -41,12 +41,12 @@ ClipPropertiesPanel::ClipPropertiesPanel (juce::UndoManager& um)
     styleField (transposeLabel, "Transpose");
     styleField (patternLengthLabel, "Length");
 
-    patternLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    patternLabel.setFont (juce::FontOptions (14.0f, juce::Font::bold));
     patternLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 
     for (auto* l : { &loopLabel, &patternLengthNote })
     {
-        l->setFont (juce::FontOptions (10.0f));
+        l->setFont (juce::FontOptions (12.0f));
         l->setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     }
 

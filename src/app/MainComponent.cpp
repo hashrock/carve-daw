@@ -25,14 +25,14 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     generatorController->onManagePlugins = [this] { openPluginManager(); };
 
-    // Slot states change without the selection moving (a note lands in a
-    // pattern); the controller's refresh already runs then, so it recolours
-    // the window's switcher and pads too.
+    // The pattern list changes without the selection moving (a rename, a
+    // pattern made on another generator); the controller's refresh already
+    // runs then, so it restocks the window's picker and pads too.
     generatorController->onPatternsChanged = [this]
     {
         if (generatorWindow != nullptr)
-            generatorWindow->updateSlots (song.findGenerator (selectedGeneratorId),
-                                          selectedPatternId);
+            generatorWindow->updatePatterns (song.findGenerator (selectedGeneratorId),
+                                             selectedPatternId);
     };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
@@ -266,25 +266,28 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
 
         // The window only reports gestures; the controller stays the selection
         // and model-edit authority, and its refresh comes back around through
-        // onPatternsChanged to recolour the switcher and pads.
-        auto& slots = generatorWindow->getSlotSwitcher();
-        slots.onSlotClicked = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot)
-        {
-            if (safe != nullptr)
-                safe->generatorController->selectSlot (slot);
-        };
-        slots.onSlotMenu = [safe = juce::Component::SafePointer (this)] (model::PatternSlot slot,
-                                                                         juce::Rectangle<int> screenArea)
-        {
-            if (safe != nullptr)
-                safe->generatorController->showSlotMenu (slot, screenArea);
-        };
-
-        generatorWindow->onUnslottedPatternPicked =
-            [safe = juce::Component::SafePointer (this)] (const juce::String& patternId)
+        // onPatternsChanged to restock the picker and recolour the pads.
+        auto& patterns = generatorWindow->getPatternPicker();
+        patterns.onPatternPicked = [safe = juce::Component::SafePointer (this)] (const juce::String& patternId)
         {
             if (safe != nullptr)
                 safe->generatorController->selectPattern (patternId);
+        };
+        patterns.onNewPattern = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->createPattern();
+        };
+        patterns.onClonePattern = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->clonePattern();
+        };
+        patterns.onPatternMenu = [safe = juce::Component::SafePointer (this)]
+                                     (juce::Rectangle<int> screenArea)
+        {
+            if (safe != nullptr)
+                safe->generatorController->showPatternMenu (screenArea);
         };
 
         auto& inst = generatorWindow->getInstrumentView();
@@ -293,6 +296,13 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
         {
             if (safe != nullptr)
                 safe->generatorController->padClicked (pad, screenArea);
+        };
+        inst.onPadTriggered = [safe = juce::Component::SafePointer (this)] (int pad)
+        {
+            // The same guide-note path the piano roll previews through, on the
+            // note the pad is mapped to.
+            if (safe != nullptr)
+                safe->previewNote (drumkit::getNoteForPad (pad), drumkit::previewVelocity);
         };
         inst.onPadFilesDropped = [safe = juce::Component::SafePointer (this)] (int startPad,
                                                                                const juce::StringArray& files)
@@ -437,33 +447,49 @@ void MainComponent::openPluginManager()
     pluginScanWindow = std::make_unique<PluginScanWindow> (engine, std::move (onClose));
 }
 
-void MainComponent::saveSong()
+void MainComponent::saveSong (std::function<void (bool)> onDone)
 {
     if (currentFile != juce::File())
     {
-        writeSongTo (currentFile);
+        const bool saved = writeSongTo (currentFile);
+
+        if (onDone)
+            onDone (saved);
+
         return;
     }
 
-    saveSongAs();
+    saveSongAs (std::move (onDone));
 }
 
-void MainComponent::saveSongAs()
+void MainComponent::saveSongAs (std::function<void (bool)> onDone)
 {
     fileChooser = std::make_shared<juce::FileChooser> ("Save song", currentFile, "*.carve");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                   | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [this] (const juce::FileChooser& chooser)
+                              [this, onDone = std::move (onDone)] (const juce::FileChooser& chooser)
     {
         auto file = chooser.getResult();
+
+        // Backing out of the chooser is not an error, but it is not a save
+        // either -- and whoever asked for one needs to know the difference.
         if (file == juce::File())
+        {
+            if (onDone)
+                onDone (false);
+
             return;
-        writeSongTo (file.withFileExtension ("carve"));
+        }
+
+        const bool saved = writeSongTo (file.withFileExtension ("carve"));
+
+        if (onDone)
+            onDone (saved);
     });
 }
 
-void MainComponent::writeSongTo (const juce::File& file)
+bool MainComponent::writeSongTo (const juce::File& file)
 {
     // An external plugin's state only exists inside the live instance until
     // this copies it into the model, so every save has to come through here.
@@ -475,12 +501,59 @@ void MainComponent::writeSongTo (const juce::File& file)
         juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                      "Save failed",
                                                      "Could not write " + file.getFullPathName());
-        return;
+        return false;
     }
 
     currentFile = file;
     hasUnsavedChanges = false;   // captureLivePluginState above will have set it
     updateDocumentDisplay();
+    return true;
+}
+
+void MainComponent::confirmDiscardChanges (std::function<void (bool)> onResolved)
+{
+    if (! hasUnsavedChanges)
+    {
+        onResolved (true);
+        return;
+    }
+
+    const auto documentName = currentFile != juce::File() ? currentFile.getFileName()
+                                                          : juce::String ("Untitled");
+
+    // showYesNoCancelBox rather than a MessageBoxOptions alert: its three
+    // buttons come back as documented values (1 / 2 / 0) whether the look and
+    // feel draws the box itself or hands it to the OS, which the generic
+    // showAsync does not promise.
+    juce::AlertWindow::showYesNoCancelBox (
+        juce::MessageBoxIconType::WarningIcon,
+        "Unsaved changes",
+        documentName + " has changes that have not been saved.",
+        "Save", "Don't Save", "Cancel",
+        this,
+        juce::ModalCallbackFunction::create (
+            [safe = juce::Component::SafePointer (this),
+             onResolved = std::move (onResolved)] (int result)
+    {
+        if (safe == nullptr)
+            return;
+
+        if (result == 2)            // Don't Save
+        {
+            onResolved (true);
+            return;
+        }
+
+        if (result != 1)            // Cancel, or the box dismissed some other way
+        {
+            onResolved (false);
+            return;
+        }
+
+        // Save, and go ahead only if the song actually reached disk: a
+        // cancelled chooser or a failed write must not take it with them.
+        safe->saveSong (onResolved);
+    }));
 }
 
 void MainComponent::openSong()
@@ -536,6 +609,15 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
                                         | juce::ModifierKeys::shiftModifier, 0))
     {
         saveSongAs();
+        return true;
+    }
+
+    // The Clone button without the trip to the header. Cloning is the one
+    // pattern gesture that happens mid-take, which is exactly when reaching
+    // for a button is what breaks it.
+    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
+    {
+        generatorController->clonePattern();
         return true;
     }
     return false;

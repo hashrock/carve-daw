@@ -63,7 +63,7 @@ class EffectSlotList : public juce::Component
 public:
     EffectSlotList (EffectChain, te::Engine&);
 
-    static constexpr int rowHeight = 15;
+    static constexpr int rowHeight = 18;
 
     // Height at which every row, including the add row, is visible.
     int getPreferredHeight() const;

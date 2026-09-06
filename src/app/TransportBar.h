@@ -2,6 +2,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "IconButton.h"
 #include "model/SongModel.h"
 
 namespace te = tracktion;
@@ -9,6 +10,7 @@ namespace te = tracktion;
 namespace carve::app
 {
 
+//==============================================================================
 // Play/stop, loop toggle, BPM, position readout, document name, undo/redo and
 // save/open.
 class TransportBar : public juce::Component,
@@ -38,11 +40,15 @@ private:
     model::Song song;
     juce::UndoManager& undoManager;
 
-    juce::TextButton playButton { "Play" }, stopButton { "Stop" },
-                     mixerButton { "Mixer" }, exportButton { "Export" },
-                     undoButton { "Undo" }, redoButton { "Redo" },
-                     saveButton { "Save" }, openButton { "Open" };
-    juce::ToggleButton loopButton { "Loop" };
+    IconButton playButton   { "Play",   Icon::play },
+               stopButton   { "Stop",   Icon::stop },
+               loopButton   { "Loop",   Icon::loop },     // a lit toggle, not a checkbox
+               mixerButton  { "Mixer",  Icon::mixer },
+               exportButton { "Export", Icon::exportFile },
+               undoButton   { "Undo",   Icon::undo },
+               redoButton   { "Redo",   Icon::redo },
+               saveButton   { "Save",   Icon::save },
+               openButton   { "Open",   Icon::open };
     juce::Label bpmLabel, positionLabel, documentLabel;
 };
 

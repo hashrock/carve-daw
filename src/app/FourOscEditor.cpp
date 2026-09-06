@@ -51,7 +51,7 @@ namespace
     // Names inside a titled box do not need to repeat what the box says, so the
     // rows here are labelled by hand rather than from getParameterName(), which
     // would give "Tune 1" inside a section already called "Osc 1".
-    constexpr int nameColumnWidth = 72;
+    constexpr int nameColumnWidth = 80;
 } // namespace
 
 //==============================================================================
@@ -114,10 +114,20 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
     auto isAlive = [this] { return plugin != nullptr; };
     auto state = synth.state;
 
+    // Osc, filter and amp on one page. They are the signal path -- what the
+    // wave is, what the filter does to it, how it is shaped in time -- and
+    // dialling in a sound means moving between all three, which paging back
+    // and forth turned into three separate views of one instrument. Mod and FX
+    // stay their own pages: they are things done *to* a sound that already
+    // works.
     {
-        auto& page = addPage ("Osc", 2);
+        auto& page = addPage ("Main", 3);
 
-        for (int i = 1; i <= 4; ++i)
+        // Two oscillators, not four. Four made a page you had to hunt through
+        // for the two anyone actually reaches for, and a second osc is already
+        // enough for the detuned-pair and octave-stack sounds that are the
+        // point of having more than one.
+        for (int i = 1; i <= 2; ++i)
         {
             auto* osc = synth.oscParams[i - 1];
 
@@ -143,10 +153,6 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
             section->add (std::make_unique<ParameterSliderRow> (*osc->pan, "Pan", isAlive));
             page.add (std::move (section));
         }
-    }
-
-    {
-        auto& page = addPage ("Filter", 1);
 
         auto filter = std::make_unique<EditorSection> ("Filter", nameColumnWidth);
         filter->add (std::make_unique<PropertyChoiceRow> (state, te::IDs::filterType, "Type",
@@ -166,10 +172,6 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         envelope->add (std::make_unique<ParameterSliderRow> (*synth.filterSustain, "Sustain", isAlive));
         envelope->add (std::make_unique<ParameterSliderRow> (*synth.filterRelease, "Release", isAlive));
         page.add (std::move (envelope));
-    }
-
-    {
-        auto& page = addPage ("Amp", 1);
 
         auto amp = std::make_unique<EditorSection> ("Amp Envelope", nameColumnWidth);
         amp->add (std::make_unique<ParameterSliderRow> (*synth.ampAttack, "Attack", isAlive));

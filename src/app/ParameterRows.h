@@ -32,12 +32,17 @@ public:
     explicit EditorRow (const juce::String& rowName)
     {
         nameLabel.setText (rowName, juce::dontSendNotification);
-        nameLabel.setFont (juce::FontOptions (11.0f));
+        nameLabel.setFont (juce::FontOptions (rowFontHeight));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
         addAndMakeVisible (nameLabel);
     }
 
-    static constexpr int height = 22;
+    static constexpr int height = 26;
+
+    // Every label in a generated editor is this size. It was 11px, which is
+    // small enough to have to lean in for -- and a plugin editor is a wall of
+    // these, so the whole panel read as fine print.
+    static constexpr float rowFontHeight = 13.0f;
 
     // Pulls the control back into line with whatever it edits.
     virtual void refresh() = 0;
@@ -80,7 +85,7 @@ public:
           parameter (&parameterToEdit),
           isAlive (std::move (isAliveCheck))
     {
-        valueLabel.setFont (juce::FontOptions (11.0f));
+        valueLabel.setFont (juce::FontOptions (rowFontHeight));
         valueLabel.setJustificationType (juce::Justification::centredRight);
         valueLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
 
@@ -315,7 +320,7 @@ public:
             valueLabel.setText (slider.getTextFromValue (slider.getValue()), juce::dontSendNotification);
         };
 
-        valueLabel.setFont (juce::FontOptions (11.0f));
+        valueLabel.setFont (juce::FontOptions (rowFontHeight));
         valueLabel.setJustificationType (juce::Justification::centredRight);
         valueLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
 
@@ -390,7 +395,7 @@ public:
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
 
         g.setColour (juce::Colour (0xffe0a24f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (EditorRow::rowFontHeight, juce::Font::bold));
         g.drawText (title, getLocalBounds().removeFromTop (titleHeight).reduced (8, 0),
                     juce::Justification::centredLeft);
     }
@@ -404,7 +409,7 @@ public:
     }
 
 private:
-    static constexpr int titleHeight = 18;
+    static constexpr int titleHeight = 21;
 
     juce::String title;
     int nameWidth;

@@ -261,6 +261,20 @@ double PianoRollComponent::snapUp (double beat) const
     return std::ceil (beat / gridBeats - 1.0e-9) * gridBeats;
 }
 
+// What a move drag snaps to. Nearest rather than down, because a move is
+// measured from where the note already is: a note sitting on a grid line --
+// which is where nearly every note is -- would otherwise fall a whole
+// division the instant the pointer moved one pixel left, while needing a
+// full division of travel to move right. Nearest makes the two directions
+// alike, and puts half a division of slack around standing still.
+double PianoRollComponent::snapNearest (double beat) const
+{
+    if (! snapEnabled)
+        return beat;
+
+    return std::floor (beat / gridBeats + 0.5) * gridBeats;
+}
+
 double PianoRollComponent::minLengthBeats() const
 {
     return snapEnabled ? gridBeats : freeMinLengthBeats;
@@ -439,6 +453,67 @@ void PianoRollComponent::dragSelectionTo (double anchorStart, int anchorPitch)
     }
 }
 
+bool PianoRollComponent::duplicateSelectionForDrag()
+{
+    if (! pattern || selectedNotes.empty())
+        return false;
+
+    // Every addNote calls back into patternChanged(), which rewrites
+    // selectedNotes, so work from our own copy.
+    const auto originals = selectedNotes;
+    const auto anchorState = draggedNote ? draggedNote->state : juce::ValueTree();
+
+    std::vector<juce::ValueTree> copies;
+    copies.reserve (originals.size());
+
+    for (const auto& state : originals)
+    {
+        const model::Note note (state);
+        auto copy = pattern->addNote (note.getStart(), note.getLength(),
+                                      note.getPitch(), note.getVelocity(), &undoManager);
+
+        // The copy of the note the pointer grabbed carries the drag from here,
+        // so the block keeps moving relative to where it was picked up.
+        if (state == anchorState)
+            draggedNote = copy;
+
+        copies.push_back (copy.state);
+    }
+
+    // The copies are what is being dragged, and what stays selected at the end
+    // -- the originals are left exactly where they were.
+    setSelection (std::move (copies));
+    beginSelectionDrag();
+    return true;
+}
+
+void PianoRollComponent::resizeSelectionTo (double length)
+{
+    if (! pattern)
+        return;
+
+    // Every write calls back into patternChanged(), which rewrites
+    // selectedNotes, so work from our own copy for the whole gesture.
+    const auto targets = resizeTargets;
+
+    for (const auto& state : targets)
+    {
+        model::Note note (state);
+
+        // Clamped per note rather than once against the grabbed one: the
+        // selection can reach further into the pattern than the note under the
+        // pointer, and a note may not run off the end of it.
+        const auto maxLength = juce::jmax (minLengthBeats(),
+                                           pattern->getLengthBeats() - note.getStart());
+        const auto clamped = juce::jlimit (minLengthBeats(), maxLength, length);
+
+        // Only write when the result actually changed: every property change
+        // triggers a full EditSync resync, and a drag produces a lot of events.
+        if (! juce::exactlyEqual (clamped, note.getLength()))
+            note.setLength (clamped, &undoManager);
+    }
+}
+
 void PianoRollComponent::deleteSelection()
 {
     if (! pattern || selectedNotes.empty())
@@ -584,16 +659,16 @@ void PianoRollComponent::cutSelection()
         deleteSelection();
 }
 
-// Paste lands at the start of the bar under the pointer, and only while the
+// Paste lands under the pointer, snapped to the grid, and only while the
 // pointer is over the grid; otherwise the notes go back exactly where they
 // were copied from.
 //
 // The roll has no playhead to paste at -- a pattern sits at no particular
-// point in the song, so there is nothing for one to follow -- and the bar
-// under the pointer is the place the user is already looking at. A bar rather
-// than the exact beat because a paste is a block move: a bar of drums dropped
-// half a beat late is never what was meant, and the pasted notes stay selected
-// so nudging them from there is one drag away.
+// point in the song, so there is nothing for one to follow -- so the pointer
+// is the cursor here, and it is where the user is already looking. The grid
+// rather than the bar line: a paste is often a phrase moved a beat or two, and
+// rounding that down to the bar put it somewhere it had to be dragged out of
+// again. Snap off means exactly the pointer, like every other gesture.
 double PianoRollComponent::getPasteTargetBeat (double originBeat) const
 {
     if (! isMouseOver (true))
@@ -604,8 +679,7 @@ double PianoRollComponent::getPasteTargetBeat (double originBeat) const
     if (position.x < (float) keyboardWidth)
         return originBeat;
 
-    const auto beatsPerBar = getBeatsPerBar();
-    return std::floor (juce::jmax (0.0, xToBeat (position.x)) / beatsPerBar) * beatsPerBar;
+    return snapDown (juce::jmax (0.0, xToBeat (position.x)));
 }
 
 void PianoRollComponent::pasteNotes()
@@ -781,7 +855,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
         if (pitch % 12 == 0)
         {
             g.setColour (juce::Colour (0xff707078));
-            g.setFont (9.0f);
+            g.setFont (10.0f);
             g.drawText ("C" + juce::String (pitch / 12 - 1),
                         2, (int) y, keyboardWidth - 8, rowHeight, juce::Justification::centredRight);
         }
@@ -804,8 +878,8 @@ juce::MouseCursor PianoRollComponent::cursorFor (juce::Point<float> position,
 
     // empty grid: the draw tool would add a note here, the select tool would
     // start a rubber band
-    return tool == Tool::select ? juce::MouseCursor::CrosshairCursor
-                                : juce::MouseCursor::NormalCursor;
+    return getEffectiveTool (mods) == Tool::select ? juce::MouseCursor::CrosshairCursor
+                                                : juce::MouseCursor::NormalCursor;
 }
 
 void PianoRollComponent::updateCursor (const juce::MouseEvent& e)
@@ -883,6 +957,20 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     // appended to it, so a whole move or erase sweep undoes in a single step.
     undoManager.beginNewTransaction();
 
+    // A right click on a note that is part of the selection takes the whole
+    // selection away. Sweeping notes out one by one is what the erase gesture
+    // below is for; once a set has been picked out deliberately, "delete this"
+    // is the only thing a right click on it can mean.
+    if (e.mods.isRightButtonDown() && selectedNotes.size() > 1)
+    {
+        if (auto note = noteAt (e.position); note && isSelected (note->state))
+        {
+            deleteSelection();
+            updateCursor (e);
+            return;
+        }
+    }
+
     if (isEraseGesture (e.mods))
     {
         dragMode = DragMode::erase;
@@ -900,20 +988,54 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         {
             draggedNote = note;
             dragMode = DragMode::resize;
+
+            // Dragging the edge of a note that is part of the selection sets
+            // the length of the whole selection: giving a chord's notes the
+            // same length one at a time is exactly the tedium a selection is
+            // for. A note outside the selection is still only itself, which is
+            // what keeps a quick resize from disturbing what is selected.
+            resizeTargets = isSelected (note->state) && selectedNotes.size() > 1
+                                ? selectedNotes
+                                : std::vector<juce::ValueTree> { note->state };
+
             previewNote (note->getPitch(), note->getVelocity());
             updateCursor (e);
             return;
         }
 
-        selectNote (*note, e.mods.isCommandDown() || e.mods.isShiftDown());
-
-        // Cmd-clicking a note that was selected takes it back out again, and
-        // then there is nothing under the pointer left to drag.
-        if (! isSelected (note->state))
+        // Cmd on a note is two gestures at once, and which one it is only
+        // becomes clear when the mouse either moves or does not: a drag from
+        // here duplicates the selection and moves the copy, a click alone is
+        // the selection toggle it has always been. So arm both and let
+        // mouseDrag/mouseUp decide.
+        //
+        // Whichever tool is up. Drawing a part is exactly when copying the bar
+        // just drawn is worth having, and reaching for the select tool first
+        // is the interruption Shift-to-select exists to avoid.
+        if (e.mods.isCommandDown())
         {
-            dragMode = DragMode::none;
-            updateCursor (e);
-            return;
+            pendingDuplicate = true;
+
+            // Only a note that was already selected has a toggle to hold back;
+            // adding an unselected one to the selection is what a duplicate
+            // drag needs anyway, so that half happens now.
+            if (isSelected (note->state))
+                pendingToggleNote = note;
+            else
+                selectNote (*note, true);
+        }
+        else
+        {
+            selectNote (*note, e.mods.isCommandDown() || e.mods.isShiftDown());
+
+            // Cmd-clicking a note that was selected takes it back out again,
+            // and then there is nothing under the pointer left to drag.
+            if (! isSelected (note->state))
+            {
+                dragMode = DragMode::none;
+                updateCursor (e);
+                return;
+            }
         }
 
         draggedNote = note;
@@ -924,18 +1046,21 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         // instead of snapping its centre to the pointer.
         dragMode = DragMode::move;
         grabOffsetBeats = xToBeat (e.position.x) - note->getStart();
-        grabPitchOffset = note->getPitch() - yToPitch (e.position.y);
+        dragStartPosition = e.position;
         beginSelectionDrag();
         updateCursor (e);
         return;
     }
 
-    if (tool == Tool::select)
+    if (getEffectiveTool (e.mods) == Tool::select)
     {
-        // Empty grid with the select tool: rubber band. Cmd or Shift adds to
-        // what is already selected, so the band starts from the current
-        // selection rather than replacing it.
-        if (! (e.mods.isCommandDown() || e.mods.isShiftDown()))
+        // Empty grid with the select tool: rubber band. Cmd adds to what is
+        // already selected, so the band starts from the current selection
+        // rather than replacing it. Shift does not: holding it is what asked
+        // for the select tool in the first place, so it cannot also mean
+        // "add", and a shift-band from the draw tool has to be able to start a
+        // fresh selection.
+        if (! e.mods.isCommandDown())
             clearSelection();
 
         dragMode = DragMode::rubberBand;
@@ -961,7 +1086,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
     dragMode = DragMode::move;
     grabOffsetBeats = xToBeat (e.position.x) - start;
-    grabPitchOffset = 0;   // a new note is created on the row under the cursor
+    dragStartPosition = e.position;
     beginSelectionDrag();
     updateCursor (e);
 }
@@ -989,18 +1114,33 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 
     if (dragMode == DragMode::move)
     {
-        dragSelectionTo (snapDown (xToBeat (e.position.x) - grabOffsetBeats),
-                         yToPitch (e.position.y) + grabPitchOffset);
+        // The press armed a duplicate and the mouse has now moved, so this is
+        // one. Done once, on the first drag event: from here it is an ordinary
+        // move of the copies.
+        if (pendingDuplicate)
+        {
+            pendingDuplicate = false;
+            pendingToggleNote.reset();
+            duplicateSelectionForDrag();
+        }
+
+        // The row moves on how far the pointer has travelled since the press,
+        // rounded to the nearest row -- not on which row the pointer is over.
+        // The latter changes the moment the pointer crosses a row line, so a
+        // note grabbed near the top of its row jumped to the next one after a
+        // pixel of movement; this way it takes half a row either way.
+        const auto rowsMoved = (int) std::lround ((dragStartPosition.y - e.position.y)
+                                                      / (float) rowHeight);
+
+        dragSelectionTo (snapNearest (xToBeat (e.position.x) - grabOffsetBeats),
+                         dragAnchorOriginPitch + rowsMoved);
     }
     else if (dragMode == DragMode::resize)
     {
-        const auto maxLength = juce::jmax (minLengthBeats(),
-                                           pattern->getLengthBeats() - draggedNote->getStart());
-        const auto length = juce::jlimit (minLengthBeats(), maxLength,
-                                          snapUp (xToBeat (e.position.x) - draggedNote->getStart()));
-
-        if (! juce::exactlyEqual (length, draggedNote->getLength()))
-            draggedNote->setLength (length, &undoManager);
+        // The pointer sets the length of the note it grabbed; the rest of the
+        // selection takes the same length, not the same edge, so a resize does
+        // not line every note's end up on one beat.
+        resizeSelectionTo (snapUp (xToBeat (e.position.x) - draggedNote->getStart()));
     }
 }
 
@@ -1009,10 +1149,19 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
     if (draggedNote && dragMode == DragMode::resize)
         lastNoteLength = draggedNote->getLength();
 
+    // An armed duplicate that never became a drag was a plain Cmd click, and
+    // those toggle the note out of the selection.
+    if (pendingToggleNote)
+        selectNote (*pendingToggleNote, true);
+
+    pendingDuplicate = false;
+    pendingToggleNote.reset();
+
     dragMode = DragMode::none;
     draggedNote.reset();
     dragOriginStarts.clear();
     dragOriginPitches.clear();
+    resizeTargets.clear();
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateCursor (e);
@@ -1151,7 +1300,7 @@ void PianoRollRuler::paint (juce::Graphics& g)
     const auto lastVisibleBeat = juce::jmin (lengthBeats,
                                              (double) roll.xToBeat ((float) scrollOffset + width));
 
-    g.setFont (10.0f);
+    g.setFont (12.0f);
 
     if (drawBeatTicks)
     {
@@ -1285,7 +1434,7 @@ void PianoRollVelocityLane::paint (juce::Graphics& g)
         g.fillRect (0.0f, 1.0f, gutter, height - 1.0f);
 
         g.setColour (juce::Colour (0xff707078));
-        g.setFont (9.0f);
+        g.setFont (10.0f);
         g.drawText ("Vel", juce::Rectangle<float> (2.0f, 0.0f, gutter - 6.0f, height),
                     juce::Justification::centredRight, false);
     }

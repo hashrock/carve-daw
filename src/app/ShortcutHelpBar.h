@@ -45,8 +45,8 @@ public:
         g.drawHorizontalLine (0, 0.0f, (float) getWidth());
 
         auto area = getLocalBounds().reduced (8, 0);
-        const auto capFont = juce::FontOptions (10.0f);
-        const auto textFont = juce::FontOptions (11.0f);
+        const auto capFont = juce::FontOptions (11.0f);
+        const auto textFont = juce::FontOptions (12.0f);
 
         for (const auto& entry : entries)
         {

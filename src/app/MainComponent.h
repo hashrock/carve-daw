@@ -29,6 +29,12 @@ public:
     void parentHierarchyChanged() override;
     bool keyPressed (const juce::KeyPress&) override;
 
+    // Asks about unsaved work before something is about to throw it away --
+    // quitting, today. Calls onResolved with true to go ahead and false to stay
+    // put, and always asynchronously in spirit: the alert is, and so is the
+    // save behind its first button.
+    void confirmDiscardChanges (std::function<void (bool goAhead)> onResolved);
+
 private:
     void timerCallback() override;
 
@@ -46,9 +52,12 @@ private:
     void markDirty();
     void updateDocumentDisplay();
 
-    void saveSong();
-    void saveSongAs();
-    void writeSongTo (const juce::File& file);
+    // onDone is told whether the song actually reached disk: a cancelled file
+    // chooser and a failed write both answer false, so a caller that was going
+    // to throw the document away afterwards can stop instead.
+    void saveSong (std::function<void (bool saved)> onDone = {});
+    void saveSongAs (std::function<void (bool saved)> onDone = {});
+    bool writeSongTo (const juce::File& file);
     void openSong();
     void openPluginManager();
     void openPatternEditor();

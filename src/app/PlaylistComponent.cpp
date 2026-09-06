@@ -131,7 +131,7 @@ namespace
 
     // Built where it is used rather than kept: a Font at namespace scope would
     // be constructed before the graphics side of JUCE is ready for it.
-    juce::Font markerFont()  { return juce::Font (juce::FontOptions (10.0f)); }
+    juce::Font markerFont()  { return juce::Font (juce::FontOptions (11.0f)); }
 } // namespace
 
 PlaylistComponent::PlaylistComponent (juce::UndoManager& um)
@@ -269,7 +269,8 @@ void PlaylistComponent::updateSize()
     for (int row = 0; row < song.getNumGenerators(); ++row)
         rowsHeight += rowTotalHeight (row);
 
-    setSize (width, headerHeight + juce::jmax (rowHeight, rowsHeight));
+    // addRowHeight is the band under the last row that holds "+ Generator".
+    setSize (width, headerHeight + juce::jmax (rowHeight, rowsHeight) + addRowHeight);
 }
 
 //==============================================================================
@@ -381,11 +382,19 @@ void PlaylistComponent::layOutToolStrip()
 {
     const auto origin = visibleOrigin();
     const auto h = toolbarHeight - 8;
-    paintToolButton.setBounds (origin.x + 6, origin.y + 4, 54, h);
-    selectToolButton.setBounds (paintToolButton.getRight(), origin.y + 4, 54, h);
+    paintToolButton.setBounds (origin.x + 6, origin.y + 4, 68, h);
+    selectToolButton.setBounds (paintToolButton.getRight(), origin.y + 4, 70, h);
     zoomOutButton.setBounds (selectToolButton.getRight() + 12, origin.y + 4, 24, h);
     zoomInButton.setBounds (zoomOutButton.getRight(), origin.y + 4, 24, h);
-    addTrackButton.setBounds (zoomInButton.getRight() + 12, origin.y + 4, 90, h);
+
+    // "+ Generator" sits under the last row rather than in the toolbar: the row
+    // labels down the left *are* the generator list, and the way to add to a
+    // list is a button at the end of it. It scrolls up and down with the rows
+    // it belongs to, and sideways it stays pinned to the label band the same
+    // way the labels themselves do.
+    addTrackButton.setBounds ((int) labelBandLeft() + 6,
+                              (int) rowY (song.getNumGenerators()) + 6,
+                              labelWidth - 12, addRowHeight - 12);
 }
 
 //==============================================================================
@@ -856,7 +865,7 @@ void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioCli
     }
 
     g.setColour (juce::Colours::black.withAlpha (0.75f));
-    g.setFont (11.0f);
+    g.setFont (12.0f);
     g.drawText (clip.getName(),
                 r.withTrimmedRight (trimHandleWidth).reduced (4.0f, 0.0f).toNearestInt(),
                 juce::Justification::centredLeft);
@@ -900,7 +909,7 @@ void PlaylistComponent::paintAutomationLane (juce::Graphics& g, int row,
         g.drawHorizontalLine ((int) y, curveArea.getX(), curveArea.getRight());
 
         g.setColour (juce::Colours::white.withAlpha (0.25f));
-        g.setFont (10.0f);
+        g.setFont (11.0f);
         g.drawText ("click to add a point", curveArea.toNearestInt().reduced (8, 0),
                     juce::Justification::centredLeft);
         return;
@@ -998,7 +1007,7 @@ void PlaylistComponent::paintRowLabels (juce::Graphics& g)
         g.setColour (juce::Colour (0xff35353d));
         g.fillRoundedRectangle (selector, 3.0f);
         g.setColour (juce::Colour (0xffb8b8c0));
-        g.setFont (11.0f);
+        g.setFont (12.0f);
         g.drawText (info.label, selector.reduced (6.0f, 0.0f).withTrimmedRight (10.0f).toNearestInt(),
                     juce::Justification::centredLeft);
 
@@ -1062,7 +1071,7 @@ void PlaylistComponent::paintMarkerLane (juce::Graphics& g)
 
     // The label cell says what the lane is: nothing else here names it, and an
     // empty strip would otherwise read as padding.
-    g.setFont (9.0f);
+    g.setFont (11.0f);
     g.setColour (juce::Colour (0xff6a6a74));
     g.drawText ("TEMPO / SIG", (int) labelBandLeft() + 8, (int) lane.getY(),
                 labelWidth - 12, (int) lane.getHeight(),
@@ -1128,7 +1137,7 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
     while ((double) labelStep * narrowestBarWidth < 46.0)
         labelStep *= 2;
 
-    g.setFont (10.0f);
+    g.setFont (12.0f);
 
     forEachBar (getContentLengthBeats(), [&] (int bar, double startBeat, double lengthBeats)
     {
@@ -1269,7 +1278,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
             const auto menuRect = patternMenuBounds (r);
 
             g.setColour (juce::Colours::black.withAlpha (0.7f));
-            g.setFont (11.0f);
+            g.setFont (12.0f);
             g.drawText (pattern->getName(),
                         r.withTrimmedRight (menuRect.isEmpty() ? 0.0f : r.getRight() - menuRect.getX())
                          .reduced (4.0f, 0.0f).toNearestInt(),
@@ -1328,7 +1337,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
         if (fileDropTarget->row < 0)
         {
-            g.setFont (11.0f);
+            g.setFont (12.0f);
             g.drawText ("New audio track", r.reduced (4.0f, 0.0f).toNearestInt(),
                         juce::Justification::centredLeft);
         }
@@ -1362,7 +1371,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
             const auto y = valueToLaneY (point.getValue(), dragAutoInfo, curveArea);
             const auto text = dragAutoInfo.label + ": " + formatAutoValue (point.getValue());
             const auto textWidth = juce::GlyphArrangement::getStringWidth (
-                                       juce::Font (juce::FontOptions (10.0f)), text) + 10.0f;
+                                       juce::Font (juce::FontOptions (12.0f)), text) + 10.0f;
 
             auto box = juce::Rectangle<float> (x + 8.0f, y - 22.0f, textWidth, 15.0f);
 
@@ -1375,7 +1384,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
             g.setColour (juce::Colours::black.withAlpha (0.8f));
             g.fillRoundedRectangle (box, 3.0f);
             g.setColour (juce::Colours::white);
-            g.setFont (10.0f);
+            g.setFont (12.0f);
             g.drawText (text, box.toNearestInt(), juce::Justification::centred);
         }
     }
@@ -1393,10 +1402,10 @@ void PlaylistComponent::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
 
-    const auto statusX = addTrackButton.getRight() + 10;
+    const auto statusX = zoomInButton.getRight() + 16;
     const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
                                                   juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
-    g.setFont (11.0f);
+    g.setFont (12.0f);
 
     // what the paint tool is currently holding
     if (auto generator = song.findGenerator (selectedGeneratorId))
@@ -2846,7 +2855,14 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             break;
 
         case DragMode::move:
-            dragSelectionTo (snapToBar (beat - dragGrabOffsetBeats));
+            // Nearest bar line, not the one below: a clip sitting on a bar line
+            // -- which is where every clip is -- would otherwise slide a whole
+            // bar back the instant the pointer moved a pixel left, while
+            // needing a full bar of travel to move forward. Nearest makes the
+            // two directions alike, with half a bar of slack around standing
+            // still. The grab offset is already taken off, so this measures
+            // from where the clip is rather than from the pointer.
+            dragSelectionTo (nearestBar (beat - dragGrabOffsetBeats));
             break;
 
         case DragMode::trim:

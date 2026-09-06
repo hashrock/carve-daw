@@ -61,7 +61,7 @@ public:
         if (rows.empty())
         {
             g.setColour (juce::Colour (0xff9a9aa4));
-            g.setFont (juce::FontOptions (12.0f));
+            g.setFont (juce::FontOptions (13.0f));
             g.drawText ("This effect has no editable parameters.",
                         getLocalBounds(), juce::Justification::centred);
         }
