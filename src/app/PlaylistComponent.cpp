@@ -1591,14 +1591,11 @@ void PlaylistComponent::duplicateSelection()
         if (! pattern)
             continue;
 
-        auto copy = playlist.addClip (*generator, *pattern, start, &undoManager);
-
-        // A copy has to play the same thing for the same time: a new clip is
-        // pattern-length and untransposed, so carry both over when they differ.
-        if (clip.hasOwnLength())
-            copy.setLength (length, &undoManager);
-        if (clip.getTranspose() != 0)
-            copy.setTranspose (clip.getTranspose(), &undoManager);
+        // A copy has to play the same thing for the same time, so it is placed
+        // with everything the original said about itself rather than adjusted
+        // into shape afterwards.
+        auto copy = playlist.addClip (*generator, *pattern, start,
+                                      model::ClipPlacement::of (clip), &undoManager);
 
         copies.push_back (copy.state);
     }
@@ -1825,15 +1822,10 @@ void PlaylistComponent::pasteClips()
         if (! isRangeFree (*generator, start, length))
             continue;
 
-        auto copy = playlist.addClip (*generator, *pattern, start, &undoManager);
-
-        // A fresh clip is pattern-length and untransposed, so both only have to
-        // be written when the original said otherwise -- which keeps a pasted
-        // clip's XML identical to the one it was copied from.
-        if (source.hasOwnLength())
-            copy.setLength (length, &undoManager);
-        if (source.getTranspose() != 0)
-            copy.setTranspose (source.getTranspose(), &undoManager);
+        // Only what the original stated outright is carried over, which keeps
+        // a pasted clip's XML identical to the one it was copied from.
+        auto copy = playlist.addClip (*generator, *pattern, start,
+                                      model::ClipPlacement::of (source), &undoManager);
 
         pasted.push_back (copy.state);
     }

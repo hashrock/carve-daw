@@ -29,6 +29,36 @@ namespace
     // Start of the copied block, carried on the clipboard payload so that a
     // paste can move the whole block as one.
     const char* const originAttribute = "origin";
+
+    // The one note colour, at full velocity. Everything quieter is derived
+    // from it by noteColourFor.
+    const juce::Colour noteColour { 0xffe08a3c };
+
+    // How a note's velocity is read off its colour.
+    //
+    // Brightness alone could not do it. The floor is pinned by the grid the
+    // note is drawn on -- go much below the grid's own brightness and a quiet
+    // note stops being visible at all -- which leaves under a factor of two to
+    // spread the whole velocity range over, and real music spends most of its
+    // time in the top half of that range. Two shades of the same orange, a few
+    // percent apart, is what the velocity lane was added to work around.
+    //
+    // So saturation carries the difference instead, with brightness only
+    // helping: a quiet note is washed out and a loud one is vivid, which reads
+    // at a glance and at any size. The velocity lane is still where a value is
+    // *edited*; this is only meant to say loud from quiet on the grid.
+    juce::Colour noteColourFor (int velocity)
+    {
+        // Normalised over the velocities a note may actually hold (1..127, as
+        // 0 is a note-off), so the quietest possible note sits at the bottom
+        // of the ramp rather than a hundredth of the way up it.
+        const auto v = juce::jlimit (0.0f, 1.0f,
+                                     (float) (velocity - model::Note::quietestVelocity)
+                                         / (float) (model::Note::loudestVelocity - model::Note::quietestVelocity));
+
+        return noteColour.withSaturation (juce::jmap (v, 0.20f, noteColour.getSaturation()))
+                         .withBrightness (juce::jmap (v, 0.60f, noteColour.getBrightness()));
+    }
 } // namespace
 
 PianoRollComponent::PianoRollComponent (juce::UndoManager& um)
@@ -716,12 +746,9 @@ void PianoRollComponent::paint (juce::Graphics& g)
         for (const auto& note : pattern->getNotes())
         {
             auto r = noteBounds (note).reduced (0.0f, 1.0f);
-            const auto brightness = 0.55f + 0.45f * (float) note.getVelocity()
-                                                / (float) model::Note::loudestVelocity;
             const bool selected = isSelected (note.state);
 
-            g.setColour (juce::Colour (0xffe08a3c).withMultipliedBrightness (brightness)
-                             .brighter (selected ? 0.4f : 0.0f));
+            g.setColour (noteColourFor (note.getVelocity()).brighter (selected ? 0.4f : 0.0f));
             g.fillRoundedRectangle (r, 2.0f);
             g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.4f));
             g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.0f);
@@ -730,9 +757,9 @@ void PianoRollComponent::paint (juce::Graphics& g)
 
     if (dragMode == DragMode::rubberBand && ! rubberBand.isEmpty())
     {
-        g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.15f));
+        g.setColour (noteColour.withAlpha (0.15f));
         g.fillRect (rubberBand);
-        g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.8f));
+        g.setColour (noteColour.withAlpha (0.8f));
         g.drawRect (rubberBand, 1.0f);
     }
 
@@ -1291,7 +1318,9 @@ void PianoRollVelocityLane::paint (juce::Graphics& g)
         // Dimmed when a selection rules the note out, because then a drag in
         // here will not touch it -- the lane says what it will do before it
         // does it.
-        auto colour = juce::Colour (0xffe08a3c);
+        // Full strength whatever the velocity: the bar's height already says
+        // the value here, and a washed-out bar would only be harder to grab.
+        auto colour = noteColour;
 
         if (roll.isNoteSelected (note))
             colour = colour.brighter (0.4f);

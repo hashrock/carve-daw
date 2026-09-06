@@ -1,9 +1,36 @@
+#include <cstring>
+#include <optional>
+
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 #include "sync/EditSync.h"
 
 namespace
 {
+
+// What a render is at, unless --rate says otherwise.
+//
+// A constant rather than the audio device's, which is what this used to use.
+// The device rate depends on whether the GUI happens to be holding the
+// hardware, so the same song rendered twice could come out at 44.1k once and
+// 48k the next time -- and a bit-identical render (see the README) is no use
+// as a regression check if the two files are not even the same length.
+constexpr double defaultSampleRate = 44100.0;
+
+// Below this the render is not audio, and above it the engine is being asked
+// for something no format here writes.
+constexpr double minSampleRate = 8000.0;
+constexpr double maxSampleRate = 384000.0;
+
+// Fixed for the same reason as the sample rate, and there is no option for it
+// because nothing about the result should depend on it. It came from the
+// audio device too -- and the device setup is stored under the same
+// application name the GUI uses, so changing the buffer size in the GUI moved
+// the block boundaries the CLI renders on. Anything evaluated per block
+// (automation ramps, modulators, a plugin's own smoothing) lands differently
+// either side of that, which is exactly the low-bit drift the single-threaded
+// render exists to rule out.
+constexpr int renderBlockSize = 512;
 
 void printUsage()
 {
@@ -16,12 +43,131 @@ void printUsage()
                  "  carve-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n"
                  "  carve-render --scan                    scan VST3/AU plugins (cached in settings)\n"
                  "  carve-render --plugin-demo <name> <out.wav>\n"
-                 "        render the demo song using the named (substring-matched) instrument plugin\n";
+                 "        render the demo song using the named (substring-matched) instrument plugin\n"
+                 "\n"
+                 "Options:\n"
+                 "  --rate <hz>    sample rate of the rendered file (default 44100)\n";
+}
+
+// The rate every render in this process runs at. Set once from the command
+// line before anything renders; a global because it is a property of the run
+// rather than of any one of the render entry points, all of which would
+// otherwise have to thread it through unchanged.
+double renderSampleRate = defaultSampleRate;
+
+// Pulls "--rate <hz>" out of the argument list, leaving the positional
+// arguments behind for the command dispatch to read as it always has.
+// Returns false with a message written for a missing or nonsensical value,
+// rather than quietly rendering at the default.
+bool takeSampleRateOption (juce::StringArray& args)
+{
+    const auto index = args.indexOf ("--rate");
+    if (index < 0)
+        return true;
+
+    if (index + 1 >= args.size())
+    {
+        std::cerr << "--rate needs a sample rate in Hz\n";
+        return false;
+    }
+
+    const auto value = args[index + 1].getDoubleValue();
+    if (value < minSampleRate || value > maxSampleRate)
+    {
+        std::cerr << "Sample rate out of range (" << (int) minSampleRate << ".."
+                  << (int) maxSampleRate << " Hz): " << args[index + 1] << "\n";
+        return false;
+    }
+
+    renderSampleRate = value;
+    args.removeRange (index, 2);
+    return true;
 }
 
 juce::File resolveFile (const juce::String& path)
 {
     return juce::File::getCurrentWorkingDirectory().getChildFile (path);
+}
+
+// Offset of a named chunk's payload in a RIFF/WAVE file, or nothing if the
+// file has no such chunk. Walked properly rather than searched for: "bext"
+// can occur inside audio data, and tracktion's own scan (applyBWAVStartTime)
+// takes the *last* match in the first 2KB for exactly that reason.
+std::optional<juce::int64> findChunkData (juce::FileInputStream& in, const char* fourCC)
+{
+    char id[4];
+
+    if (in.read (id, 4) != 4 || memcmp (id, "RIFF", 4) != 0)
+        return {};
+
+    in.readInt();   // total size, which we do not need
+
+    if (in.read (id, 4) != 4 || memcmp (id, "WAVE", 4) != 0)
+        return {};
+
+    while (! in.isExhausted())
+    {
+        if (in.read (id, 4) != 4)
+            break;
+
+        const auto size = (juce::int64) (juce::uint32) in.readInt();
+        const auto dataStart = in.getPosition();
+
+        if (memcmp (id, fourCC, 4) == 0)
+            return dataStart;
+
+        // Chunks are word-aligned, so an odd size is followed by a pad byte.
+        in.setPosition (dataStart + size + (size & 1));
+
+        if (in.getPosition() <= dataStart)   // a zero or bogus size would loop forever
+            break;
+    }
+
+    return {};
+}
+
+// Replaces the BWF origination date and time with a fixed one.
+//
+// The last thing standing between a render and a usable md5. The audio is
+// already bit-identical, but JUCE stamps the "bext" chunk with the wall
+// clock, so two renders of the same song a second apart differ in the bytes
+// holding the time. Nothing the caller passes can prevent it: tracktion adds
+// the stamp from inside the render (NodeRenderContext), and it does so with
+// StringPairArray::addArray, which overwrites whatever Parameters::metadata
+// held.
+//
+// Overwriting the field rather than dropping the chunk: the same chunk also
+// carries the render's start time, which is real information a DAW importing
+// the file will use, and removing a chunk means rewriting the file rather
+// than eighteen bytes of it.
+void stampFixedOriginationTime (const juce::File& file)
+{
+    // The bext payload, per the BWF spec: 256 bytes of description, 32 of
+    // originator, 32 of originator reference, then the date and the time as
+    // fixed-width ASCII with no terminator.
+    constexpr juce::int64 dateOffset = 256 + 32 + 32;
+    const juce::String fixedDateAndTime ("1970-01-01" "00:00:00");   // 10 + 8 bytes
+
+    juce::int64 position = 0;
+
+    {
+        juce::FileInputStream in (file);
+
+        if (! in.openedOk())
+            return;
+
+        const auto chunk = findChunkData (in, "bext");
+
+        if (! chunk)
+            return;   // not a BWF file, so nothing dated to fix
+
+        position = *chunk + dateOffset;
+    }
+
+    juce::FileOutputStream out (file);
+
+    if (out.openedOk() && out.setPosition (position))
+        out.write (fixedDateAndTime.toRawUTF8(), (size_t) fixedDateAndTime.length());
 }
 
 int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::String& name)
@@ -35,7 +181,6 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
     // per tracktion). A generator muted in the mixer would still be audible in
     // the exported file.
     auto& engine = edit.engine;
-    auto& deviceManager = engine.getDeviceManager();
 
     const te::Edit::ScopedRenderStatus renderStatus (edit, true);
 
@@ -43,8 +188,8 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
     params.destFile = outputFile;
     params.audioFormat = engine.getAudioFileFormatManager().getDefaultFormat();
     params.bitDepth = 24;
-    params.sampleRateForAudio = deviceManager.getSampleRate();
-    params.blockSizeForAudio = deviceManager.getBlockSize();
+    params.sampleRateForAudio = renderSampleRate;
+    params.blockSizeForAudio = renderBlockSize;
     params.time = { te::TimePosition(),
                     te::TimePosition::fromSeconds (edit.getLength().inSeconds() + 1.0) };
     params.usePlugins = true;
@@ -58,7 +203,10 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
         return 1;
     }
 
-    std::cout << "Rendered \"" << name << "\" -> " << outputFile.getFullPathName() << "\n";
+    stampFixedOriginationTime (outputFile);
+
+    std::cout << "Rendered \"" << name << "\" at " << (int) renderSampleRate << " Hz -> "
+              << outputFile.getFullPathName() << "\n";
     return 0;
 }
 
@@ -145,6 +293,9 @@ int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     juce::StringArray args (argv + 1, argc - 1);
+
+    if (! takeSampleRateOption (args))
+        return 1;
 
     if (args.isEmpty() || (args[0] == "--scan" ? args.size() != 1
                            : args[0] == "--plugin-demo" ? args.size() != 3

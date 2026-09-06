@@ -36,6 +36,34 @@ namespace
                 result.push_back (Wrapper (child));
         return result;
     }
+
+    // The counted-and-indexed half of collectChildren, for the accessors that
+    // walk a node without building a vector. Both filter by type on purpose:
+    // several of these nodes already hold more than one kind of child (a
+    // playlist holds CLIP and AUDIOCLIP), and the ones that do not are only
+    // one feature away from it -- an automation lane under a PATTERN would
+    // otherwise be counted as a note.
+    int countChildren (const juce::ValueTree& parent, const juce::Identifier& type)
+    {
+        int count = 0;
+        for (const auto& child : parent)
+            if (child.hasType (type))
+                ++count;
+        return count;
+    }
+
+    // An invalid tree for an index past the end, which the wrappers turn into
+    // an object whose getters all return their default -- the same thing
+    // ValueTree::getChild does, rather than a new way to fail.
+    juce::ValueTree getChildOfType (const juce::ValueTree& parent, const juce::Identifier& type, int index)
+    {
+        if (index >= 0)
+            for (const auto& child : parent)
+                if (child.hasType (type) && index-- == 0)
+                    return child;
+
+        return {};
+    }
 } // namespace
 
 //==============================================================================
@@ -66,12 +94,12 @@ bool Pattern::hasDefaultSlotName() const
 
 int Pattern::getNumNotes() const
 {
-    return state.getNumChildren();
+    return countChildren (state, ids::NOTE);
 }
 
 Note Pattern::getNote (int index) const
 {
-    return Note (state.getChild (index));
+    return Note (getChildOfType (state, ids::NOTE, index));
 }
 
 std::vector<Note> Pattern::getNotes() const
@@ -457,12 +485,12 @@ juce::String Generator::getPluginState() const
 
 int Playlist::getNumClips() const
 {
-    return state.getNumChildren();
+    return countChildren (state, ids::CLIP);
 }
 
 PlaylistClip Playlist::getClip (int index) const
 {
-    return PlaylistClip (state.getChild (index));
+    return PlaylistClip (getChildOfType (state, ids::CLIP, index));
 }
 
 std::vector<PlaylistClip> Playlist::getClips() const
@@ -473,10 +501,30 @@ std::vector<PlaylistClip> Playlist::getClips() const
 PlaylistClip Playlist::addClip (const Generator& generator, const Pattern& pattern,
                                 double startBeats, juce::UndoManager* um)
 {
+    return addClip (generator, pattern, startBeats, {}, um);
+}
+
+PlaylistClip Playlist::addClip (const Generator& generator, const Pattern& pattern,
+                                double startBeats, const ClipPlacement& placement,
+                                juce::UndoManager* um)
+{
     juce::ValueTree clip (ids::CLIP);
     clip.setProperty (ids::generatorId, generator.getId(), nullptr);
     clip.setProperty (ids::patternId, pattern.getId(), nullptr);
-    clip.setProperty (ids::start, std::max (0.0, startBeats), nullptr);
+    clip.setProperty (ids::start, PlaylistClip::clampStart (startBeats), nullptr);
+
+    // Through the setters' clamps, and only when the placement has something
+    // to say: an absent length and a zero transpose are what a plain clip
+    // has, so writing them out unconditionally would put properties into
+    // every song that never had them.
+    if (placement.length)
+        clip.setProperty (ids::length, PlaylistClip::clampLength (*placement.length), nullptr);
+
+    if (placement.transpose != 0)
+        clip.setProperty (ids::transpose, PlaylistClip::clampTranspose (placement.transpose), nullptr);
+
+    // The tree is complete before it is attached, so everything listening to
+    // the playlist sees the finished placement on its first callback.
     state.appendChild (clip, um);
     return PlaylistClip (clip);
 }
@@ -900,7 +948,7 @@ void Generator::removeModifier (const GenModifier& modifier, juce::UndoManager* 
 
 int AutomationLane::getNumPoints() const
 {
-    return state.getNumChildren();
+    return countChildren (state, ids::PT);
 }
 
 std::vector<AutomationPoint> AutomationLane::getPoints() const

@@ -1311,3 +1311,130 @@ TEST_CASE ("A song arriving out of range comes back inside it", "[song][xml]")
         RC_ASSERT (loaded->getGenerator (0).getPattern (0).getNumNotes() == noteCount);
     }));
 }
+
+
+//==============================================================================
+// Counting and indexing children by type
+//
+// Several nodes in the document hold more than one kind of child -- a playlist
+// holds pattern placements and audio placements -- and the ones that hold only
+// one today are a feature away from holding two. So the accessors that count
+// and index are held to the same answer as the ones that collect, whatever
+// else is sitting alongside.
+
+TEST_CASE ("Counting children ignores the children of other kinds", "[song][state]")
+{
+    REQUIRE (rc::check ("a foreign child changes no count and shifts no index", [] {
+        auto song = Song::create ("property test");
+        auto generator = song.addGenerator ("Gen", "4osc", nullptr);
+        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 16.0);
+
+        const auto noteCount = *rc::gen::inRange (0, 8);
+
+        for (int i = 0; i < noteCount; ++i)
+            pattern.addNote (i * 0.5, 0.25, 60 + i, 100, nullptr);
+
+        // Audio placements really are children of the playlist node, so this
+        // half of the property is about today's document rather than a
+        // hypothetical one.
+        const auto clipCount = *rc::gen::inRange (0, 4);
+        const auto audioCount = *rc::gen::inRange (0, 4);
+
+        auto playlist = song.getPlaylist();
+
+        for (int i = 0; i < clipCount; ++i)
+            playlist.addClip (generator, pattern, i * 16.0, nullptr);
+
+        for (int i = 0; i < audioCount; ++i)
+            playlist.addAudioClip (generator, juce::File(), 1000.0 + i, 1.0, nullptr);
+
+        // Whatever a later feature might hang off these nodes, standing in for
+        // an automation lane under a pattern or a marker on the playlist.
+        const auto foreignCount = *rc::gen::inRange (0, 3);
+
+        for (int i = 0; i < foreignCount; ++i)
+        {
+            pattern.state.appendChild (juce::ValueTree ("SOMETHINGELSE"), nullptr);
+            playlist.state.appendChild (juce::ValueTree ("SOMETHINGELSE"), nullptr);
+        }
+
+        RC_ASSERT (pattern.getNumNotes() == noteCount);
+        RC_ASSERT (playlist.getNumClips() == clipCount);
+
+        // The indexed accessor and the collecting one name the same children
+        // in the same order, which is what makes the two interchangeable.
+        const auto notes = pattern.getNotes();
+        RC_ASSERT ((int) notes.size() == noteCount);
+
+        for (int i = 0; i < noteCount; ++i)
+            RC_ASSERT (pattern.getNote (i).state == notes[(size_t) i].state);
+
+        const auto clips = playlist.getClips();
+        RC_ASSERT ((int) clips.size() == clipCount);
+
+        for (int i = 0; i < clipCount; ++i)
+            RC_ASSERT (playlist.getClip (i).state == clips[(size_t) i].state);
+    }));
+}
+
+
+//==============================================================================
+// Placing a copy of a clip
+
+TEST_CASE ("A placed copy says exactly what the original said", "[song][state]")
+{
+    REQUIRE (rc::check ("a copy carries over what was stated and nothing more", [] {
+        auto song = Song::create ("property test");
+        auto generator = song.addGenerator ("Gen", "4osc", nullptr);
+        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 4.0);
+        auto playlist = song.getPlaylist();
+
+        // The source is built by hand rather than through addClip, so that
+        // what the copy is checked against does not come from the code under
+        // test. "Absent" is the case that matters: a clip with no length of
+        // its own plays for as long as its pattern, and a copy that grew a
+        // length property would stop following the pattern when it changed.
+        const auto ownLength = *rc::gen::maybe (rc::gen::map (rc::gen::inRange (1, 65),
+                                                              [] (int steps) { return steps * 0.25; }));
+        const auto transpose = *rc::gen::inRange (-60, 61);
+
+        juce::ValueTree sourceState (ids::CLIP);
+        sourceState.setProperty (ids::generatorId, generator.getId(), nullptr);
+        sourceState.setProperty (ids::patternId, pattern.getId(), nullptr);
+        sourceState.setProperty (ids::start, 0.0, nullptr);
+
+        if (ownLength)
+            sourceState.setProperty (ids::length, *ownLength, nullptr);
+
+        if (transpose != 0)
+            sourceState.setProperty (ids::transpose, transpose, nullptr);
+
+        playlist.state.appendChild (sourceState, nullptr);
+
+        const PlaylistClip source (sourceState);
+        const auto start = *rc::gen::inRange (0, 64) * 0.25;
+
+        auto copy = playlist.addClip (generator, pattern, start,
+                                      ClipPlacement::of (source), nullptr);
+
+        RC_ASSERT (copy.getGeneratorId() == generator.getId());
+        RC_ASSERT (copy.getPatternId() == pattern.getId());
+        RC_ASSERT (copy.getStart() == start);
+
+        // Exactly the properties the original had, and with the same values --
+        // so a duplicated clip's XML matches the clip it came from.
+        RC_ASSERT (copy.state.hasProperty (ids::length) == (bool) ownLength);
+        RC_ASSERT (copy.state.hasProperty (ids::transpose) == (transpose != 0));
+
+        if (ownLength)
+            RC_ASSERT (copy.getLength (pattern.getLengthBeats())
+                           == PlaylistClip::clampLength (*ownLength));
+
+        RC_ASSERT (copy.getTranspose() == PlaylistClip::clampTranspose (transpose));
+
+        // And it plays for the same time either way, which is the thing a
+        // duplicate is actually judged on.
+        RC_ASSERT (copy.getLength (pattern.getLengthBeats())
+                       == source.getLength (pattern.getLengthBeats()));
+    }));
+}
