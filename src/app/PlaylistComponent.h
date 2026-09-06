@@ -69,6 +69,10 @@ public:
     // The rectangle is where to hang it (the button, in screen coords).
     std::function<void (juce::Rectangle<int>)> onAddGenerator;
 
+    // Right-click on a row label: the generator's own menu (rename, delete),
+    // with the label's screen area to hang it off.
+    std::function<void (const juce::String& generatorId, juce::Rectangle<int>)> onGeneratorMenu;
+
     // A click on the ruler asked for the transport to move to this beat (a
     // drag still sets the loop range; a right click clears it).
     std::function<void (double beat)> onSeek;

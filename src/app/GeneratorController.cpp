@@ -499,6 +499,79 @@ void GeneratorController::duplicatePattern (const juce::String& generatorId,
     fireSelectionChanged();
 }
 
+void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
+                                             juce::Rectangle<int> screenArea)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader (generator->getName());
+    menu.addItem (1, "Rename...");
+    menu.addItem (2, "Delete");
+
+    // Looked up again inside: the menu is asynchronous, and the song may have
+    // been replaced by then.
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
+                        [this, generatorId] (int result)
+    {
+        if (result == 1)
+            renameGenerator (generatorId);
+        else if (result == 2)
+            deleteGenerator (generatorId);
+    });
+}
+
+void GeneratorController::renameGenerator (const juce::String& generatorId)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    renameWindow = std::make_unique<juce::AlertWindow> ("Rename generator", juce::String(),
+                                                        juce::MessageBoxIconType::NoIcon);
+    renameWindow->addTextEditor ("name", generator->getName(), "Name");
+    renameWindow->addButton ("Rename", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    renameWindow->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    renameWindow->enterModalState (true, juce::ModalCallbackFunction::create (
+        [this, generatorId] (int result)
+    {
+        // Read before the window goes; see renamePattern for the shape.
+        const auto name = result == 1 ? renameWindow->getTextEditorContents ("name").trim()
+                                      : juce::String();
+
+        juce::MessageManager::callAsync ([this] { renameWindow.reset(); });
+
+        if (name.isEmpty())
+            return;
+
+        if (auto target = song.findGenerator (generatorId))
+        {
+            undoManager.beginNewTransaction();
+            target->setName (name, &undoManager);
+        }
+    }));
+}
+
+void GeneratorController::deleteGenerator (const juce::String& generatorId)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    // No confirmation: it is one press of cmd-Z away, and the model takes
+    // the generator's clips and sidechains with it so nothing dangles.
+    undoManager.beginNewTransaction();
+    song.removeGenerator (*generator, &undoManager);
+    refresh();   // ensureValidSelection moves the selection off it
+    fireSelectionChanged();
+}
+
 void GeneratorController::renamePattern (const juce::String& generatorId,
                                          const juce::String& patternId)
 {

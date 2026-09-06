@@ -57,6 +57,11 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         generatorController->showAddGeneratorMenu (screenArea);
     };
 
+    playlist.onGeneratorMenu = [this] (const juce::String& generatorId, juce::Rectangle<int> screenArea)
+    {
+        generatorController->showGeneratorMenu (generatorId, screenArea);
+    };
+
     playlist.onSeek = [this] (double beat) { seekToSongBeat (beat); };
 
     // Double-clicking a clip edits the pattern it plays: make that pattern the
