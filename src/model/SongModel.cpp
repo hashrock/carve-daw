@@ -67,30 +67,43 @@ namespace
 } // namespace
 
 //==============================================================================
-// PatternSlot
+// Automatic pattern names
 
-std::optional<PatternSlot> PatternSlot::fromKey (const juce::String& key)
+juce::String patternStemForGenerator (const juce::String& generatorName)
 {
-    if (key.length() < 2)
-        return std::nullopt;
+    const auto trimmed = generatorName.trim();
 
-    const PatternSlot slot { key[0] - 'A', key.substring (1).getIntValue() - 1 };
-    if (! slot.isValid() || slot.getKey() != key)   // rejects "A01", "AA1", ...
-        return std::nullopt;
+    // Two characters, or all of them if there are fewer. A generator with no
+    // name at all still has to number its patterns from something.
+    return trimmed.isEmpty() ? juce::String ("Pt") : trimmed.substring (0, 2);
+}
 
-    return slot;
+juce::String patternStemForCopy (const juce::String& patternName)
+{
+    const auto trimmed = patternName.trim();
+
+    if (trimmed.isEmpty())
+        return "Pt";
+
+    int end = trimmed.length();
+    while (end > 0 && juce::CharacterFunctions::isDigit (trimmed[end - 1]))
+        --end;
+
+    // All digits ("12"): there is no stem to keep, so it numbers like a
+    // nameless pattern rather than coming back as an empty name.
+    if (end == 0)
+        return "Pt";
+
+    // A name that ended in a number keeps whatever separator it already had,
+    // so "Ba1" clones to "Ba2" and "Bass 1" to "Bass 2". One that ended in
+    // anything else gains a space, so "Melody" clones to "Melody 2" and not
+    // to "Melody2".
+    return end < trimmed.length() ? trimmed.substring (0, end)
+                                  : trimmed + " ";
 }
 
 //==============================================================================
 // Pattern
-
-bool Pattern::hasDefaultSlotName() const
-{
-    if (auto slot = getSlot())
-        return getName() == slot->getKey();
-
-    return false;
-}
 
 int Pattern::getNumNotes() const
 {
@@ -363,84 +376,59 @@ std::optional<Pattern> Generator::findPattern (const juce::String& patternId) co
     return Pattern (found);
 }
 
-std::vector<Pattern> Generator::getUnslottedPatterns() const
+juce::String Generator::makeUniquePatternName (const juce::String& stem) const
 {
-    std::vector<Pattern> result;
-    for (const auto& pattern : getPatterns())
-        if (! pattern.getSlot())
-            result.push_back (pattern);
-    return result;
-}
+    const auto patterns = getPatterns();
 
-std::optional<Pattern> Generator::findPatternInSlot (const PatternSlot& slot) const
-{
-    if (! slot.isValid())
-        return std::nullopt;
-
-    auto found = state.getChildWithName (ids::PATTERNS)
-                      .getChildWithProperty (ids::slot, slot.getKey());
-    if (! found.isValid())
-        return std::nullopt;
-
-    return Pattern (found);
-}
-
-std::optional<PatternSlot> Generator::findFreeSlot (std::optional<PatternSlot> after) const
-{
-    const int start = after && after->isValid() ? after->toFlatIndex() + 1 : 0;
-
-    for (int i = 0; i < PatternSlot::numSlots; ++i)
+    // Linear in the pattern count squared, and deliberately: a generator holds
+    // a handful of patterns, and the first free number is what makes a name
+    // predictable -- deleting "Ba2" and asking for another gives "Ba2" back
+    // rather than "Ba5".
+    for (int number = 1; ; ++number)
     {
-        const auto slot = PatternSlot::fromFlatIndex ((start + i) % PatternSlot::numSlots);
-        if (! findPatternInSlot (slot))
-            return slot;
-    }
+        const auto candidate = stem + juce::String (number);
 
-    return std::nullopt;
+        if (std::none_of (patterns.begin(), patterns.end(),
+                          [&] (const Pattern& p) { return p.getName() == candidate; }))
+            return candidate;
+    }
 }
 
-Pattern Generator::duplicatePattern (const Pattern& source, const PatternSlot& destination,
-                                     juce::UndoManager* um)
+Pattern Generator::createPattern (juce::UndoManager* um, double lengthBeats)
 {
-    // A pattern still carrying its slot's name was never named by the user, so
-    // the copy takes its own slot's name and the grid stays readable. One the
-    // user did name keeps that name, marked as the copy it is.
-    const auto name = source.hasDefaultSlotName() ? destination.getKey()
-                                                  : source.getName() + " copy";
+    return addPattern (makeUniquePatternName (patternStemForGenerator (getName())),
+                       lengthBeats, um);
+}
 
-    auto copy = addPattern (destination, name, source.getLengthBeats(), um);
+Pattern Generator::duplicatePattern (const Pattern& source, juce::UndoManager* um)
+{
+    auto patterns = getOrCreateChild (state, ids::PATTERNS);
+
+    // A copy of one of ours goes straight after the original; one from another
+    // generator has nothing to sit next to, so it goes on the end.
+    const int sourceIndex = patterns.indexOf (source.state);
+    const int index = sourceIndex >= 0 ? sourceIndex + 1 : -1;
+
+    auto copy = insertPattern (index, makeUniquePatternName (patternStemForCopy (source.getName())),
+                               source.getLengthBeats(), um);
     copy.copyNotesFrom (source, um);
     return copy;
 }
 
-Pattern Generator::getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,
-                                             double lengthBeats)
+Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um)
 {
-    if (auto existing = findPatternInSlot (slot))
-        return *existing;
-
-    // The slot key doubles as the default name, so an untouched slot reads as
-    // "A1" everywhere until the user renames it.
-    return addPattern (slot, slot.getKey(), lengthBeats, um);
+    return insertPattern (-1, name, lengthBeats, um);
 }
 
-Pattern Generator::addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um)
+Pattern Generator::insertPattern (int index, const juce::String& name, double lengthBeats,
+                                  juce::UndoManager* um)
 {
     juce::ValueTree pattern (ids::PATTERN);
     pattern.setProperty (ids::id, newId(), nullptr);
     pattern.setProperty (ids::name, name, nullptr);
     pattern.setProperty (ids::lengthBeats, juce::jmax (Pattern::minLengthBeats, lengthBeats), nullptr);
-    getOrCreateChild (state, ids::PATTERNS).appendChild (pattern, um);
+    getOrCreateChild (state, ids::PATTERNS).addChild (pattern, index, um);
     return Pattern (pattern);
-}
-
-Pattern Generator::addPattern (const PatternSlot& slot, const juce::String& name,
-                               double lengthBeats, juce::UndoManager* um)
-{
-    auto pattern = addPattern (name, lengthBeats, um);
-    if (slot.isValid())
-        pattern.setSlot (slot, um);
-    return pattern;
 }
 
 void Generator::removePattern (const Pattern& pattern, juce::UndoManager* um)
@@ -580,6 +568,7 @@ std::optional<Song> Song::fromXml (const juce::String& xml)
 
     Song song (tree);
     song.ensureAudioClipIds();
+    song.dropPatternSlots();
     song.dropDuplicateChanges();
     song.clampValues();
     return song;
@@ -621,6 +610,17 @@ void Song::ensureAudioClipIds() const
     for (auto clip : getPlaylist().getAudioClips())
         if (clip.getId().isEmpty())
             clip.state.setProperty (ids::id, newId(), nullptr);
+}
+
+void Song::dropPatternSlots() const
+{
+    // "slot" is not a declared id any more, so it is named here as the string
+    // it is in the file. Nothing else in the app knows the property exists.
+    static const juce::Identifier legacySlot { "slot" };
+
+    for (auto generator : getGenerators())
+        for (auto pattern : generator.getPatterns())
+            pattern.state.removeProperty (legacySlot, nullptr);
 }
 
 void Song::dropDuplicateChanges() const
