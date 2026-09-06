@@ -808,6 +808,37 @@ Generator Song::addGenerator (const juce::String& name, const juce::String& type
     return Generator (generator);
 }
 
+void Song::removeGenerator (const Generator& generator, juce::UndoManager* um)
+{
+    const auto id = generator.getId();
+    auto playlist = getPlaylist();
+
+    for (const auto& clip : playlist.getClips())
+        if (clip.getGeneratorId() == id)
+            playlist.removeClip (clip, um);
+
+    for (const auto& clip : playlist.getAudioClips())
+        if (clip.getGeneratorId() == id)
+            playlist.removeAudioClip (clip, um);
+
+    // A compressor keyed from this generator would keep naming it; the sync
+    // rebuilds sidechains from these ids, so a stale one is a broken bus.
+    auto clearSidechains = [&id, um] (std::vector<Effect> effects)
+    {
+        for (auto effect : effects)
+            if (effect.getSidechainSourceId() == id)
+                effect.setSidechainSourceId ({}, um);
+    };
+
+    for (const auto& other : getGenerators())
+        clearSidechains (other.getEffects());
+
+    for (const auto& ret : getReturns())
+        clearSidechains (ret.getEffects());
+
+    state.getChildWithName (ids::GENERATORS).removeChild (generator.state, um);
+}
+
 Playlist Song::getPlaylist() const
 {
     return Playlist (getOrCreateChild (state, ids::PLAYLIST));

@@ -62,6 +62,10 @@ public:
     // hung off screenArea -- the playlist's "+ Generator" button.
     void showAddGeneratorMenu (juce::Rectangle<int> screenArea);
 
+    // A generator's own menu -- rename, delete -- hung off screenArea, which
+    // is its row label on the playlist.
+    void showGeneratorMenu (const juce::String& generatorId, juce::Rectangle<int> screenArea);
+
     // The plain sampler's "one sample across the whole keyboard" chooser, for
     // the generator window's Load Sample button. Ignored unless the selected
     // generator is a plain sampler -- a drum kit's sounds are its pads.
@@ -121,6 +125,8 @@ private:
     void duplicatePattern (const juce::String& generatorId, const juce::String& patternId,
                            const juce::String& destinationGeneratorId);
     void renamePattern (const juce::String& generatorId, const juce::String& patternId);
+    void renameGenerator (const juce::String& generatorId);
+    void deleteGenerator (const juce::String& generatorId);
     void deletePattern (const juce::String& generatorId, const juce::String& patternId);
     void exportPatternToMidi (const juce::String& generatorId, const juce::String& patternId);
     void importMidiIntoPattern (const juce::String& generatorId, const juce::String& patternId);

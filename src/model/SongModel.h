@@ -944,6 +944,11 @@ public:
 
     Generator addGenerator (const juce::String& name, const juce::String& type, juce::UndoManager* um);
 
+    // Takes the generator and everything that would otherwise point at
+    // nothing: its clips on the playlist, and any effect sidechained to it.
+    // One transaction's worth, so undo brings the lot back.
+    void removeGenerator (const Generator&, juce::UndoManager*);
+
     Playlist getPlaylist() const;
 
     // Materialised on first use, like the playlist, so songs written before the

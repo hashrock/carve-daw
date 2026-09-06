@@ -754,6 +754,7 @@ void PlaylistComponent::updateShortcutHelp()
 
     entries.push_back ({ "Cmd+click", "extend selection" });
     entries.push_back ({ "double click", "edit pattern" });
+    entries.push_back ({ "right-click label", "rename / delete" });
 
     if (! mods.isAltDown())
         entries.push_back ({ "Alt+drag", "erase" });
@@ -2753,6 +2754,14 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
     {
         if (onSelectGenerator)
             onSelectGenerator (generator.getId());
+
+        if (e.mods.isPopupMenu() && onGeneratorMenu)
+        {
+            const juce::Rectangle<int> label ((int) labelBandLeft(), (int) rowY (row),
+                                              labelWidth, rowHeight);
+            onGeneratorMenu (generator.getId(), localAreaToGlobal (label));
+        }
+
         return;
     }
 

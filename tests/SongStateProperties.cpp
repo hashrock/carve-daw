@@ -110,6 +110,7 @@ enum Op
     addReturn,
     removeReturn,
     setSendGain,
+    removeGenerator,
     removeSend,
     numOps
 };
@@ -389,6 +390,15 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
             if (auto clip = pick (playlist.getClips(), a))
                 playlist.removeClip (*clip, &um);
+            return;
+        }
+
+        case removeGenerator:
+        {
+            // Any of them, clips and sidechains and all -- and a song with no
+            // generators left is still a song.
+            if (auto generator = pick (song.getGenerators(), a))
+                song.removeGenerator (*generator, &um);
             return;
         }
 
