@@ -39,11 +39,15 @@ private:
 // be played at its defaults, since an internal tracktion plugin brings no UI of
 // its own and is not a juce::AudioProcessor either.
 //
-// The controls are grouped the way the plugin is: four oscillators, a filter
-// and its envelope, the amp envelope and voice settings, the modulation
-// sources, and the four built-in effects. As one flat list of seventy-odd rows
-// -- which is what a generic parameter editor gives you -- nothing says which
-// oscillator a "Tune" belongs to.
+// The controls are grouped the way the plugin is, over three pages: the signal
+// path (two oscillators, the filter and its envelope, the amp envelope and
+// voice settings), the modulation sources, and the four built-in effects. As
+// one flat list of seventy-odd rows -- which is what a generic parameter
+// editor gives you -- nothing says which oscillator a "Tune" belongs to.
+//
+// Only two of the plugin's four oscillators are shown. The other two are still
+// there and a preset may well use them; they are simply not what the editor
+// puts in front of you.
 //
 // Not every control here is an AutomatableParameter: the wave shapes, the
 // filter type and the effect on/off switches are plain properties of the
@@ -56,8 +60,10 @@ class FourOscEditor : public juce::Component,
 public:
     explicit FourOscEditor (te::FourOscPlugin&);
 
-    static constexpr int width = 640;
-    static constexpr int height = 512;
+    // Three columns of sections at the row height the labels now need. The
+    // window scrolls, so this is what the editor asks for rather than a limit.
+    static constexpr int width = 760;
+    static constexpr int height = 540;
 
     void paint (juce::Graphics&) override;
     void resized() override;

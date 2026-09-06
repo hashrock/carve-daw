@@ -9,16 +9,17 @@
 // what this file is: a generated sequence of edit commands, applied one
 // transaction each, with the invariants checked after every one.
 //
-// What that buys over an example test is the sequences nobody writes: fill
-// eleven slots, duplicate the eighth into the twelfth, place it, shorten the
-// pattern, undo four steps, place another clip. The interesting failures in a
-// document model are exactly there -- in what an operation does to a state
-// some *other* operation left behind.
+// What that buys over an example test is the sequences nobody writes: make
+// eleven patterns, clone the eighth, place it, shorten the pattern, undo four
+// steps, place another clip. The interesting failures in a document model are
+// exactly there -- in what an operation does to a state some *other* operation
+// left behind.
 //
 // Three kinds of property, in the three sections below:
 //
-//   * every reachable state is a valid one (slots hold one pattern, clips name
-//     a pattern that exists, sorted lists come back sorted, ...)
+//   * every reachable state is a valid one (an automatic pattern name is one
+//     nothing else has, clips name a pattern that exists, sorted lists come
+//     back sorted, ...)
 //   * undo walks back to where the sequence started, and redo walks forward to
 //     where it ended
 //   * the document survives a trip through XML, at any reachable state
@@ -74,7 +75,7 @@ int pitchOf (double unitInterval)  { return (int) (unitInterval * 200.0) - 36; }
 enum Op
 {
     addGenerator = 0,
-    addPatternInSlot,
+    createPattern,
     duplicatePattern,
     removeUnusedPattern,
     setPatternLength,
@@ -266,32 +267,35 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
             return;
         }
 
-        case addPatternInSlot:
+        case createPattern:
         {
             if (auto generator = pickPatternGenerator (song, a))
-            {
-                const auto slot = PatternSlot::fromFlatIndex (b % PatternSlot::numSlots);
-                generator->getOrCreatePatternInSlot (slot, &um, gridUnit + beat);
-            }
+                generator->createPattern (&um, gridUnit + beat);
+
             return;
         }
 
         case duplicatePattern:
         {
+            // Into another generator as often as into its own: the copy is
+            // made by the *destination*, and the two paths name and place it
+            // differently, so both have to be reachable from here.
             if (auto picked = pickPattern (song, a, b))
-                if (auto destination = picked->generator.findFreeSlot (picked->pattern.getSlot()))
-                    picked->generator.duplicatePattern (picked->pattern, *destination, &um);
+                if (auto destination = pickPatternGenerator (song, c))
+                    destination->duplicatePattern (picked->pattern, &um);
+
             return;
         }
 
         case removeUnusedPattern:
         {
-            // The guard GeneratorController applies before it drops a slot the
-            // user only browsed past. Repeated here because it is the reason
-            // the "every clip names a pattern that exists" invariant below
-            // holds -- and therefore what that invariant is really testing: if
-            // isPatternUsedInPlaylist ever answered "no" for a pattern that is
-            // placed, this would leave a clip pointing at nothing.
+            // The guard GeneratorController applies before it deletes a
+            // pattern without taking its placements with it. Repeated here
+            // because it is the reason the "every clip names a pattern that
+            // exists" invariant below holds -- and therefore what that
+            // invariant is really testing: if isPatternUsedInPlaylist ever
+            // answered "no" for a pattern that is placed, this would leave a
+            // clip pointing at nothing.
             if (auto picked = pickPattern (song, a, b))
                 if (picked->pattern.isEmpty() && ! song.isPatternUsedInPlaylist (picked->pattern))
                     picked->generator.removePattern (picked->pattern, &um);
@@ -654,11 +658,8 @@ juce::String describe (const Song& song)
 
         for (const auto& pattern : generator.getPatterns())
         {
-            const auto slot = pattern.getSlot();
-
             out << "  pat " << pattern.getId() << " " << pattern.getName()
-                << " len " << pattern.getLengthBeats()
-                << " slot " << (slot ? slot->getKey() : juce::String ("-")) << "\n";
+                << " len " << pattern.getLengthBeats() << "\n";
 
             for (const auto& note : pattern.getNotes())
                 out << "   note " << note.getStart() << " " << note.getLength()
@@ -753,19 +754,22 @@ void checkInvariants (const Song& song)
 {
     for (const auto& generator : song.getGenerators())
     {
-        // One pattern per slot. Enforced by getOrCreatePatternInSlot, which
-        // hands back what is already there, and by findFreeSlot, which is what
-        // duplicatePattern is given a destination by -- so this holds both of
-        // them to it at once.
-        std::vector<juce::String> slots;
+        // Every pattern name in this generator is distinct. Nothing in the
+        // model enforces it -- a user may rename two patterns the same -- but
+        // nothing in the sequence renames one either, so every name here came
+        // from makeUniquePatternName, and this is what holds it to its word:
+        // both createPattern and duplicatePattern go through it, on their own
+        // generator and across generators, so the check covers every path a
+        // name is made on.
+        std::vector<juce::String> patternNames;
 
         for (const auto& pattern : generator.getPatterns())
         {
-            if (auto slot = pattern.getSlot())
-            {
-                RC_ASSERT (slot->isValid());
-                requireUnique (slots, slot->getKey());
-            }
+            requireUnique (patternNames, pattern.getName());
+
+            // An automatic name is never empty, so the picker always has
+            // something to show for a pattern.
+            RC_ASSERT (pattern.getName().isNotEmpty());
 
             // A pattern with no length has no bars to draw, and every
             // placement that inherits its length would go with it.
@@ -912,11 +916,12 @@ Song makeSong()
     {
         auto generator = song.addGenerator (name, type, nullptr);
 
-        // One pattern already in its first slot. Without it the steps that
-        // write notes and place clips have nothing to act on until a step
-        // happens to make one, and a short sequence would spend itself
-        // getting to the state the interesting properties are about.
-        generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 4.0);
+        // One pattern to start with, the way GeneratorController gives a new
+        // generator one. Without it the steps that write notes and place clips
+        // have nothing to act on until a step happens to make one, and a short
+        // sequence would spend itself getting to the state the interesting
+        // properties are about.
+        generator.createPattern (nullptr, 4.0);
     }
 
     song.addGenerator ("Vox", Generator::audioType, nullptr);
@@ -1272,7 +1277,7 @@ TEST_CASE ("A song arriving out of range comes back inside it", "[song][xml]")
         // with. The generators reach well outside every range on purpose.
         auto song = Song::create ("property test");
         auto generator = song.addGenerator ("Wild", "4osc", nullptr);
-        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 4.0);
+        auto pattern = generator.createPattern (nullptr, 4.0);
 
         const auto wild = [] { return *rc::gen::inRange (-500, 501); };
 
@@ -1327,7 +1332,7 @@ TEST_CASE ("Counting children ignores the children of other kinds", "[song][stat
     REQUIRE (rc::check ("a foreign child changes no count and shifts no index", [] {
         auto song = Song::create ("property test");
         auto generator = song.addGenerator ("Gen", "4osc", nullptr);
-        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 16.0);
+        auto pattern = generator.createPattern (nullptr, 16.0);
 
         const auto noteCount = *rc::gen::inRange (0, 8);
 
@@ -1386,7 +1391,7 @@ TEST_CASE ("A placed copy says exactly what the original said", "[song][state]")
     REQUIRE (rc::check ("a copy carries over what was stated and nothing more", [] {
         auto song = Song::create ("property test");
         auto generator = song.addGenerator ("Gen", "4osc", nullptr);
-        auto pattern = generator.getOrCreatePatternInSlot ({ 0, 0 }, nullptr, 4.0);
+        auto pattern = generator.createPattern (nullptr, 4.0);
         auto playlist = song.getPlaylist();
 
         // The source is built by hand rather than through addClip, so that

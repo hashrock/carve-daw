@@ -70,44 +70,30 @@ public:
     juce::ValueTree state;
 };
 
-// Every generator exposes a fixed grid of pattern slots, A1..D9, so the user
-// can pick a slot and start drawing instead of creating a pattern first.
-// A slot is addressed by (bank, index) but identified in the tree by its key
-// ("A1"), so the grid can be resized later without rewriting old songs.
-struct PatternSlot
-{
-    static constexpr int numBanks = 4;                          // A..D
-    static constexpr int slotsPerBank = 9;                      // 1..9
-    static constexpr int numSlots = numBanks * slotsPerBank;
+// A pattern is made when the user asks for one and carries a name from that
+// moment on, so nothing has to be typed before drawing: patternStem below is
+// what the automatic name is built from.
+//
+// The stem a generator's own new patterns are numbered from: the first two
+// characters of its name ("Bass" -> "Ba", "Drum Kit 1" -> "Dr"), so a name
+// stays as short to read as the old A1..D9 slot keys were while still saying
+// which instrument it belongs to. Falls back to "Pt" for a nameless generator.
+juce::String patternStemForGenerator (const juce::String& generatorName);
 
-    int bank = 0;
-    int index = 0;
-
-    bool isValid() const  { return bank >= 0 && bank < numBanks && index >= 0 && index < slotsPerBank; }
-    int toFlatIndex() const  { return bank * slotsPerBank + index; }
-
-    juce::String getKey() const
-    {
-        return juce::String::charToString ((juce::juce_wchar) ('A' + bank)) + juce::String (index + 1);
-    }
-
-    bool operator== (const PatternSlot& other) const  { return bank == other.bank && index == other.index; }
-    bool operator!= (const PatternSlot& other) const  { return ! operator== (other); }
-
-    static PatternSlot fromFlatIndex (int flat)  { return { flat / slotsPerBank, flat % slotsPerBank }; }
-
-    // Returns nothing for an empty or unparseable key, which is what patterns
-    // written before slots existed have.
-    static std::optional<PatternSlot> fromKey (const juce::String& key);
-};
+// The stem a copy is numbered from: the source's name with any trailing number
+// taken off, so cloning "Ba1" offers "Ba2" rather than "Ba1 copy". A name that
+// ends in no number keeps all of it and gains a space, so "Melody" clones to
+// "Melody 2". Both stems already carry their separator -- a name is the stem
+// with a number stuck straight on the end.
+juce::String patternStemForCopy (const juce::String& patternName);
 
 class Pattern
 {
 public:
     explicit Pattern (juce::ValueTree v) : state (std::move (v)) {}
 
-    // What a freshly materialised slot gets when the caller has no song to ask:
-    // one bar of 4/4.
+    // What a new pattern gets when the caller has no song to ask: one bar of
+    // 4/4.
     static constexpr double defaultLengthBeats = 4.0;
 
     // A sixteenth of a beat at the shortest. A zero or negative pattern has no
@@ -128,18 +114,7 @@ public:
         state.setProperty (ids::lengthBeats, clampLengthBeats (beats), um);
     }
 
-    // Which slot of its generator this pattern occupies, if any. The slot name
-    // is only the pattern's default name, so a slot pattern can be renamed
-    // freely and stays in its slot.
-    std::optional<PatternSlot> getSlot() const  { return PatternSlot::fromKey (state[ids::slot].toString()); }
-    void setSlot (const PatternSlot& s, juce::UndoManager* um)  { state.setProperty (ids::slot, s.getKey(), um); }
-
     bool isEmpty() const  { return getNumNotes() == 0; }
-
-    // True while the pattern still carries the name its slot gave it, i.e. the
-    // user never renamed it. Empty patterns that are still in this state were
-    // only browsed past, so they can be dropped again.
-    bool hasDefaultSlotName() const;
 
     // Notes, and only notes: a PATTERN may hold other kinds of child, so
     // these three agree with each other rather than with getNumChildren().
@@ -150,7 +125,7 @@ public:
     Note addNote (double startBeats, double lengthBeats, int pitch, int velocity, juce::UndoManager* um);
     void removeNote (const Note& note, juce::UndoManager* um);
 
-    // Drops every note, keeping the pattern's id, name, slot and length -- so
+    // Drops every note, keeping the pattern's id, name and length -- so
     // everything already pointing at it (a playlist clip, the piano roll) still
     // is. What a MIDI import needs before it writes the file's notes in.
     void clearNotes (juce::UndoManager* um);
@@ -499,46 +474,42 @@ public:
     std::vector<Pattern> getPatterns() const;
     std::optional<Pattern> findPattern (const juce::String& patternId) const;
 
-    // Patterns that don't sit in a slot: everything in a song written before
-    // slots existed, plus anything the user adds beyond the grid. The slot
-    // picker lists them separately so they stay reachable.
-    std::vector<Pattern> getUnslottedPatterns() const;
+    // `stem` with the first number after it that no pattern of this generator
+    // is already called. What both createPattern and duplicatePattern name
+    // their result, so neither ever has to ask the user for one.
+    juce::String makeUniquePatternName (const juce::String& stem) const;
 
-    std::optional<Pattern> findPatternInSlot (const PatternSlot& slot) const;
-
-    // The first slot holding no pattern, searching forward from the one after
-    // `after` and wrapping round at D9. Duplicating a pattern lands in this,
-    // so a copy appears next to what it was copied from rather than back at
-    // A1. Empty only when all 36 slots are taken.
-    std::optional<PatternSlot> findFreeSlot (std::optional<PatternSlot> after = {}) const;
-
-    // Copies a pattern into one of this generator's slots: its length and its
-    // notes, under a fresh id, so nothing that referenced the source now
-    // references the copy. The source may belong to another generator, which
-    // is all there is to copying a pattern between them.
+    // A new, empty, automatically named pattern, appended to the list.
     //
-    // The destination slot must be free -- findFreeSlot is what picks one --
-    // because overwriting a slot the user cannot see is not what "duplicate"
-    // ever means.
-    Pattern duplicatePattern (const Pattern& source, const PatternSlot& destination,
-                              juce::UndoManager* um);
+    // lengthBeats is what it opens at. Callers that know the song pass a bar
+    // of its signature, so a 6/8 song doesn't open every pattern at a bar and
+    // a third.
+    Pattern createPattern (juce::UndoManager* um,
+                           double lengthBeats = Pattern::defaultLengthBeats);
 
-    // Materialises the slot the first time it is used. Empty slots stay out of
-    // the tree deliberately: writing all 36 into every generator would bloat
-    // every .carve and make every EditSync resync walk dead nodes.
+    // Copies a pattern into this generator: its length and its notes, under a
+    // fresh id and an automatic name, so nothing that referenced the source
+    // now references the copy. The source may belong to another generator,
+    // which is all there is to copying a pattern between them.
     //
-    // lengthBeats is what a fresh slot gets. Callers that know the song pass a
-    // bar of its signature, so a 6/8 song doesn't open every pattern at a bar
-    // and a third.
-    Pattern getOrCreatePatternInSlot (const PatternSlot& slot, juce::UndoManager* um,
-                                      double lengthBeats = Pattern::defaultLengthBeats);
+    // A copy of one of this generator's own patterns lands directly after it,
+    // so a chain of clones reads in order in the picker; one from elsewhere
+    // has nothing to sit next to and goes on the end.
+    Pattern duplicatePattern (const Pattern& source, juce::UndoManager* um);
 
+    // Appends a pattern under a name the caller chose. createPattern is what
+    // the UI uses; this is for the places that have a name already -- the demo
+    // song and a MIDI import.
     Pattern addPattern (const juce::String& name, double lengthBeats, juce::UndoManager* um);
-    Pattern addPattern (const PatternSlot& slot, const juce::String& name,
-                        double lengthBeats, juce::UndoManager* um);
     void removePattern (const Pattern& pattern, juce::UndoManager* um);
 
     juce::ValueTree state;
+
+private:
+    // index < 0 appends. The one place a PATTERN node is built, so addPattern
+    // and duplicatePattern cannot drift apart on what one is made of.
+    Pattern insertPattern (int index, const juce::String& name, double lengthBeats,
+                           juce::UndoManager* um);
 };
 
 class PlaylistClip
@@ -888,6 +859,14 @@ public:
     // is the moment to close it. Called by fromXml, so every load path gets it.
     void ensureAudioClipIds() const;
 
+    // Patterns used to live in a fixed A1..D9 grid, and a song saved then
+    // carries a `slot` key on each of them. Nothing reads it any more -- the
+    // pattern's name is its identity now, and for those songs that name is
+    // still the old slot key, which is exactly the label they had. Dropping
+    // the property on load keeps it from riding along in every later save.
+    // Called by fromXml, so every load path gets it.
+    void dropPatternSlots() const;
+
     // Drops any tempo or time signature change sharing a beat with another,
     // keeping the *last* in document order. That is the one that was in force:
     // getTempoAt and secondsFromBeats both walk the stable-sorted list writing
@@ -1016,8 +995,8 @@ public:
     double beatsFromSeconds (double seconds) const;
     double secondsFromBeats (double beats) const;
 
-    // Whether anything on the playlist plays this pattern. Used to decide if a
-    // slot the user only browsed past can be dropped again.
+    // Whether anything on the playlist plays this pattern. What the pattern
+    // picker warns with before it deletes one.
     bool isPatternUsedInPlaylist (const Pattern& pattern) const;
 
     juce::ValueTree state;

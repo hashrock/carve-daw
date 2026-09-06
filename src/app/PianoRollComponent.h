@@ -112,6 +112,16 @@ public:
 
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
+
+    // Holding shift is the select tool for as long as it is held, whatever the
+    // toolbar says. Picking a few notes out of a part being drawn is a constant
+    // interruption otherwise: switch tool, rubber-band, switch back. Every
+    // gesture that asks "which tool is this?" asks this instead -- and so does
+    // the window's shortcut bar, which has to say what the roll would really do.
+    Tool getEffectiveTool (const juce::ModifierKeys& mods) const
+    {
+        return mods.isShiftDown() ? Tool::select : tool;
+    }
     int getNumSelectedNotes() const  { return (int) selectedNotes.size(); }
 
     //==============================================================================
@@ -213,12 +223,14 @@ private:
 
     double snapDown (double beat) const;
     double snapUp (double beat) const;
+    double snapNearest (double beat) const;
     double minLengthBeats() const;
 
     juce::Viewport* getViewport() const;
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
 
     static bool isEraseGesture (const juce::ModifierKeys& mods)  { return mods.isRightButtonDown() || mods.isAltDown(); }
+
     juce::MouseCursor cursorFor (juce::Point<float>, const juce::ModifierKeys&) const;
     void updateCursor (const juce::MouseEvent&);
 
@@ -233,6 +245,10 @@ private:
     void pruneSelection();
     void beginSelectionDrag();
     void dragSelectionTo (double anchorStart, int anchorPitch);
+
+    // Gives every note the resize drag is touching this length, clamped
+    // against the end of the pattern note by note.
+    void resizeSelectionTo (double length);
     void deleteSelection();
     void updateRubberBand (juce::Point<float> position);
 
@@ -273,7 +289,7 @@ private:
     DragMode dragMode = DragMode::none;
     std::optional<model::Note> draggedNote;
     double grabOffsetBeats = 0.0;
-    int grabPitchOffset = 0;                 // note pitch minus the pitch under the cursor
+    juce::Point<float> dragStartPosition;    // where the press landed, which a move measures from
     juce::Point<float> lastErasePosition;
     double lastNoteLength = 0.5;
 
@@ -297,6 +313,22 @@ private:
     double dragAnchorOriginStart = 0.0;
     int dragAnchorOriginPitch = 0;
     int dragLastPitch = 0;                   // last pitch previewed during the drag
+
+    // Resize drag: the notes it writes to -- the whole selection when the
+    // grabbed note is part of it, otherwise just that note.
+    std::vector<juce::ValueTree> resizeTargets;
+
+    // Cmd went down on a note that was already selected. Which gesture that is
+    // depends on what happens next: a drag copies the selection and moves the
+    // copy, a click without one takes the note out of the selection. So it is
+    // held here until the mouse says which.
+    bool pendingDuplicate = false;
+    std::optional<model::Note> pendingToggleNote;
+
+    // Replaces the selection with a copy of itself, for a duplicate drag.
+    // Returns false if there was nothing to copy, which leaves the drag a
+    // plain move.
+    bool duplicateSelectionForDrag();
 
     // Rubber band, plus the selection it started from so Cmd/Shift adds to it.
     juce::Rectangle<float> rubberBand;

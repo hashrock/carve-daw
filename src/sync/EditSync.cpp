@@ -100,6 +100,26 @@ namespace
             restorePluginState (*external, generator.getPluginState());
     }
 
+    // What a brand new synth should sound like. The engine's own defaults are a
+    // sine with a tenth of a second of attack -- a soft pad, which is a fine
+    // place to arrive at and the wrong place to start from: a note drawn in the
+    // roll to hear whether the part works should speak the instant it is
+    // played, and be bright enough to hear against a drum kit. Both are plain
+    // properties of the plugin's tree, which is its parameter store, so writing
+    // them is what its own UI would do -- and the user's later edits go to the
+    // same place, which is why this only ever runs on a synth just created.
+    void applyNewSynthDefaults (te::FourOscPlugin& synth)
+    {
+        // Oscillator::Waves: 0 off, 1 sine, 2 square.
+        synth.state.setProperty (juce::Identifier ("waveShape1"), 2, nullptr);
+
+        // The bottom of ampAttack's range (0.001s), not zero: zero is outside
+        // it, and the parameter would clamp it back up.
+        if (synth.ampAttack != nullptr)
+            synth.state.setProperty (te::IDs::ampAttack,
+                                     synth.ampAttack->getValueRange().getStart(), nullptr);
+    }
+
     void ensureInternalInstrument (te::Edit& edit, te::AudioTrack& track)
     {
         if (dynamic_cast<te::FourOscPlugin*> (findInstrument (track)) != nullptr)
@@ -109,7 +129,10 @@ namespace
 
         if (auto synth = dynamic_cast<te::FourOscPlugin*> (
                 edit.getPluginCache().createNewPlugin (te::FourOscPlugin::xmlTypeName, {}).get()))
+        {
+            applyNewSynthDefaults (*synth);
             track.pluginList.insertPlugin (*synth, 0, nullptr);
+        }
     }
 
     // SamplerPlugin keeps its sounds as SOUND children of its own state tree,

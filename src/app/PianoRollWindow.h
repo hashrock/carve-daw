@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "IconButton.h"
 #include "PianoRollComponent.h"
 #include "ShortcutHelpBar.h"
 
@@ -29,7 +30,7 @@ public:
 
         for (auto* header : { &strengthHeader, &swingHeader })
         {
-            header->setFont (juce::FontOptions (11.0f));
+            header->setFont (juce::FontOptions (12.0f));
             header->setJustificationType (juce::Justification::centredRight);
         }
 
@@ -48,7 +49,7 @@ public:
         // setting of its own: the grid is already what the user has been
         // drawing against, and two units to keep in step would be one too many.
         unitLabel.setText ("to the " + gridName + " grid", juce::dontSendNotification);
-        unitLabel.setFont (juce::FontOptions (11.0f));
+        unitLabel.setFont (juce::FontOptions (12.0f));
         unitLabel.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
         applyButton.onClick = [this]
@@ -143,7 +144,7 @@ public:
         // spinner so that the unit reads before the number.
         lengthHeader.setJustificationType (juce::Justification::centredRight);
 
-        lengthNote.setFont (juce::FontOptions (10.0f));
+        lengthNote.setFont (juce::FontOptions (11.0f));
         lengthNote.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
         gridHeader.setText ("Grid", juce::dontSendNotification);
@@ -335,8 +336,8 @@ public:
         };
 
         place (nameLabel, 180, 18);
-        place (drawToolButton, 52, 0);
-        place (selectToolButton, 52, 12);
+        place (drawToolButton, 66, 0);
+        place (selectToolButton, 70, 12);
         place (zoomOutButton, 24, 0);
         place (zoomInButton, 24, 18);
         place (lengthHeader, 74, 4);
@@ -518,7 +519,10 @@ private:
 
         const auto mods = juce::ModifierKeys::getCurrentModifiers();
         const bool extending = mods.isCommandDown() || mods.isShiftDown();
-        const bool selectTool = pianoRoll.getTool() == PianoRollComponent::Tool::select;
+
+        // Shift is the select tool while it is held, so the bar has to say what
+        // the roll would actually do, not what the toolbar is set to.
+        const bool selectTool = pianoRoll.getEffectiveTool (mods) == PianoRollComponent::Tool::select;
 
         std::vector<ShortcutHelpBar::Entry> entries;
 
@@ -532,11 +536,14 @@ private:
             entries.push_back ({ "drag", extending ? "add to selection" : "select notes" });
             entries.push_back ({ "click note", extending ? "add / remove" : "select" });
             entries.push_back ({ "drag note", "move selection" });
+            entries.push_back ({ "Cmd+drag note", "duplicate" });
         }
         else
         {
             entries.push_back ({ "click", "add note" });
             entries.push_back ({ "drag note", extending ? "extend selection" : "move" });
+            entries.push_back ({ "Cmd+drag note", "duplicate" });
+            entries.push_back ({ "Shift", "select tool" });
         }
 
         if (! mods.isAltDown())
@@ -551,6 +558,7 @@ private:
         if (hasSelection)
         {
             entries.push_back ({ "Backspace", "delete selected" });
+            entries.push_back ({ "right-click", "delete selected" });
             entries.push_back ({ "Cmd+C/X", "copy / cut" });
         }
 
@@ -559,7 +567,7 @@ private:
         // Listed whether or not there is anything to paste: this bar is
         // rebuilt on every selection change, so a rubber-band drag would be
         // reading the system clipboard once per mouse event to find out.
-        entries.push_back ({ "Cmd+V", "paste at pointer bar" });
+        entries.push_back ({ "Cmd+V", "paste at pointer" });
 
         entries.push_back ({ selectTool ? "D" : "E", selectTool ? "draw tool" : "select tool" });
 
@@ -622,8 +630,8 @@ private:
     juce::Slider lengthSlider;
     juce::ComboBox gridBox;
     juce::ToggleButton snapButton { "Snap" };
-    juce::TextButton drawToolButton { "Draw" }, selectToolButton { "Select" };
-    juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" };
+    IconButton drawToolButton { "Draw", Icon::pencil }, selectToolButton { "Select", Icon::select };
+    IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
     juce::TextButton quantiseButton { "Quantise" };
     RollViewport viewport;
     PianoRollComponent pianoRoll;

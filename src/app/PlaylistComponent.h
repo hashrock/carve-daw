@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "IconButton.h"
 #include "ShortcutHelpBar.h"
 #include "model/SongModel.h"
 
@@ -136,6 +137,9 @@ public:
 private:
     static constexpr int labelWidth = 120;
     static constexpr int rowHeight = 44;
+
+    // The band under the last row, which holds the "+ Generator" button.
+    static constexpr int addRowHeight = 38;
     // Band above the rows: a strip of controls, the tempo lane, then the bar
     // ruler. All three are pinned to the top of the visible area, so the rows
     // start below the set of them.
@@ -242,9 +246,9 @@ private:
     int laneRowAt (float y) const; // -1 unless y is in an automation lane
 
     // Bars, all of them from the model, so a section in another time signature
-    // has bars of its length everywhere at once. snapToBar is what painting, a
-    // clip move and a file drop land on; nearestBar is for the gestures that
-    // have to follow the pointer in both directions.
+    // has bars of its length everywhere at once. snapToBar is what painting and
+    // a file drop land on; nearestBar is for the gestures that have to follow
+    // the pointer in both directions, a clip move among them.
     double snapToBar (double beat) const;
     double nextBarAfter (double beat) const;
     double barLengthAt (double beat) const;
@@ -472,9 +476,9 @@ private:
     double pixelsPerBeat = defaultPixelsPerBeat;
 
     Tool tool = Tool::paint;
-    juce::TextButton paintToolButton { "Paint" }, selectToolButton { "Select" };
-    juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" };
-    juce::TextButton addTrackButton { "+ Generator" };
+    IconButton paintToolButton { "Paint", Icon::pencil }, selectToolButton { "Select", Icon::select };
+    IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
+    IconButton addTrackButton { "Generator", Icon::plus };
 
     // The clips the user has selected, as the CLIP trees themselves: a
     // ValueTree compares by identity, so this survives any edit that does not

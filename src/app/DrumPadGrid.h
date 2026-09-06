@@ -25,6 +25,10 @@ namespace drumkit
     constexpr int numPads = numColumns * numRows;
     constexpr int firstNote = 36;                       // GM kick
 
+    // How hard a pad clicked for preview is struck. Drum samples are recorded
+    // hot, so this is a firm hit rather than a full-scale one.
+    constexpr int previewVelocity = 100;
+
     inline int getNoteForPad (int pad)  { return firstNote + pad; }
 
     // The pad a note lands on, or nothing when the note is outside the grid --
@@ -50,9 +54,14 @@ class DrumPadGrid final : public juce::Component,
 public:
     DrumPadGrid();
 
-    // Clicked with the left button. An empty pad wants a sample; a filled one
-    // wants the replace/clear menu -- the panel knows which and decides.
+    // The pad wants a sample, or the replace/clear menu: an empty pad clicked
+    // with either button, or a filled one right-clicked. The panel knows which
+    // and decides.
     std::function<void (int pad)> onPadClicked;
+
+    // A filled pad was left-clicked: play it, so a kit can be auditioned pad by
+    // pad without drawing a pattern first.
+    std::function<void (int pad)> onPadTriggered;
 
     // Files were dropped starting at this pad. The whole list goes through so
     // the panel can spread a multi-file drop across consecutive pads, which is

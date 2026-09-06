@@ -52,10 +52,11 @@
 // │     │        type: a tracktion internal plugin's xmlTypeName, or "plugin"
 // │     │        for an external one (then desc/state describe it)
 // │     └─ PATTERNS
-// │        └─ PATTERN {id, name, lengthBeats, slot}
-// │           │        slot: optional pattern-slot key, "A1".."D9". Patterns
-// │           │        without one (older songs, extras) are still listed.
-// │           │        Unused slots are absent from the tree entirely.
+// │        └─ PATTERN {id, name, lengthBeats}
+// │           │        A generator holds as many as the user makes, in the
+// │           │        order the pattern picker lists them. Songs written
+// │           │        before patterns were named carry a `slot` property
+// │           │        too; Song::fromXml drops it.
 // │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
 // ├─ PLAYLIST
 // │  ├─ CLIP {generatorId, patternId, start, length, transpose}
@@ -121,7 +122,6 @@ CARVE_DECLARE_ID (numerator)
 CARVE_DECLARE_ID (denominator)
 CARVE_DECLARE_ID (type)
 CARVE_DECLARE_ID (lengthBeats)
-CARVE_DECLARE_ID (slot)
 CARVE_DECLARE_ID (start)
 CARVE_DECLARE_ID (length)
 CARVE_DECLARE_ID (pitch)

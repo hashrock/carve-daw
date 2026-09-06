@@ -11,10 +11,10 @@ namespace carve::app
 
 // The selection authority and model-edit hub the generator panel used to be,
 // with the panel's UI gone: the playlist's row labels are the generator list
-// now, and the generator window's header is the pattern switcher. What is
-// left here is everything those views call back into -- which generator and
-// pattern are selected, materialising slots, the add-generator menu, sample
-// and drum-pad assignment, and pattern MIDI in/out.
+// now, and the generator window's header is the pattern picker. What is left
+// here is everything those views call back into -- which generator and
+// pattern are selected, making and cloning and deleting patterns, the
+// add-generator menu, sample and drum-pad assignment, and pattern MIDI in/out.
 class GeneratorController : private juce::ValueTree::Listener,
                             private juce::AsyncUpdater
 {
@@ -27,8 +27,8 @@ public:
     std::function<void()> onManagePlugins;
 
     // Fired after every refresh, which any change to the song tree triggers,
-    // so the generator window can recolour its slot switcher and pads without
-    // listening to the tree itself.
+    // so the generator window can restock its pattern picker and recolour its
+    // pads without listening to the tree itself.
     std::function<void()> onPatternsChanged;
 
     void setSong (model::Song newSong);
@@ -43,14 +43,20 @@ public:
     juce::String getSelectedPatternId() const;
     std::optional<model::Generator> getSelectedGenerator() const;
 
-    // A click on the slot switcher: materialises the slot's pattern if it has
-    // none yet, selects it, and drops the previous pattern again if it was
-    // only browsed past (see discardUntouchedPattern).
-    void selectSlot (model::PatternSlot);
+    // The picker's New button: a fresh, empty, automatically named pattern on
+    // the selected generator, selected on the spot. Nothing to type, so a new
+    // pattern costs one click.
+    void createPattern();
 
-    // The slot right-click menu: duplicate, copy to another generator, MIDI in
-    // and out. screenArea is where to hang the menu (the switcher cell).
-    void showSlotMenu (model::PatternSlot, juce::Rectangle<int> screenArea);
+    // The picker's Clone button (and cmd-D): a copy of the selected pattern,
+    // named after it, selected on the spot. The same one click -- cloning is
+    // the middle of "make one, clone it, vary it", and a dialog there is what
+    // breaks the take.
+    void clonePattern();
+
+    // The picker's menu button: rename, delete, copy to another generator,
+    // MIDI in and out. screenArea is where to hang the menu.
+    void showPatternMenu (juce::Rectangle<int> screenArea);
 
     // The add-generator menu (synth / sampler / drum kit / plugin / audio),
     // hung off screenArea -- the playlist's "+ Generator" button.
@@ -89,6 +95,11 @@ private:
     // there is no key-zone editor, so one sample covers the whole keyboard and
     // replaces whatever the generator had.
     void launchSampleChooser (std::function<void (const juce::File&)> onChosen);
+
+    // The chooser reopens where the last sample was picked from, so filling a
+    // kit pad by pad does not walk back down to the sample library each time.
+    juce::File getSampleBrowseDirectory() const;
+    void rememberSampleDirectory (const juce::File& sample);
     void addSamplerGenerator (const juce::File& sample);
     void assignSample (model::Generator, const juce::File& sample);
 
@@ -103,16 +114,16 @@ private:
     void setPadSound (model::Generator&, int pad, const juce::File& sample);
 
     void ensureValidSelection();
-    void discardUntouchedPattern (const juce::String& patternId,
-                                  const juce::String& generatorId);
 
-    // The menu behind showSlotMenu works on (generatorId, slot) rather than a
-    // Pattern, because the menu and the file choosers behind it are
-    // asynchronous and the song may be replaced while one is open.
-    void duplicatePattern (const juce::String& generatorId, model::PatternSlot,
+    // Everything behind showPatternMenu works on (generatorId, patternId)
+    // rather than on a Pattern, because the menu and the file choosers behind
+    // it are asynchronous and the song may be replaced while one is open.
+    void duplicatePattern (const juce::String& generatorId, const juce::String& patternId,
                            const juce::String& destinationGeneratorId);
-    void exportPatternToMidi (const juce::String& generatorId, model::PatternSlot);
-    void importMidiIntoSlot (const juce::String& generatorId, model::PatternSlot);
+    void renamePattern (const juce::String& generatorId, const juce::String& patternId);
+    void deletePattern (const juce::String& generatorId, const juce::String& patternId);
+    void exportPatternToMidi (const juce::String& generatorId, const juce::String& patternId);
+    void importMidiIntoPattern (const juce::String& generatorId, const juce::String& patternId);
 
     te::Engine& engine;
     model::Song song;
@@ -122,6 +133,9 @@ private:
     // because a sample chooser and a MIDI chooser are never open at once but
     // one would otherwise cancel the other's callback on being replaced.
     std::unique_ptr<juce::FileChooser> sampleChooser, midiChooser;
+
+    // Same reason: the rename box is asynchronous too.
+    std::unique_ptr<juce::AlertWindow> renameWindow;
 
     juce::String selectedGeneratorId;
     juce::String selectedPatternId;

@@ -22,6 +22,11 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     saveButton.onClick = [this] { if (onSave) onSave(); };
     openButton.onClick = [this] { if (onOpen) onOpen(); };
 
+    // Loop lights up like the tool buttons do rather than showing a tick box:
+    // it reads as a state of the transport, which is what it is.
+    loopButton.setClickingTogglesState (true);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
+    loopButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
     loopButton.setToggleState (true, juce::dontSendNotification);
 
     bpmLabel.setEditable (false, true, false);
@@ -101,7 +106,10 @@ void TransportBar::togglePlay()
 void TransportBar::timerCallback()
 {
     auto& transport = edit.getTransport();
-    playButton.setButtonText (transport.isPlaying() ? "Pause" : "Play");
+    const bool playing = transport.isPlaying();
+
+    playButton.setButtonText (playing ? "Pause" : "Play");
+    playButton.setIcon (playing ? Icon::pause : Icon::play);
 
     if (! bpmLabel.isBeingEdited())
         bpmLabel.setText (juce::String (song.getTempo(), 1) + " BPM", juce::dontSendNotification);
@@ -127,23 +135,25 @@ void TransportBar::resized()
         area.removeFromLeft (gap);
     };
 
-    place (playButton, 70);
-    place (stopButton, 60);
-    place (loopButton, 60);
+    // Each button carries a symbol as well as its word, so they are a little
+    // wider than word-only buttons would be.
+    place (playButton, 82);
+    place (stopButton, 74);
+    place (loopButton, 72);
     place (bpmLabel, 90);
     place (positionLabel, 110);
 
-    place (mixerButton, 60);
-    place (exportButton, 64);
+    place (mixerButton, 76);
+    place (exportButton, 82);
 
     auto right = area;
-    openButton.setBounds (right.removeFromRight (60));
+    openButton.setBounds (right.removeFromRight (74));
     right.removeFromRight (6);
-    saveButton.setBounds (right.removeFromRight (60));
+    saveButton.setBounds (right.removeFromRight (72));
     right.removeFromRight (18);
-    redoButton.setBounds (right.removeFromRight (60));
+    redoButton.setBounds (right.removeFromRight (74));
     right.removeFromRight (6);
-    undoButton.setBounds (right.removeFromRight (60));
+    undoButton.setBounds (right.removeFromRight (74));
 
     // whatever is left in the middle
     right.removeFromRight (12);

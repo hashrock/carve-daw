@@ -52,6 +52,7 @@ public:
         mixer.onContentWidthChanged = [this] { fitToContent(); };
         fitToContent();
         restoreBounds();
+        boundsAreLive = true;
 
         setVisible (true);
         toFront (true);
@@ -146,6 +147,10 @@ private:
     {
         const auto saved = juce::Rectangle<int>::fromString (settings->getValue (boundsKey));
 
+        // Everything below here moves the window, so what was saved is now
+        // safe to overwrite -- and has already been read.
+        const juce::ScopedValueSetter<bool> restoring (boundsAreLive, true);
+
         if (saved.isEmpty())
         {
             centreWithSize (getWidth(), getHeight());
@@ -173,11 +178,24 @@ private:
 
     void storeBounds()
     {
+        // Not before the window has been put where it belongs. Building it
+        // resizes it several times -- setContentNonOwned, then fitToContent --
+        // and each of those calls resized() while the window is still at
+        // whatever position it was constructed at. Saving those would overwrite
+        // the position from last session with a default one before
+        // restoreBounds ever got to read it, which is why the window kept
+        // coming back in the same place however it was moved.
+        if (! boundsAreLive || settings == nullptr)
+            return;
+
         // cheap: PropertiesFile keeps the value in memory and writes the file
         // on a timer (and once more when it is destroyed)
-        if (settings != nullptr)
-            settings->setValue (boundsKey, getScreenBounds().toString());
+        settings->setValue (boundsKey, getScreenBounds().toString());
     }
+
+    // Whether moving or resizing the window is now the user doing it, rather
+    // than the window being built or restored. See storeBounds.
+    bool boundsAreLive = false;
 
     std::function<void()> onClose;
     std::function<bool (const juce::KeyPress&)> onKey;

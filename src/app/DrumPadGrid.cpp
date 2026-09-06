@@ -5,9 +5,10 @@ namespace carve::app
 
 namespace
 {
-    // Four square-ish pads per row. Wide enough for a truncated sample name,
-    // tall enough to carry the note badge above it.
-    constexpr int padRowHeight = 34;
+    // Four pads per row. Wide enough for a truncated sample name, tall enough
+    // to carry the note badge above it and to be hit without aiming -- these
+    // are played by hand now, not only assigned to.
+    constexpr int padRowHeight = 48;
     constexpr int padGap = 3;
 } // namespace
 
@@ -125,14 +126,14 @@ void DrumPadGrid::paint (juce::Graphics& g)
 
         auto text = bounds.reduced (4, 2);
 
-        g.setFont (9.0f);
+        g.setFont (11.0f);
         g.setColour (juce::Colour (0xff8a8a94));
         g.drawText (drumkit::getNoteName (drumkit::getNoteForPad (pad)),
-                    text.removeFromTop (11), juce::Justification::centredLeft);
+                    text.removeFromTop (13), juce::Justification::centredLeft);
 
         // An empty pad says what to do with it rather than showing nothing,
         // because a grid of blank squares doesn't look clickable.
-        g.setFont (11.0f);
+        g.setFont (12.0f);
         g.setColour (isFilled ? juce::Colour (0xffd8d8de) : juce::Colour (0xff5e5e68));
         g.drawFittedText (isFilled ? state.sampleName : juce::String ("+"),
                           text, juce::Justification::centred, 2, 0.7f);
@@ -141,9 +142,28 @@ void DrumPadGrid::paint (juce::Graphics& g)
 
 void DrumPadGrid::mouseDown (const juce::MouseEvent& e)
 {
-    if (auto pad = getPadAt (e.getPosition()))
-        if (onPadClicked)
-            onPadClicked (*pad);
+    auto pad = getPadAt (e.getPosition());
+
+    if (! pad)
+        return;
+
+    // A left click on a pad that has a sample plays it. Hearing the kit is the
+    // thing you want most often once it is built, and there was no way to do
+    // it short of drawing a note. Loading and clearing move to the right
+    // button; an empty pad has nothing to play, so it still asks for a sample
+    // whichever button hit it.
+    const bool hasSample = pads[(size_t) *pad].sampleName.isNotEmpty();
+
+    if (hasSample && ! e.mods.isPopupMenu())
+    {
+        if (onPadTriggered)
+            onPadTriggered (*pad);
+
+        return;
+    }
+
+    if (onPadClicked)
+        onPadClicked (*pad);
 }
 
 bool DrumPadGrid::isInterestedInFileDrag (const juce::StringArray& files)

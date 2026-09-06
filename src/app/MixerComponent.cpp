@@ -135,7 +135,7 @@ public:
             row->returnId = ret.getId();
 
             row->label.setText (ret.getName(), juce::dontSendNotification);
-            row->label.setFont (juce::FontOptions (9.0f));
+            row->label.setFont (juce::FontOptions (11.0f));
             row->label.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
             row->label.setInterceptsMouseClicks (false, false);
 
@@ -166,11 +166,11 @@ public:
         }
 
         nameLabel.setJustificationType (juce::Justification::centred);
-        nameLabel.setFont (juce::FontOptions (12.0f));
+        nameLabel.setFont (juce::FontOptions (13.0f));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
 
         dbLabel.setJustificationType (juce::Justification::centred);
-        dbLabel.setFont (juce::FontOptions (11.0f));
+        dbLabel.setFont (juce::FontOptions (12.0f));
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
         // The fader works in tracktion's fader-position space (0..1) so it gets
@@ -396,12 +396,12 @@ public:
         masterPluginsState.addListener (this);
 
         nameLabel.setJustificationType (juce::Justification::centred);
-        nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        nameLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffe0a24f));
         nameLabel.setText ("MASTER", juce::dontSendNotification);
 
         dbLabel.setJustificationType (juce::Justification::centred);
-        dbLabel.setFont (juce::FontOptions (11.0f));
+        dbLabel.setFont (juce::FontOptions (12.0f));
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
@@ -556,7 +556,7 @@ public:
           effectSlots (makeReturnEffectChain (ret, um), engine)
     {
         nameLabel.setJustificationType (juce::Justification::centred);
-        nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        nameLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xff6fb7c9));
         nameLabel.setEditable (false, true, false);
         nameLabel.onTextChange = [this]
@@ -569,7 +569,7 @@ public:
         };
 
         dbLabel.setJustificationType (juce::Justification::centred);
-        dbLabel.setFont (juce::FontOptions (11.0f));
+        dbLabel.setFont (juce::FontOptions (12.0f));
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);

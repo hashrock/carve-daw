@@ -9,6 +9,7 @@
 
 #include "DrumPadGrid.h"
 #include "FourOscEditor.h"
+#include "IconButton.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
 #include "model/SongModel.h"
@@ -16,174 +17,117 @@
 namespace carve::app
 {
 
-// The Orion-style bank switcher: one row of bank letters, one row of slot
-// numbers, replacing the grid the generator panel used to carry. Selection
-// itself stays the panel's job -- a click only reports which slot was asked
-// for, and the switcher redraws when the model answers.
-class SlotSwitcher : public juce::Component
+// The pattern picker: which of the generator's patterns is being edited, and
+// the gestures that make more of them.
+//
+// Patterns are named things now rather than cells of a fixed A1..D9 grid, so
+// the list is as long as the user has made it and every entry says what it is.
+// What the grid was actually good for -- reaching another pattern, or a copy
+// of this one, without stopping to think -- is kept by the two buttons: New
+// and Clone both name their result themselves and select it on the spot, so
+// neither ever opens a dialog.
+class PatternPicker : public juce::Component
 {
 public:
-    SlotSwitcher() = default;
+    PatternPicker()
+    {
+        patterns.setTextWhenNothingSelected ("(no pattern)");
+        patterns.onChange = [this]
+        {
+            const int index = patterns.getSelectedItemIndex();
 
-    std::function<void (model::PatternSlot)> onSlotClicked;
-    std::function<void (model::PatternSlot, juce::Rectangle<int>)> onSlotMenu;   // screen coords
+            if (index >= 0 && index < patternIds.size() && onPatternPicked)
+                onPatternPicked (patternIds[index]);
+        };
 
-    static constexpr int preferredHeight = 24;
+        newButton.onClick   = [this] { if (onNewPattern) onNewPattern(); };
+        cloneButton.onClick = [this] { if (onClonePattern) onClonePattern(); };
+
+        newButton.setTooltip ("New pattern");
+        cloneButton.setTooltip ("Clone this pattern (cmd-D)");
+        menuButton.setTooltip ("Rename, delete, copy, MIDI in/out");
+
+        menuButton.onClick = [this]
+        {
+            if (onPatternMenu)
+                onPatternMenu (localAreaToGlobal (menuButton.getBounds()));
+        };
+
+        for (auto* child : std::initializer_list<juce::Component*> { &patterns, &newButton, &cloneButton, &menuButton })
+            addAndMakeVisible (child);
+    }
+
+    std::function<void (const juce::String& patternId)> onPatternPicked;
+    std::function<void()> onNewPattern;
+    std::function<void()> onClonePattern;
+    std::function<void (juce::Rectangle<int> screenArea)> onPatternMenu;   // screen coords
+
+    static constexpr int preferredHeight = 26;
 
     void setFromGenerator (const std::optional<model::Generator>& generator,
                            const juce::String& selectedPatternId)
     {
-        for (auto& state : slotStates)
-            state = SlotState::unused;
+        patternIds.clear();
+        patterns.clear (juce::dontSendNotification);
 
-        selected.reset();
-        enabled = generator.has_value() && ! generator->isAudio();
+        // An audio generator's clips are the files placed on it: it has no
+        // patterns, so there is nothing here to pick or to make.
+        const bool hasPatterns = generator.has_value() && ! generator->isAudio();
 
-        if (generator)
+        if (hasPatterns)
         {
-            for (const auto& pattern : generator->getPatterns())
+            const auto list = generator->getPatterns();
+
+            for (int i = 0; i < (int) list.size(); ++i)
             {
-                if (auto slot = pattern.getSlot())
-                {
-                    slotStates[(size_t) slot->toFlatIndex()] = pattern.isEmpty()
-                                                                  ? SlotState::empty
-                                                                  : SlotState::hasNotes;
-                    if (pattern.getId() == selectedPatternId)
-                        selected = *slot;
-                }
+                const auto name = list[(size_t) i].getName();
+
+                patternIds.add (list[(size_t) i].getId());
+                patterns.addItem (name.isNotEmpty() ? name : "(unnamed)", i + 1);
             }
+
+            if (const int index = patternIds.indexOf (selectedPatternId); index >= 0)
+                patterns.setSelectedItemIndex (index, juce::dontSendNotification);
         }
 
-        // Follow the selection into its bank, so the numbers shown are the
-        // ones the highlighted slot belongs to.
-        if (selected)
-            visibleBank = selected->bank;
+        patterns.setEnabled (hasPatterns);
+        newButton.setEnabled (hasPatterns);
 
-        repaint();
+        // Nothing selected means nothing to copy or to act on, which is the
+        // state a song with no generators at all opens in.
+        const bool hasSelection = hasPatterns && patterns.getSelectedItemIndex() >= 0;
+        cloneButton.setEnabled (hasSelection);
+        menuButton.setEnabled (hasSelection);
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (juce::Colour (0xff1c1c20));
-
-        if (! enabled)
-            return;
-
-        for (int bank = 0; bank < model::PatternSlot::numBanks; ++bank)
-            drawCell (g, bankBounds (bank),
-                      juce::String::charToString ((juce::juce_wchar) ('A' + bank)),
-                      bank == visibleBank,
-                      selected && selected->bank == bank,
-                      bankHoldsNotes (bank));
-
-        for (int index = 0; index < model::PatternSlot::slotsPerBank; ++index)
-        {
-            const model::PatternSlot slot { visibleBank, index };
-            const auto state = slotStates[(size_t) slot.toFlatIndex()];
-
-            drawCell (g, numberBounds (index), juce::String (index + 1),
-                      selected && *selected == slot,
-                      false,
-                      state == SlotState::hasNotes,
-                      state == SlotState::empty);
-        }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override
+    void resized() override
     {
-        if (! enabled)
-            return;
+        auto area = getLocalBounds().reduced (6, 3);
 
-        for (int bank = 0; bank < model::PatternSlot::numBanks; ++bank)
-        {
-            if (bankBounds (bank).toFloat().contains (e.position))
-            {
-                visibleBank = bank;
-                repaint();
-                return;
-            }
-        }
-
-        for (int index = 0; index < model::PatternSlot::slotsPerBank; ++index)
-        {
-            const auto bounds = numberBounds (index);
-
-            if (! bounds.toFloat().contains (e.position))
-                continue;
-
-            const model::PatternSlot slot { visibleBank, index };
-
-            if (e.mods.isPopupMenu())
-            {
-                if (onSlotMenu)
-                    onSlotMenu (slot, localAreaToGlobal (bounds));
-            }
-            else if (onSlotClicked)
-            {
-                onSlotClicked (slot);
-            }
-
-            return;
-        }
+        // The buttons keep their width and the list takes the rest, so a long
+        // pattern name gets the room and Clone never moves out from under the
+        // pointer.
+        menuButton.setBounds (area.removeFromRight (28));
+        area.removeFromRight (4);
+        cloneButton.setBounds (area.removeFromRight (74));
+        area.removeFromRight (4);
+        newButton.setBounds (area.removeFromRight (64));
+        area.removeFromRight (8);
+        patterns.setBounds (area.removeFromLeft (juce::jmin (area.getWidth(), 220)));
     }
 
 private:
-    enum class SlotState { unused, empty, hasNotes };
+    juce::ComboBox patterns;
+    IconButton newButton { "New", Icon::plus }, cloneButton { "Clone", Icon::clone },
+               menuButton { "", Icon::menu };
+    juce::StringArray patternIds;   // parallel to the combo's items
 
-    static constexpr int cellWidth = 24;
-    static constexpr int bankGap = 10;
-
-    juce::Rectangle<int> bankBounds (int bank) const
-    {
-        return { 6 + bank * cellWidth, 2, cellWidth - 2, getHeight() - 4 };
-    }
-
-    juce::Rectangle<int> numberBounds (int index) const
-    {
-        const auto left = 6 + model::PatternSlot::numBanks * cellWidth + bankGap;
-        return { left + index * cellWidth, 2, cellWidth - 2, getHeight() - 4 };
-    }
-
-    bool bankHoldsNotes (int bank) const
-    {
-        for (int index = 0; index < model::PatternSlot::slotsPerBank; ++index)
-            if (slotStates[(size_t) model::PatternSlot { bank, index }.toFlatIndex()] == SlotState::hasNotes)
-                return true;
-
-        return false;
-    }
-
-    void drawCell (juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& text,
-                   bool isCurrent, bool marksSelection, bool filled, bool outlined = false)
-    {
-        auto area = bounds.toFloat();
-
-        if (isCurrent)
-            g.setColour (juce::Colour (0xff35608a));
-        else if (filled)
-            g.setColour (juce::Colour (0xff474730));
-        else
-            g.setColour (juce::Colour (0xff2b2b30));
-
-        g.fillRoundedRectangle (area, 3.0f);
-
-        if (outlined || marksSelection)
-        {
-            g.setColour (juce::Colour (0xff707078));
-            g.drawRoundedRectangle (area.reduced (0.5f), 3.0f, 1.0f);
-        }
-
-        g.setColour (isCurrent ? juce::Colours::white : juce::Colour (0xffb8b8c0));
-        g.setFont (juce::FontOptions (11.0f));
-        g.drawText (text, bounds, juce::Justification::centred);
-    }
-
-    std::array<SlotState, (size_t) model::PatternSlot::numSlots> slotStates {};
-    std::optional<model::PatternSlot> selected;
-    int visibleBank = 0;
-    bool enabled = false;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SlotSwitcher)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternPicker)
 };
 
 //==============================================================================
@@ -198,6 +142,7 @@ public:
     // Pad gestures, forwarded from the grid with the pad's screen area so the
     // controller can hang its replace/clear menu off the pad itself.
     std::function<void (int pad, juce::Rectangle<int> screenArea)> onPadClicked;
+    std::function<void (int pad)> onPadTriggered;
     std::function<void (int startPad, const juce::StringArray&)> onPadFilesDropped;
     std::function<bool (const juce::StringArray&)> isInterestedInPadFiles;
     std::function<void()> onLoadSample;
@@ -212,6 +157,11 @@ public:
         {
             if (onPadClicked)
                 onPadClicked (pad, pads.localAreaToGlobal (pads.getPadBounds (pad)));
+        };
+        pads.onPadTriggered = [this] (int pad)
+        {
+            if (onPadTriggered)
+                onPadTriggered (pad);
         };
         pads.onFilesDropped = [this] (int startPad, const juce::StringArray& files)
         {
@@ -429,8 +379,8 @@ private:
 
 //==============================================================================
 // One window per selected generator, Orion-style: a header with an
-// Inst / Pianoroll tab pair and the pattern-slot switcher, over whichever view
-// the tab picks. Replaces the separate pattern-editor and instrument windows.
+// Inst / Pianoroll tab pair and the pattern picker, over whichever view the
+// tab picks. Replaces the separate pattern-editor and instrument windows.
 class GeneratorWindow : public juce::DocumentWindow
 {
 public:
@@ -457,14 +407,6 @@ public:
         content.header.instTab.onClick = [this] { showTab (Tab::instrument); };
         content.header.rollTab.onClick = [this] { showTab (Tab::pianoRoll); };
 
-        content.header.unslotted.onChange = [this]
-        {
-            const int index = content.header.unslotted.getSelectedItemIndex();
-
-            if (index >= 0 && index < unslottedIds.size() && onUnslottedPatternPicked)
-                onUnslottedPatternPicked (unslottedIds[index]);
-        };
-
         content.body.addAndMakeVisible (instrumentView);
         content.body.addChildComponent (rollContent);
         content.onLayout = [this] { layoutBody(); };
@@ -486,12 +428,8 @@ public:
         showTab (Tab::pianoRoll);
     }
 
-    SlotSwitcher& getSlotSwitcher()      { return content.header.slots; }
+    PatternPicker& getPatternPicker()    { return content.header.patterns; }
     InstrumentView& getInstrumentView()  { return instrumentView; }
-
-    // One of the generator's patterns outside the slot grid was picked from
-    // the header's combo (they only exist in songs saved before slots did).
-    std::function<void (const juce::String&)> onUnslottedPatternPicked;
 
     // The roll's ruler asked for the transport to move to this pattern beat;
     // mapping that into a song position is the owner's job.
@@ -526,38 +464,18 @@ public:
         rollContent.setSong (std::move (song));
     }
 
-    // The dynamic state: the switcher's slot colours, the Inst tab's pad
-    // states and sample name, and the header's unslotted-pattern combo. Cheap
-    // and editor-free, so it is safe to call on every model refresh -- notes
-    // landing in a slot recolour it while the window is open.
-    void updateSlots (const std::optional<model::Generator>& generator,
-                      const juce::String& selectedPatternId)
+    // The dynamic state: the picker's list and selection, and the Inst tab's
+    // pad states and sample name. Cheap and editor-free, so it is safe to call
+    // on every model refresh -- a pattern made, cloned, renamed or deleted
+    // while the window is open shows up here.
+    void updatePatterns (const std::optional<model::Generator>& generator,
+                         const juce::String& selectedPatternId)
     {
-        content.header.slots.setFromGenerator (generator, selectedPatternId);
+        content.header.patterns.setFromGenerator (generator, selectedPatternId);
         instrumentView.refresh (generator, selectedPatternId);
-
-        unslottedIds.clear();
-        auto& box = content.header.unslotted;
-        box.clear (juce::dontSendNotification);
-
-        if (generator && ! generator->isAudio())
-        {
-            const auto others = generator->getUnslottedPatterns();
-
-            for (int i = 0; i < (int) others.size(); ++i)
-            {
-                unslottedIds.add (others[(size_t) i].getId());
-                box.addItem (others[(size_t) i].getName(), i + 1);
-
-                if (others[(size_t) i].getId() == selectedPatternId)
-                    box.setSelectedItemIndex (i, juce::dontSendNotification);
-            }
-        }
-
-        box.setVisible (! unslottedIds.isEmpty());
     }
 
-    // The whole retarget in one call: the switcher's states, the Inst view's
+    // The whole retarget in one call: the picker's list, the Inst view's
     // editor, and the roll's pattern.
     void setGenerator (const std::optional<model::Generator>& generator,
                        te::Plugin* instrument,
@@ -565,7 +483,7 @@ public:
                        const juce::String& title)
     {
         instrumentView.setGenerator (generator, instrument);
-        updateSlots (generator, pattern ? pattern->getId() : juce::String());
+        updatePatterns (generator, pattern ? pattern->getId() : juce::String());
 
         titlePrefix = {};
         juce::String name;
@@ -596,7 +514,7 @@ public:
 
 private:
     static constexpr int tabRowHeight = 26;
-    static constexpr int headerHeight = tabRowHeight + SlotSwitcher::preferredHeight;
+    static constexpr int headerHeight = tabRowHeight + PatternPicker::preferredHeight;
 
     void updateTitle (const juce::String& patternName)
     {
@@ -621,23 +539,17 @@ private:
                 addAndMakeVisible (tab);
             }
 
-            addAndMakeVisible (slots);
-
-            // Patterns outside the slot grid only exist in songs saved before
-            // slots did (or once a generator holds more than 36), so the box
-            // stays hidden until one turns up.
-            addChildComponent (unslotted);
+            addAndMakeVisible (patterns);
         }
 
         void resized() override
         {
             auto area = getLocalBounds();
             auto tabRow = area.removeFromTop (tabRowHeight).reduced (4, 2);
-            instTab.setBounds (tabRow.removeFromLeft (72));
+            instTab.setBounds (tabRow.removeFromLeft (84));
             tabRow.removeFromLeft (4);
-            rollTab.setBounds (tabRow.removeFromLeft (72));
-            unslotted.setBounds (area.removeFromRight (150).reduced (2));
-            slots.setBounds (area);
+            rollTab.setBounds (tabRow.removeFromLeft (108));
+            patterns.setBounds (area);
         }
 
         void paint (juce::Graphics& g) override
@@ -645,9 +557,8 @@ private:
             g.fillAll (juce::Colour (0xff26262c));
         }
 
-        juce::TextButton instTab { "Inst" }, rollTab { "Pianoroll" };
-        SlotSwitcher slots;
-        juce::ComboBox unslotted;
+        IconButton instTab { "Inst", Icon::instrument }, rollTab { "Pianoroll", Icon::pianoRoll };
+        PatternPicker patterns;
     };
 
     struct Content : public juce::Component
@@ -676,7 +587,6 @@ private:
     std::function<void()> onClose;
     std::function<bool (const juce::KeyPress&)> onKey;
     juce::String titlePrefix;
-    juce::StringArray unslottedIds;   // parallel to the header combo's items
     Tab activeTab = Tab::pianoRoll;
 
     Content content;

@@ -305,7 +305,7 @@ PresetBar::PresetBar (te::Plugin& plugin)
     menuButton.onClick = [this] { showMenu(); };
     addAndMakeVisible (menuButton);
 
-    nameLabel.setFont (juce::FontOptions (11.0f));
+    nameLabel.setFont (juce::FontOptions (12.0f));
     nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
     addAndMakeVisible (nameLabel);
 

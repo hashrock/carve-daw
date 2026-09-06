@@ -34,6 +34,29 @@ public:
         engine.reset();
     }
 
+    // Cmd-Q, the Quit menu item and the window's close button all arrive here.
+    // Unsaved work is worth a question before any of them takes it away, and
+    // the answer is asynchronous -- so quitting waits for it rather than
+    // happening now.
+    void systemRequestedQuit() override
+    {
+        if (mainWindow != nullptr)
+        {
+            if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+            {
+                main->confirmDiscardChanges ([this] (bool goAhead)
+                {
+                    if (goAhead)
+                        quit();
+                });
+
+                return;
+            }
+        }
+
+        quit();
+    }
+
 private:
     class MainWindow : public juce::DocumentWindow
     {
