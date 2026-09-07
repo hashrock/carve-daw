@@ -98,6 +98,19 @@ $BIN --rate 48000 song.carve out.wav  # レートを指定 (既定 44100)
 | 右クリック | ピアノロール: 選択中のノート上で選択を削除、それ以外は消しゴム / 行ラベル: Generator のメニュー |
 | Alt + ドラッグ | 消しゴム (ピアノロール・プレイリスト) |
 
+## 配布 (署名と公証)
+
+```sh
+scripts/release.sh                 # ビルド → 署名 → 公証 → staple → dist/CarveDAW-<version>.dmg
+scripts/release.sh --no-notarize   # 署名だけ試す
+```
+
+必要なものは Developer ID Application 証明書 (Apple Developer Program) と、
+`xcrun notarytool store-credentials carve-notary ...` で保存した公証用の資格情報。
+手順はスクリプト冒頭のコメントにある。Hardened Runtime で動かすので、他社の
+AU / VST3 を読み込むための `disable-library-validation` だけを
+`scripts/Carve.entitlements` で許可している。
+
 ## 実装メモ
 
 - **プラグインスキャンは子プロセス**で走る。読み込みで落ちるプラグインが
