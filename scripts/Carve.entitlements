@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    What the hardened runtime (which notarisation requires) has to be told
+    about a plugin host. Third-party AU/VST3 bundles are signed by their own
+    teams, and with library validation on, the loader refuses every one of
+    them; this is the entitlement that lets a host load code it did not sign.
+    Nothing else is opened up: the app never records, so no audio-input
+    entitlement, and no JIT or unsigned executable memory is used.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
