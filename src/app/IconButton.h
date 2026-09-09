@@ -12,12 +12,13 @@ namespace carve::app
 // nothing to add to a new button.
 enum class Icon
 {
-    play, pause, stop, loop,
+    play, pause, stop, loop, rewind, fastForward,
     mixer, exportFile, undo, redo, save, open,
     instrument, pianoRoll,
     plus, clone, menu,
     pencil, select,
-    zoomIn, zoomOut
+    zoomIn, zoomOut,
+    folder, audioFile, star, arrowUp, speaker
 };
 
 namespace icons
@@ -97,6 +98,15 @@ namespace icons
 
             case Icon::stop:
                 p.addRectangle (0.08f, 0.08f, 0.84f, 0.84f);
+                break;
+
+            case Icon::fastForward:
+            case Icon::rewind:
+                // Two triangles nose to tail; rewind is the mirror image.
+                p.addTriangle (0.0f, 0.12f, 0.0f, 0.88f, 0.5f, 0.5f);
+                p.addTriangle (0.5f, 0.12f, 0.5f, 0.88f, 1.0f, 0.5f);
+                if (icon == Icon::rewind)
+                    p.applyTransform (juce::AffineTransform::scale (-1.0f, 1.0f).translated (1.0f, 0.0f));
                 break;
 
             case Icon::loop:
@@ -238,6 +248,51 @@ namespace icons
                 p.lineTo (0.78f, 0.58f);
                 p.closeSubPath();
                 break;
+
+            case Icon::folder:
+                // The same silhouette as `open`, kept as its own name so the
+                // browser's rows and the file menu can part ways later.
+                p = make (Icon::open, { 0.0f, 0.0f, 1.0f, 1.0f });
+                break;
+
+            case Icon::audioFile:
+                // A handful of waveform bars: the shape a sample has in every
+                // editor, at a size where a real waveform would be noise.
+                for (auto [x, h] : { std::pair { 0.08f, 0.36f }, std::pair { 0.3f, 0.86f },
+                                     std::pair { 0.52f, 0.6f }, std::pair { 0.74f, 0.96f } })
+                    p.addRoundedRectangle (x, 0.5f - h * 0.5f, 0.18f, h, 0.05f);
+                break;
+
+            case Icon::star:
+            {
+                // Five points, the outer radius on the unit square's edge.
+                constexpr float outer = 0.5f, inner = 0.2f;
+                for (int i = 0; i < 10; ++i)
+                {
+                    const auto a = juce::MathConstants<float>::pi * (float) i / 5.0f;
+                    const auto r = (i % 2 == 0) ? outer : inner;
+                    const juce::Point<float> pt (0.5f + r * std::sin (a), 0.52f - r * std::cos (a));
+                    if (i == 0) p.startNewSubPath (pt);
+                    else        p.lineTo (pt);
+                }
+                p.closeSubPath();
+                break;
+            }
+
+            case Icon::arrowUp:
+                // Out of the folder and up a level: a stem with a head on top.
+                p.addRectangle (0.42f, 0.36f, 0.16f, 0.6f);
+                p.addTriangle (0.5f, 0.02f, 0.14f, 0.44f, 0.86f, 0.44f);
+                break;
+
+            case Icon::speaker:
+            {
+                // A cone, and one sound wave in front of it.
+                p.addRectangle (0.04f, 0.34f, 0.2f, 0.32f);
+                p.addQuadrilateral (0.2f, 0.34f, 0.5f, 0.08f, 0.5f, 0.92f, 0.2f, 0.66f);
+                p.addPath (stroked (arc ({ 0.5f, 0.5f }, 0.34f, 40.0f, 140.0f), 0.12f));
+                break;
+            }
 
             case Icon::zoomIn:
             case Icon::zoomOut:
