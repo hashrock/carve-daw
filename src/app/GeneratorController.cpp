@@ -211,6 +211,56 @@ bool GeneratorController::canImportAudioFiles (const juce::StringArray& files) c
     return false;
 }
 
+void GeneratorController::sampleFilesDropped (const juce::StringArray& files)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isSampler() || generator->isDrumKit())
+        return;
+
+    for (const auto& path : files)
+    {
+        if (const juce::File sample (path); engine.getAudioFileFormatManager().canOpen (sample))
+        {
+            assignSample (*generator, sample);
+            return;
+        }
+    }
+}
+
+void GeneratorController::loadSampleIntoSelected (const juce::File& sample)
+{
+    if (! engine.getAudioFileFormatManager().canOpen (sample))
+        return;
+
+    auto generator = getSelectedGenerator();
+
+    if (generator && generator->isDrumKit())
+    {
+        // The first pad with nothing on it: filling a kit from the browser
+        // is one double-click per pad, in pad order. A full kit takes
+        // nothing -- replacing a pad by accident is what the pad menu is for.
+        for (int pad = 0; pad < drumkit::numPads; ++pad)
+        {
+            if (! drumkit::findSoundForPad (*generator, pad))
+            {
+                assignPadSample (*generator, pad, sample);
+                return;
+            }
+        }
+
+        return;
+    }
+
+    if (generator && generator->isSampler())
+    {
+        assignSample (*generator, sample);
+        return;
+    }
+
+    addSamplerGenerator (sample);
+}
+
 //==============================================================================
 // Drum pads
 

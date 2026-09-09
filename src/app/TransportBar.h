@@ -121,7 +121,12 @@ class TransportBar : public juce::Component,
 public:
     TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um);
 
-    std::function<void()> onSave, onSaveAs, onOpen, onOpenMixer, onExport;
+    std::function<void()> onSave, onSaveAs, onOpen, onOpenMixer, onExport, onToggleBrowser;
+
+    // The Browser button is a lit toggle showing whether the panel is up;
+    // MainComponent owns the panel and tells the bar, so a cmd-B and a click
+    // both land the same way.
+    void setBrowserShown (bool shown);
 
     // Pattern mode was switched on or off. The owner rebuilds the Edit around
     // the selected pattern (or the playlist again) -- see sync::Audition.
@@ -182,6 +187,7 @@ private:
     NumberDisplay loopStartDisplay { 3 }, loopLengthDisplay { 3 };
     IconButton undoButton { "", Icon::undo }, redoButton { "", Icon::redo };
     IconButton mixerButton { "Mixer", Icon::mixer };
+    IconButton browserButton { "Browser", Icon::folder };
     juce::Slider masterKnob;
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;
