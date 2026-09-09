@@ -282,6 +282,12 @@ public:
 
     void setPattern (std::optional<model::Pattern> newPattern)
     {
+        // Retargeted to the pattern already on screen -- which the host does
+        // after every sync -- there is nothing to refresh: the listener below
+        // has been following its edits all along.
+        if (pattern && newPattern && pattern->state == newPattern->state)
+            return;
+
         if (pattern)
             pattern->state.removeListener (this);
 
@@ -518,7 +524,7 @@ private:
         }
 
         const auto mods = juce::ModifierKeys::getCurrentModifiers();
-        const bool extending = mods.isCommandDown() || mods.isShiftDown();
+        const bool extending = selection::isExtendModifier (mods);
 
         // Shift is the select tool while it is held, so the bar has to say what
         // the roll would actually do, not what the toolbar is set to.

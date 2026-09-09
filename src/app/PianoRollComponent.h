@@ -6,6 +6,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "SelectionModifiers.h"
 #include "TimeSigSupport.h"
 #include "model/SongModel.h"
 
@@ -20,9 +21,12 @@ namespace carve::app
 //   draw    click empty grid to add a note
 //   select  drag empty grid to rubber-band notes
 // In both tools a left click on a note selects it (Cmd or Shift extends the
-// selection) and dragging it moves the whole selection, a note's right edge
-// resizes it, right/alt-drag erases every note the cursor sweeps over, and
-// Backspace deletes the selection.
+// selection) and dragging it moves the whole selection, Cmd-dragging it moves
+// a copy of the selection, a note's right edge resizes it (and the rest of the
+// selection with it), right/alt-drag erases every note the cursor sweeps over,
+// a right click on the selection deletes all of it, and so does Backspace.
+// Holding Shift is the select tool for as long as it is held. The playlist
+// reads all of these gestures the same way: SelectionModifiers.h is the list.
 //
 // Cmd-scroll zooms in time about the pointer. Cmd+C / Cmd+X / Cmd+V copy, cut
 // and paste the selection through the system clipboard, and Q quantises.
@@ -114,13 +118,12 @@ public:
     Tool getTool() const  { return tool; }
 
     // Holding shift is the select tool for as long as it is held, whatever the
-    // toolbar says. Picking a few notes out of a part being drawn is a constant
-    // interruption otherwise: switch tool, rubber-band, switch back. Every
-    // gesture that asks "which tool is this?" asks this instead -- and so does
-    // the window's shortcut bar, which has to say what the roll would really do.
+    // toolbar says (see SelectionModifiers.h). Every gesture that asks "which
+    // tool is this?" asks this instead -- and so does the window's shortcut
+    // bar, which has to say what the roll would really do.
     Tool getEffectiveTool (const juce::ModifierKeys& mods) const
     {
-        return mods.isShiftDown() ? Tool::select : tool;
+        return selection::isSelectToolOverride (mods) ? Tool::select : tool;
     }
     int getNumSelectedNotes() const  { return (int) selectedNotes.size(); }
 
@@ -229,12 +232,9 @@ private:
     juce::Viewport* getViewport() const;
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
 
-    static bool isEraseGesture (const juce::ModifierKeys& mods)  { return mods.isRightButtonDown() || mods.isAltDown(); }
-
-    // The key that turns a move into a copy. Cmd is the one the help bar
-    // names; Ctrl is taken too, since it does nothing else in the roll and is
-    // what the same gesture is called on other platforms.
-    static bool isDuplicateModifier (const juce::ModifierKeys& mods)  { return mods.isCommandDown() || mods.isCtrlDown(); }
+    // Which key means what is shared with the playlist: SelectionModifiers.h.
+    static bool isEraseGesture (const juce::ModifierKeys& mods)       { return selection::isEraseGesture (mods); }
+    static bool isDuplicateModifier (const juce::ModifierKeys& mods)  { return selection::isDuplicateModifier (mods); }
 
     juce::MouseCursor cursorFor (juce::Point<float>, const juce::ModifierKeys&) const;
     void updateCursor (const juce::MouseEvent&);
@@ -296,12 +296,15 @@ private:
     double grabOffsetBeats = 0.0;
     juce::Point<float> dragStartPosition;    // where the press landed, which a move measures from
     juce::Point<float> lastErasePosition;
-    double lastNoteLength = 0.5;
 
-    // New notes are drawn at the last velocity the user set in the lane, the
-    // way their length follows the last resize: having just dialled in a set
-    // of ghost notes, the next one drawn should be one too.
-    int lastNoteVelocity = defaultNoteVelocity;
+    // New notes are drawn at the length of the last resize and the last
+    // velocity the user set in the lane: having just dialled in a set of
+    // ghost notes, the next one drawn should be one too. Static, because the
+    // editor window is destroyed on close and built again on the next open,
+    // and what the user last asked for should outlive the window it was
+    // asked in.
+    inline static double lastNoteLength = 0.5;
+    inline static int lastNoteVelocity = defaultNoteVelocity;
 
     double quantiseStrength = 1.0;
     double quantiseSwing = 0.0;

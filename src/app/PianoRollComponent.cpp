@@ -105,6 +105,14 @@ model::TimeSignature PianoRollComponent::getGridTimeSig() const
 
 void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
 {
+    // The same pattern again is nothing to do -- and everything below would
+    // be harm: the host retargets the editor after every sync, and a sync
+    // follows every note edit, so this arrives between the mouse events of a
+    // drag. Dropping the drag and the selection here is what made a resize
+    // stop after its first step and left the next note at the old length.
+    if (pattern && newPattern && pattern->state == newPattern->state)
+        return;
+
     if (pattern)
         pattern->state.removeListener (this);
 
@@ -1063,7 +1071,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         }
         else
         {
-            selectNote (*note, e.mods.isCommandDown() || e.mods.isShiftDown());
+            selectNote (*note, selection::isExtendModifier (e.mods));
 
             // Cmd-clicking a note that was selected takes it back out again,
             // and then there is nothing under the pointer left to drag.
@@ -1097,7 +1105,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         // for the select tool in the first place, so it cannot also mean
         // "add", and a shift-band from the draw tool has to be able to start a
         // fresh selection.
-        if (! e.mods.isCommandDown())
+        if (! selection::isRubberBandExtendModifier (e.mods))
             clearSelection();
 
         dragMode = DragMode::rubberBand;

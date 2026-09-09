@@ -650,6 +650,15 @@ void PlaylistComponent::selectClip (const juce::ValueTree& clip, bool extend)
     selectionChanged();
 }
 
+void PlaylistComponent::addToSelection (const juce::ValueTree& clip)
+{
+    if (isSelected (clip))
+        return;
+
+    selectedClips.push_back (clip);
+    selectionChanged();
+}
+
 void PlaylistComponent::clearSelection()
 {
     if (selectedClips.empty())
@@ -725,23 +734,35 @@ void PlaylistComponent::updateShortcutHelp()
         // with the tool's own drag here would be a lie.
         entries.push_back ({ "drag", "erase clips" });
     }
-    else if (tool == Tool::paint)
-    {
-        entries.push_back ({ "drag", "paint pattern" });
-        entries.push_back ({ "drag clip", "move" });
-        entries.push_back ({ "E", "select tool" });
-    }
     else
     {
-        entries.push_back ({ "drag", "rubber-band select" });
-        entries.push_back ({ "drag clip", "move" });
-        entries.push_back ({ "B", "paint tool" });
+        // The same entries, in the same words, as the piano roll's bar: the
+        // two grids share these gestures, so the bars have to agree on them.
+        // Shift is the select tool while it is held, so the bar says what the
+        // grid would actually do, not what the toolbar is set to.
+        const bool extending = selection::isExtendModifier (mods);
+
+        if (getEffectiveTool (mods) == Tool::select)
+        {
+            entries.push_back ({ "drag", extending ? "add to selection" : "select clips" });
+            entries.push_back ({ "click clip", extending ? "add / remove" : "select" });
+            entries.push_back ({ "drag clip", "move selection" });
+            entries.push_back ({ "Cmd+drag clip", "duplicate" });
+        }
+        else
+        {
+            entries.push_back ({ "drag", "paint pattern" });
+            entries.push_back ({ "drag clip", extending ? "extend selection" : "move" });
+            entries.push_back ({ "Cmd+drag clip", "duplicate" });
+            entries.push_back ({ "Shift", "select tool" });
+        }
     }
 
     if (! selectedClips.empty())
     {
         entries.push_back ({ "Cmd+D", "duplicate" });
         entries.push_back ({ "Delete", "remove" });
+        entries.push_back ({ "right-click", "delete selected" });
         entries.push_back ({ "Cmd+C / Cmd+X", "copy / cut" });
     }
 
@@ -752,7 +773,8 @@ void PlaylistComponent::updateShortcutHelp()
 
     entries.push_back ({ "drop audio", "place on a track" });
 
-    entries.push_back ({ "Cmd+click", "extend selection" });
+    entries.push_back (getEffectiveTool (mods) == Tool::select ? ShortcutHelpBar::Entry { "B", "paint tool" }
+                                                                : ShortcutHelpBar::Entry { "E", "select tool" });
     entries.push_back ({ "double click", "edit pattern" });
     entries.push_back ({ "right-click label", "rename / delete" });
 
@@ -1421,22 +1443,21 @@ void PlaylistComponent::paint (juce::Graphics& g)
 //==============================================================================
 // Editing
 
-bool PlaylistComponent::paintClip (int row, double beat)
+juce::ValueTree PlaylistComponent::paintClip (int row, double beat)
 {
     auto generator = song.getGenerator (row);
     auto pattern = patternForRow (generator);
     if (! pattern || pattern->getLengthBeats() <= 0.0)
-        return false;
+        return {};
 
     const auto start = snapToBar (beat);
 
     // Never stack. This is also what keeps a paint drag cheap: once a slot is
     // filled the test fails, so sweeping back and forth writes nothing.
     if (! isRangeFree (generator, start, pattern->getLengthBeats()))
-        return false;
+        return {};
 
-    song.getPlaylist().addClip (generator, *pattern, start, &undoManager);
-    return true;
+    return song.getPlaylist().addClip (generator, *pattern, start, &undoManager).state;
 }
 
 bool PlaylistComponent::eraseClip (int row, double beat)
@@ -1468,33 +1489,81 @@ void PlaylistComponent::setPlacementStart (const juce::ValueTree& state, double 
         model::PlaylistClip (state).setStart (startBeats, &undoManager);
 }
 
+juce::ValueTree PlaylistComponent::copyPlacement (const juce::ValueTree& state, double startBeats)
+{
+    auto generator = song.findGenerator (state[model::ids::generatorId].toString());
+    if (! generator)
+        return {};
+
+    auto playlist = song.getPlaylist();
+
+    if (state.hasType (model::ids::AUDIOCLIP))
+    {
+        // The same slice of the same file: length and offset are the whole of
+        // what an audio placement says beyond where it sits.
+        const model::AudioClip source (state);
+        auto copy = playlist.addAudioClip (*generator, source.getFile(), startBeats,
+                                           source.getLengthSeconds(), &undoManager);
+
+        if (source.getOffsetSeconds() > 0.0)
+            copy.setOffsetSeconds (source.getOffsetSeconds(), &undoManager);
+
+        return copy.state;
+    }
+
+    const model::PlaylistClip clip (state);
+    auto pattern = generator->findPattern (clip.getPatternId());
+    if (! pattern)
+        return {};
+
+    // A copy has to play the same thing for the same time, so it is placed
+    // with everything the original said about itself rather than adjusted
+    // into shape afterwards.
+    return playlist.addClip (*generator, *pattern, startBeats,
+                             model::ClipPlacement::of (clip), &undoManager).state;
+}
+
 void PlaylistComponent::trimSelectionTo (double targetEnd)
 {
     if (! trimClip.isValid())
         return;
 
-    model::AudioClip clip (trimClip);
-    const auto length = std::max (0.0, targetEnd - clip.getStart());
+    // The pointer sets the length of the clip it grabbed; the rest of the
+    // selection takes the same length, not the same edge, so a trim does not
+    // line every clip's end up on one beat. The same rule as resizing notes.
+    const auto length = std::max (0.0, targetEnd - model::AudioClip (trimClip).getStart());
 
-    if (std::abs (clip.getStart() + length - trimLastEnd) < beatTolerance)
+    if (std::abs (model::AudioClip (trimClip).getStart() + length - trimLastEnd) < beatTolerance)
         return;   // still inside the beat we last wrote: no model write, no resync
 
-    auto generator = song.findGenerator (clip.getGeneratorId());
+    trimLastEnd = model::AudioClip (trimClip).getStart() + length;
 
-    // Growing a clip over its neighbour would hide it, so refuse rather than
-    // overlap -- the same rule painting follows.
-    if (! generator || ! isRangeFree (*generator, clip.getStart(), length, false, trimClip))
-        return;
+    // Every write calls back into refresh(), which rewrites selectedClips, so
+    // work from our own copy for the whole gesture.
+    const auto targets = trimTargets;
 
-    // The grid trims in beats but the clip is measured in seconds, so convert
-    // through the tempo the clip actually plays through.
-    clip.setLengthSeconds (song.secondsFromBeats (clip.getStart() + length)
-                               - song.secondsFromBeats (clip.getStart()),
-                           &undoManager);
-    trimLastEnd = clip.getStart() + length;
+    for (const auto& state : targets)
+    {
+        model::AudioClip clip (state);
+        auto generator = song.findGenerator (clip.getGeneratorId());
+
+        // Growing a clip over its neighbour would hide it, so refuse rather
+        // than overlap -- the same rule painting follows. Per clip: the one
+        // that has room grows even when another in the selection has none.
+        if (! generator || ! isRangeFree (*generator, clip.getStart(), length, false, state))
+            continue;
+
+        // The grid trims in beats but the clip is measured in seconds, so
+        // convert through the tempo the clip actually plays through.
+        const auto seconds = song.secondsFromBeats (clip.getStart() + length)
+                                 - song.secondsFromBeats (clip.getStart());
+
+        if (std::abs (seconds - clip.getLengthSeconds()) > 1.0e-9)
+            clip.setLengthSeconds (seconds, &undoManager);
+    }
 }
 
-void PlaylistComponent::dragSelectionTo (double targetStart)
+void PlaylistComponent::dragSelectionTo (double targetStart, const juce::ModifierKeys& mods)
 {
     if (selectedClips.empty() || selectedClips.size() != dragOriginStarts.size()
             || std::abs (targetStart - dragLastStart) < beatTolerance)
@@ -1508,6 +1577,10 @@ void PlaylistComponent::dragSelectionTo (double targetStart)
     const auto minOrigin = *std::min_element (dragOriginStarts.begin(), dragOriginStarts.end());
     const auto delta = std::max (targetStart - dragAnchorOriginStart, -minOrigin);
 
+    // A duplicate drag whose copies are still to be put down has to keep the
+    // origin slots clear for them: see syncDragDuplicate.
+    const bool keepOriginFree = selection::isDuplicateModifier (mods) && originCopies.empty();
+
     // All-or-nothing: if any clip would land on top of an unselected one, the
     // whole gesture stays where it is rather than half-moving the selection.
     for (size_t i = 0; i < clips.size(); ++i)
@@ -1518,14 +1591,74 @@ void PlaylistComponent::dragSelectionTo (double targetStart)
         if (! placement || ! generator)
             return;
 
-        if (! isRangeFree (*generator, dragOriginStarts[i] + delta, placement->length, true))
+        const auto start = dragOriginStarts[i] + delta;
+
+        if (! isRangeFree (*generator, start, placement->length, true))
             return;
+
+        if (! keepOriginFree)
+            continue;
+
+        for (size_t j = 0; j < clips.size(); ++j)
+        {
+            auto origin = placementFor (clips[j]);
+
+            if (! origin || clips[j][model::ids::generatorId] != clips[i][model::ids::generatorId])
+                continue;
+
+            if (start < dragOriginStarts[j] + origin->length - beatTolerance
+                    && dragOriginStarts[j] < start + placement->length - beatTolerance)
+                return;
+        }
     }
 
     for (size_t i = 0; i < clips.size(); ++i)
         setPlacementStart (clips[i], dragOriginStarts[i] + delta);
 
     dragLastStart = dragAnchorOriginStart + delta;
+
+    // The move may just have cleared the origin the copies are waiting for.
+    syncDragDuplicate (mods);
+}
+
+void PlaylistComponent::syncDragDuplicate (const juce::ModifierKeys& mods)
+{
+    if (dragMode != DragMode::move || selectedClips.size() != dragOriginStarts.size())
+        return;
+
+    const bool wantCopies = selection::isDuplicateModifier (mods);
+
+    if (wantCopies && originCopies.empty())
+    {
+        // Copies go where the drag began, not where the clips are now, so the
+        // originals appear to have stayed put and the dragged ones to be new.
+        // Clips never stack, so this waits until every origin slot is clear --
+        // of the moved selection above all, which is still sitting in them
+        // until the drag has carried it a full length away.
+        const auto clips = selectedClips;
+
+        for (size_t i = 0; i < clips.size(); ++i)
+        {
+            auto placement = placementFor (clips[i]);
+            auto generator = song.findGenerator (clips[i][model::ids::generatorId].toString());
+
+            if (! placement || ! generator
+                    || ! isRangeFree (*generator, dragOriginStarts[i], placement->length))
+                return;
+        }
+
+        for (size_t i = 0; i < clips.size(); ++i)
+            if (auto copy = copyPlacement (clips[i], dragOriginStarts[i]); copy.isValid())
+                originCopies.push_back (copy);
+    }
+    else if (! wantCopies && ! originCopies.empty())
+    {
+        // Let go of the key before the mouse: back to a plain move.
+        for (const auto& state : originCopies)
+            removePlacement (state);
+
+        originCopies.clear();
+    }
 }
 
 void PlaylistComponent::duplicateSelection()
@@ -1564,7 +1697,6 @@ void PlaylistComponent::duplicateSelection()
 
     undoManager.beginNewTransaction();
 
-    auto playlist = song.getPlaylist();
     std::vector<juce::ValueTree> copies;
 
     for (const auto& state : clips)
@@ -1575,39 +1707,13 @@ void PlaylistComponent::duplicateSelection()
         if (! placement || ! generator)
             continue;
 
-        const auto length = placement->length;
         const auto start = placement->start + offset;
 
-        if (! isRangeFree (*generator, start, length))
+        if (! isRangeFree (*generator, start, placement->length))
             continue;
 
-        if (placement->isAudio())
-        {
-            // The same slice of the same file: length and offset are the whole
-            // of what an audio placement says beyond where it sits.
-            const model::AudioClip source (state);
-            auto copy = playlist.addAudioClip (*generator, source.getFile(), start,
-                                               source.getLengthSeconds(), &undoManager);
-
-            if (source.getOffsetSeconds() > 0.0)
-                copy.setOffsetSeconds (source.getOffsetSeconds(), &undoManager);
-
-            copies.push_back (copy.state);
-            continue;
-        }
-
-        model::PlaylistClip clip (state);
-        auto pattern = generator->findPattern (clip.getPatternId());
-        if (! pattern)
-            continue;
-
-        // A copy has to play the same thing for the same time, so it is placed
-        // with everything the original said about itself rather than adjusted
-        // into shape afterwards.
-        auto copy = playlist.addClip (*generator, *pattern, start,
-                                      model::ClipPlacement::of (clip), &undoManager);
-
-        copies.push_back (copy.state);
+        if (auto copy = copyPlacement (state, start); copy.isValid())
+            copies.push_back (copy);
     }
 
     // Select the copies so ⌘D again continues the chain.
@@ -2518,7 +2624,12 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
         return juce::MouseCursor::DraggingHandCursor;   // click selects, drag moves
     }
 
-    if (tool == Tool::paint && patternForRow (generator))
+    // Empty grid: the paint tool would lay a clip here, the select tool would
+    // start a rubber band. Both are aimed, so both get the crosshair.
+    if (getEffectiveTool (mods) == Tool::select)
+        return juce::MouseCursor::CrosshairCursor;
+
+    if (patternForRow (generator))
         return juce::MouseCursor::CrosshairCursor;
 
     return juce::MouseCursor::NormalCursor;
@@ -2581,9 +2692,14 @@ void PlaylistComponent::modifierKeysChanged (const juce::ModifierKeys& mods)
     if (mouseIsOver)
         setMouseCursor (cursorFor (lastMousePosition, mods));
 
-    // Alt re-points the drag, so the help bar has to follow the key. This is
-    // called for every modifier; the entries only change for the ones that
-    // matter, and updateShortcutHelp stays quiet for the rest.
+    // A move in progress becomes a copy the moment the key goes down, not on
+    // the next mouse movement -- the copies should appear under a still hand.
+    if (dragMode == DragMode::move)
+        syncDragDuplicate (mods);
+
+    // Alt, ⌘ and ⇧ all re-point the next drag, so the help bar has to follow
+    // the key. This is called for every modifier; the entries only change for
+    // the ones that matter, and updateShortcutHelp stays quiet for the rest.
     updateShortcutHelp();
 }
 
@@ -2594,6 +2710,7 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
     grabKeyboardFocus();   // ⌘D and the tool keys are ours once the grid is clicked
 
     dragMode = DragMode::none;
+    pendingToggleClip = {};
 
     if (markerLaneBounds().contains (e.position))
     {
@@ -2766,33 +2883,56 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
     }
 
     const auto clickBeat = xToBeat (e.position.x);
-    const bool erasing = e.mods.isRightButtonDown() || e.mods.isAltDown();
+    const auto placement = placementAt (generator, clickBeat);
 
     // One transaction per gesture, so a whole paint or erase drag is one undo.
     undoManager.beginNewTransaction();
 
-    if (erasing)
+    // A right click on a clip that is part of the selection takes the whole
+    // selection away. Sweeping clips out one by one is what the erase gesture
+    // below is for; once a set has been picked out deliberately, "delete this"
+    // is the only thing a right click on it can mean.
+    if (e.mods.isRightButtonDown() && selectedClips.size() > 1
+            && placement && isSelected (placement->state))
+    {
+        deleteSelection();
+        updateHover (e.position);
+        return;
+    }
+
+    if (selection::isEraseGesture (e.mods))
     {
         dragMode = DragMode::erase;
         eraseClip (row, clickBeat);
         return;
     }
 
-    if (auto placement = placementAt (generator, clickBeat))
+    if (placement)
     {
         const auto bounds = slotBounds (row, placement->start, placement->length);
-        const auto extend = e.mods.isCommandDown() || e.mods.isShiftDown();
+        const auto extend = selection::isExtendModifier (e.mods);
 
         if (placement->isAudio())
         {
             // The grip on the right edge trims the placement. Select it too,
-            // so the trim reads as happening to the clip it highlights.
+            // so the trim reads as happening to the clip it highlights -- but
+            // never take it out of the selection: the edge of a selected clip
+            // trims the whole selection (see trimSelectionTo), so the clip
+            // has to stay in it.
             if (trimHandleBounds (bounds).contains (e.position))
             {
-                selectClip (placement->state, extend);
+                if (! isSelected (placement->state))
+                    selectClip (placement->state, extend);
+
                 dragMode = DragMode::trim;
                 trimClip = placement->state;
                 trimLastEnd = placement->getEnd();
+                trimTargets.clear();
+
+                for (const auto& state : selectedClips)
+                    if (state.hasType (model::ids::AUDIOCLIP))
+                        trimTargets.push_back (state);
+
                 return;
             }
         }
@@ -2804,7 +2944,34 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
-        selectClip (placement->state, extend);
+        // ⌘ on a clip is two gestures at once, and which one it is only
+        // becomes clear when the mouse either moves or does not: a drag from
+        // here duplicates the selection, a click alone is the selection
+        // toggle it has always been. So arm both and let mouseDrag/mouseUp
+        // decide. Whichever tool is up: painting a section is exactly when
+        // copying the bars just painted is worth having.
+        if (selection::isDuplicateModifier (e.mods))
+        {
+            // Only a clip that was already selected has a toggle to hold
+            // back; adding an unselected one to the selection is what a
+            // duplicate drag needs anyway, so that half happens now.
+            if (isSelected (placement->state))
+                pendingToggleClip = placement->state;
+            else
+                selectClip (placement->state, true);
+        }
+        else
+        {
+            selectClip (placement->state, extend);
+
+            // ⇧-clicking a clip that was selected takes it back out again,
+            // and then there is nothing under the pointer left to drag.
+            if (! isSelected (placement->state))
+            {
+                updateHover (e.position);
+                return;
+            }
+        }
 
         // Drag from here moves the selection. Snapshot the starts now so the
         // move is always relative to where the gesture began.
@@ -2819,24 +2986,34 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (tool == Tool::paint)
+    if (getEffectiveTool (e.mods) == Tool::paint)
     {
+        // The clips this gesture paints become the selection, the way a note
+        // just drawn does in the piano roll: Backspace takes them away again
+        // and ⌘D chains them, without having to find them first.
+        clearSelection();
         dragMode = DragMode::paint;
-        paintClip (row, clickBeat);
+
+        if (auto painted = paintClip (row, clickBeat); painted.isValid())
+            addToSelection (painted);
+
         updateHover (e.position);
         return;
     }
 
-    // Select tool on empty space: rubber band. ⌘ or ⇧ adds to what is already
+    // Select tool on empty space: rubber band. ⌘ adds to what is already
     // selected, so the band starts from the current selection rather than
-    // replacing it.
-    if (! (e.mods.isCommandDown() || e.mods.isShiftDown()))
+    // replacing it. ⇧ does not: holding it is what asked for the select tool
+    // in the first place, so it cannot also mean "add", and a ⇧-band from the
+    // paint tool has to be able to start a fresh selection.
+    if (! selection::isRubberBandExtendModifier (e.mods))
         clearSelection();
 
     dragMode = DragMode::rubberBand;
     rubberBandAnchor = e.position;
     rubberBand = {};
     rubberBandBaseSelection = selectedClips;
+    updateHover (e.position);
 }
 
 void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
@@ -2854,8 +3031,14 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
         case DragMode::paint:
             // paintClip is a no-op unless the pointer has entered an empty
             // slot, which is what keeps the model (and EditSync) quiet.
-            if (insideGrid && paintClip (row, beat))
+            if (! insideGrid)
+                break;
+
+            if (auto painted = paintClip (row, beat); painted.isValid())
+            {
+                addToSelection (painted);
                 updateHover (e.position);
+            }
             break;
 
         case DragMode::erase:
@@ -2864,6 +3047,10 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             break;
 
         case DragMode::move:
+            // The press armed a toggle in case this was a click; the mouse has
+            // now moved, so it is a drag and the toggle is off.
+            pendingToggleClip = {};
+
             // Nearest bar line, not the one below: a clip sitting on a bar line
             // -- which is where every clip is -- would otherwise slide a whole
             // bar back the instant the pointer moved a pixel left, while
@@ -2871,7 +3058,7 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             // two directions alike, with half a bar of slack around standing
             // still. The grab offset is already taken off, so this measures
             // from where the clip is rather than from the pointer.
-            dragSelectionTo (nearestBar (beat - dragGrabOffsetBeats));
+            dragSelectionTo (nearestBar (beat - dragGrabOffsetBeats), e.mods);
             break;
 
         case DragMode::trim:
@@ -2908,12 +3095,21 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
     if (dragMode == DragMode::loopRange && ! loopDragMoved && onSeek)
         onSeek (rulerPressBeats);
 
+    // An armed toggle that never became a drag was a plain ⌘ click, and those
+    // take the clip out of the selection.
+    if (pendingToggleClip.isValid())
+        selectClip (pendingToggleClip, true);
+
+    pendingToggleClip = {};
+    originCopies.clear();   // they stay in the song; only the handle on them goes
+
     dragMode = DragMode::none;
     dragOriginStarts.clear();
     dragMarker = {};
     dragAutoPoint = {};
     dragAutoRow = -1;
     trimClip = {};
+    trimTargets.clear();
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateHover (e.position);
