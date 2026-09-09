@@ -14,9 +14,11 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     edit = te::Edit::createSingleTrackEdit (engine);
 
     transportBar = std::make_unique<TransportBar> (*edit, song, undoManager);
+    transportBar->onNew = [this] { newSong(); };
     transportBar->onSave = [this] { saveSong(); };
     transportBar->onSaveAs = [this] { saveSongAs(); };
     transportBar->onOpen = [this] { openSong(); };
+    transportBar->onOpenDemo = [this] { openDemoSong(); };
 
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
@@ -173,7 +175,9 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     playlistHelpEntries = globalShortcutHelp();
     setBrowserShown (browser.wasShownLastSession());
 
-    loadSong (model::buildDemoSong());
+    // An empty song, not the demo: the app opens on the user's next piece,
+    // and the demo is a menu item away for anyone who wants to see one.
+    loadSong (model::Song::create ("Untitled"));
 
     setWantsKeyboardFocus (true);
     startTimerHz (30);
@@ -641,19 +645,58 @@ void MainComponent::confirmDiscardChanges (std::function<void (bool)> onResolved
     }));
 }
 
+void MainComponent::newSong()
+{
+    confirmDiscardChanges ([safe = juce::Component::SafePointer (this)] (bool goAhead)
+    {
+        if (safe != nullptr && goAhead)
+            safe->loadSong (model::Song::create ("Untitled"));
+    });
+}
+
+void MainComponent::openDemoSong()
+{
+    // The demo has no file behind it: it opens as an unsaved "Untitled", so
+    // that playing with it and then saving asks where, rather than
+    // overwriting whatever was open before.
+    confirmDiscardChanges ([safe = juce::Component::SafePointer (this)] (bool goAhead)
+    {
+        if (safe != nullptr && goAhead)
+            safe->loadSong (model::buildDemoSong());
+    });
+}
+
 void MainComponent::openSong()
 {
-    fileChooser = std::make_shared<juce::FileChooser> ("Open song", juce::File(), "*.carve;*.orion");
-    fileChooser->launchAsync (juce::FileBrowserComponent::openMode
-                                  | juce::FileBrowserComponent::canSelectFiles,
-                              [this] (const juce::FileChooser& chooser)
+    confirmDiscardChanges ([safe = juce::Component::SafePointer (this)] (bool goAhead)
     {
-        auto file = chooser.getResult();
-        if (file == juce::File())
+        if (safe == nullptr || ! goAhead)
             return;
-        if (auto loaded = model::Song::loadFromFile (file))
-            loadSong (*loaded, file);
+
+        safe->fileChooser = std::make_shared<juce::FileChooser> ("Open song", juce::File(), "*.carve;*.orion");
+        safe->fileChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                            | juce::FileBrowserComponent::canSelectFiles,
+                                        [safe] (const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+
+            if (safe != nullptr && file != juce::File())
+                safe->openSongFile (file);
+        });
     });
+}
+
+void MainComponent::openSongFile (const juce::File& file)
+{
+    if (auto loaded = model::Song::loadFromFile (file))
+    {
+        loadSong (*loaded, file);
+        return;
+    }
+
+    juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                 "Open failed",
+                                                 "Could not read " + file.getFullPathName());
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)

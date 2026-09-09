@@ -121,7 +121,8 @@ class TransportBar : public juce::Component,
 public:
     TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um);
 
-    std::function<void()> onSave, onSaveAs, onOpen, onOpenMixer, onExport, onToggleBrowser;
+    std::function<void()> onNew, onOpen, onOpenDemo, onSave, onSaveAs, onExport,
+                          onOpenMixer, onToggleBrowser;
 
     // The Browser button is a lit toggle showing whether the panel is up;
     // MainComponent owns the panel and tells the bar, so a cmd-B and a click

@@ -265,10 +265,13 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
 void TransportBar::showFileMenu()
 {
-    enum { openId = 1, saveId, saveAsId, exportId };
+    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId };
 
     juce::PopupMenu menu;
+    menu.addItem (newId, "New");
     menu.addItem (openId, "Open...");
+    menu.addItem (openDemoId, "Open Demo Song");
+    menu.addSeparator();
     menu.addItem (saveId, "Save");
     menu.addItem (saveAsId, "Save As...");
     menu.addSeparator();
@@ -282,10 +285,12 @@ void TransportBar::showFileMenu()
 
         switch (result)
         {
-            case openId:    if (safe->onOpen)   safe->onOpen();   break;
-            case saveId:    if (safe->onSave)   safe->onSave();   break;
-            case saveAsId:  if (safe->onSaveAs) safe->onSaveAs(); break;
-            case exportId:  if (safe->onExport) safe->onExport(); break;
+            case newId:       if (safe->onNew)      safe->onNew();      break;
+            case openId:      if (safe->onOpen)     safe->onOpen();     break;
+            case openDemoId:  if (safe->onOpenDemo) safe->onOpenDemo(); break;
+            case saveId:      if (safe->onSave)     safe->onSave();     break;
+            case saveAsId:    if (safe->onSaveAs)   safe->onSaveAs();   break;
+            case exportId:    if (safe->onExport)   safe->onExport();   break;
             default: break;
         }
     });

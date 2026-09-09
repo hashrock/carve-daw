@@ -30,8 +30,8 @@ public:
     void parentHierarchyChanged() override;
     bool keyPressed (const juce::KeyPress&) override;
 
-    // Asks about unsaved work before something is about to throw it away --
-    // quitting, today. Calls onResolved with true to go ahead and false to stay
+    // Asks about unsaved work before something is about to throw it away:
+    // quitting, or replacing the song with a new, opened or demo one. Calls onResolved with true to go ahead and false to stay
     // put, and always asynchronously in spirit: the alert is, and so is the
     // save behind its first button.
     void confirmDiscardChanges (std::function<void (bool goAhead)> onResolved);
@@ -59,7 +59,10 @@ private:
     void saveSong (std::function<void (bool saved)> onDone = {});
     void saveSongAs (std::function<void (bool saved)> onDone = {});
     bool writeSongTo (const juce::File& file);
+    void newSong();
     void openSong();
+    void openSongFile (const juce::File&);
+    void openDemoSong();
     void openPluginManager();
     void openPatternEditor();
 
