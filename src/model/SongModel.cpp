@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -180,6 +181,26 @@ void FileRef::setFile (juce::ValueTree state, const juce::File& file, juce::Undo
     // Stale the moment the file changes; Song::saveToFile writes a fresh one
     // against whichever .carve the song ends up in.
     state.removeProperty (ids::relPath, um);
+}
+
+bool FileRef::hasFile (const juce::ValueTree& state)
+{
+    return state[ids::file].toString().isNotEmpty() || state[ids::relPath].toString().isNotEmpty();
+}
+
+juce::String FileRef::getFileName (const juce::ValueTree& state)
+{
+    // The absolute path when there is one, otherwise the relative one: the
+    // name is the same in both, and either may be all a song has.
+    auto path = state[ids::file].toString();
+
+    if (path.isEmpty())
+        path = state[ids::relPath].toString();
+
+    // Split by hand rather than through juce::File, which asserts on a
+    // relative path; a hand-written song can hold either separator.
+    return path.fromLastOccurrenceOf ("/", false, false)
+               .fromLastOccurrenceOf ("\\", false, false);
 }
 
 void FileRef::resolve (juce::ValueTree state, const juce::File& songDirectory)
@@ -752,6 +773,75 @@ void Song::refreshMediaPaths (const juce::File& songFile) const
 
     for (const auto& clip : getPlaylist().getAudioClips())
         FileRef::refresh (clip.state, directory);
+}
+
+std::vector<juce::ValueTree> Song::findMissingMedia() const
+{
+    std::vector<juce::ValueTree> missing;
+
+    auto consider = [&missing] (const juce::ValueTree& node)
+    {
+        if (FileRef::hasFile (node) && ! FileRef::getFile (node).existsAsFile())
+            missing.push_back (node);
+    };
+
+    for (const auto& generator : getGenerators())
+        for (const auto& sound : generator.getSounds())
+            consider (sound.state);
+
+    for (const auto& clip : getPlaylist().getAudioClips())
+        consider (clip.state);
+
+    return missing;
+}
+
+int Song::relinkMissingMedia (const juce::File& folder, juce::UndoManager* um) const
+{
+    const auto missing = findMissingMedia();
+
+    if (missing.empty() || ! folder.isDirectory())
+        return 0;
+
+    // One walk of the folder for every name rather than one walk per name:
+    // a sample library is large, and a song can be missing dozens of files.
+    std::map<juce::String, juce::File> found;
+    size_t stillToFind = 0;
+
+    for (const auto& node : missing)
+        if (found.emplace (FileRef::getFileName (node), juce::File()).second)
+            ++stillToFind;
+
+    for (const auto& entry : juce::RangedDirectoryIterator (folder, true, "*", juce::File::findFiles))
+    {
+        if (stillToFind == 0)
+            break;
+
+        const auto file = entry.getFile();
+        auto it = found.find (file.getFileName());
+
+        if (it != found.end() && it->second == juce::File())
+        {
+            it->second = file;
+            --stillToFind;
+        }
+    }
+
+    int relinked = 0;
+
+    // By value: the wrapper is a handle onto shared state, and setFile needs
+    // a non-const tree.
+    for (auto node : missing)
+    {
+        const auto it = found.find (FileRef::getFileName (node));
+
+        if (it == found.end() || it->second == juce::File())
+            continue;
+
+        FileRef::setFile (node, it->second, um);
+        ++relinked;
+    }
+
+    return relinked;
 }
 
 void Song::setLoopRange (double startBeats, double endBeats, juce::UndoManager* um)

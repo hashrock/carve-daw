@@ -6,6 +6,7 @@
 #include "GeneratorWindow.h"
 #include "MixerWindow.h"
 #include "ClipPropertiesPanel.h"
+#include "MissingMediaWindow.h"
 #include "ExportWindow.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
@@ -54,6 +55,10 @@ private:
 
     // The one place a new song arrives, whether from disk or the demo builder.
     void loadSong (model::Song newSong, juce::File sourceFile = {});
+
+    // After a load: tries the song's own folder for any media it could not
+    // find, and lists whatever is still missing for the user to relink.
+    void checkForMissingMedia();
     void selectionChanged (const juce::String& generatorId, const juce::String& patternId);
 
     // Any edit at all reaches the song tree, so that is what "dirty" watches.
@@ -152,6 +157,7 @@ private:
     std::unique_ptr<GeneratorWindow> generatorWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
+    std::unique_ptr<MissingMediaWindow> missingMediaWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

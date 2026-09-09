@@ -203,6 +203,7 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     generatorWindow.reset();
     mixerWindow.reset();
     exportWindow.reset();
+    missingMediaWindow.reset();   // it was about the song that just went away
     undoManager.clearUndoHistory();
 
     song.state.removeListener (this);
@@ -240,6 +241,44 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     currentFile = std::move (sourceFile);
     hasUnsavedChanges = false;
     updateDocumentDisplay();
+
+    // After the flags above on purpose: a relink is a change to the document
+    // the file on disk does not have, so it should count as unsaved.
+    checkForMissingMedia();
+}
+
+void MainComponent::checkForMissingMedia()
+{
+    // The song's own folder first, without asking: a project moved with its
+    // media whose relative paths no longer line up is the common case, and
+    // the one the user cannot be expected to help with.
+    if (currentFile != juce::File())
+        song.relinkMissingMedia (currentFile.getParentDirectory(), nullptr);
+
+    if (song.findMissingMedia().empty())
+        return;
+
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->missingMediaWindow.reset();
+        });
+    };
+
+    // Deferred so the main window is on screen first: the constructor loads
+    // the demo song through here before there is one.
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer (this),
+                                      songHandle = song, onClose = std::move (onClose)]
+    {
+        // Only for the song that was loaded; a load that came in between
+        // has had its own check.
+        if (safe == nullptr || safe->song.state != songHandle.state)
+            return;
+
+        safe->missingMediaWindow = std::make_unique<MissingMediaWindow> (songHandle, onClose);
+    });
 }
 
 void MainComponent::markDirty()

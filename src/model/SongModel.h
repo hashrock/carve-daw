@@ -151,6 +151,14 @@ struct FileRef
     static juce::File getFile (const juce::ValueTree&);
     static void setFile (juce::ValueTree, const juce::File&, juce::UndoManager*);
 
+    // Whether the node names a file at all, and what that file is called.
+    // Both read the stored strings rather than getFile(): a hand-written song
+    // can hold a relative `file`, or a `relPath` alone, and getFile() gives
+    // an empty File for either -- but the node still means a file, and a
+    // search for it by name needs the name it was given.
+    static bool hasFile (const juce::ValueTree&);
+    static juce::String getFileName (const juce::ValueTree&);
+
     // Called by Song::loadFromFile / saveToFile once the song's own location
     // is known, which is the only thing a relative path is relative to.
     static void resolve (juce::ValueTree, const juce::File& songDirectory);
@@ -869,6 +877,21 @@ public:
     // references no media.
     void resolveMediaPaths (const juce::File& songFile) const;
     void refreshMediaPaths (const juce::File& songFile) const;
+
+    // The media nodes -- the same sounds and audio clips -- that name a file
+    // which is not on disk, in document order. Nothing here can play them, so
+    // the app lists them for the user to point at their new home; a node with
+    // no file at all is not missing, it is empty.
+    std::vector<juce::ValueTree> findMissingMedia() const;
+
+    // Looks through `folder` and everything under it for a file with each
+    // missing node's name and points the node at the first one found, through
+    // FileRef so the next save stores the relative path as well. Returns how
+    // many nodes were relinked. Matching by name alone is deliberate: a
+    // project moved with its media into a different layout, or a sample
+    // library moved wholesale, keeps its file names and loses everything
+    // else, and a wrong same-named file is one Locate... away from right.
+    int relinkMissingMedia (const juce::File& folder, juce::UndoManager*) const;
 
     // EditSync matches a placement to the clip it already built by id, so one
     // without an id would be torn down and rebuilt on every resync -- an audio

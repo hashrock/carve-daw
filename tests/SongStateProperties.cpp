@@ -1099,6 +1099,108 @@ TEST_CASE ("A loaded song saves back to itself", "[song][xml]")
 }
 
 //==============================================================================
+// Media that has gone missing
+//
+// The one property that has to touch the disk: relinking is a search of a
+// real folder for real files, so the test lays a small tree of empty files
+// out under the temp directory and takes it away again.
+
+TEST_CASE ("Missing media is found again by name under a folder", "[song][media]")
+{
+    REQUIRE (rc::check ("relinking repoints exactly the nodes whose file name is under the folder", [] {
+        auto song = Song::create ("property test");
+        auto audio = song.addGenerator ("Audio", Generator::audioType, nullptr);
+        auto sampler = song.addGenerator ("Sampler", Generator::samplerType, nullptr);
+
+        // Every node points into a folder that does not exist, so all of them
+        // start out missing; a sound is in the mix because it is relinked
+        // through the same FileRef as a placement.
+        const auto clipCount = *rc::gen::inRange (0, 6);
+        const auto soundCount = *rc::gen::inRange (0, 3);
+
+        for (int i = 0; i < clipCount; ++i)
+            song.getPlaylist().addAudioClip (audio, audioFileFor (*rc::gen::inRange (0, 8)),
+                                             i * 4.0, 1.0, nullptr);
+
+        for (int i = 0; i < soundCount; ++i)
+            sampler.addSound (audioFileFor (*rc::gen::inRange (0, 8)), nullptr);
+
+        const auto missingBefore = song.findMissingMedia();
+        RC_ASSERT ((int) missingBefore.size() == clipCount + soundCount);
+
+        // Which of the eight possible names to put under the folder, and how
+        // deep: the search is recursive, and a name at the top must not shadow
+        // the same name further down or vice versa -- either is fine, as long
+        // as the node ends up on a file of that name that exists.
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                .getChildFile ("carve-relink-" + juce::Uuid().toString());
+        std::vector<juce::String> present;
+
+        for (int i = 0; i < 8; ++i)
+            if (*rc::gen::arbitrary<bool>())
+            {
+                const auto name = audioFileFor (i).getFileName();
+                const auto depth = *rc::gen::inRange (0, 3);
+                auto dir = folder;
+
+                for (int d = 0; d < depth; ++d)
+                    dir = dir.getChildFile ("sub" + juce::String (d));
+
+                RC_ASSERT (dir.createDirectory().wasOk());
+                RC_ASSERT (dir.getChildFile (name).create().wasOk());
+                present.push_back (name);
+            }
+
+        RC_ASSERT (folder.createDirectory().wasOk());
+
+        const auto relinked = song.relinkMissingMedia (folder, nullptr);
+
+        int expected = 0;
+
+        for (const auto& node : missingBefore)
+        {
+            const auto name = FileRef::getFileName (node);
+            const auto file = FileRef::getFile (node);
+            const bool shouldBeFound = std::find (present.begin(), present.end(), name) != present.end();
+
+            if (shouldBeFound)
+            {
+                ++expected;
+                RC_ASSERT (file.existsAsFile());
+                RC_ASSERT (file.getFileName() == name);
+                RC_ASSERT (file.isAChildOf (folder));
+
+                // Stale the moment the file changes: the next save writes a
+                // fresh one against the .carve's own folder.
+                RC_ASSERT (! node.hasProperty (ids::relPath));
+            }
+            else
+            {
+                RC_ASSERT (! file.existsAsFile());
+            }
+        }
+
+        RC_ASSERT (relinked == expected);
+        RC_ASSERT ((int) song.findMissingMedia().size() == (int) missingBefore.size() - expected);
+
+        // A second search of the same folder finds nothing new.
+        RC_ASSERT (song.relinkMissingMedia (folder, nullptr) == 0);
+
+        folder.deleteRecursively();
+    }));
+}
+
+TEST_CASE ("A node with no file is not missing", "[song][media]")
+{
+    auto song = Song::create ("empty refs");
+    auto audio = song.addGenerator ("Audio", Generator::audioType, nullptr);
+    song.getPlaylist().addAudioClip (audio, juce::File(), 0.0, 1.0, nullptr);
+
+    REQUIRE (song.findMissingMedia().empty());
+    REQUIRE (song.relinkMissingMedia (juce::File::getSpecialLocation (juce::File::tempDirectory), nullptr) == 0);
+}
+
+//==============================================================================
 // One change per beat
 //
 // The rule used to live in PlaylistComponent, which refused to make a second
