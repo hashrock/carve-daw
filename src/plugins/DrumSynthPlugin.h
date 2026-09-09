@@ -17,7 +17,7 @@ namespace carve::plugins
 // a cowbell that travel with it, sound like *the* drum machine, and never need
 // a sample folder or a plugin scan. So: one voice per drum, the way the
 // original had one circuit per drum, every voice a one-shot, and the knobs
-// kept to what changes the feel -- the kick gets four, most drums get one, a
+// kept to what changes the feel -- the kick gets five, most drums get one, a
 // few get none.
 //
 // The hi-hat is the one place accuracy was worth the code. Its metallic tone
@@ -65,16 +65,17 @@ public:
     static int getNoteForDrum (Drum);
     static const char* getDrumName (Drum);
 
-    // Kick: pitch, length, how far the pitch falls in, and how hard it is
-    // pushed. Everything else gets a decay at most -- and every drum gets a
-    // level, because balancing the kit against itself is the one adjustment
-    // nobody should have to leave the instrument for.
-    juce::CachedValue<float> kickTuneValue, kickDecayValue, kickSweepValue, kickDriveValue,
+    // Kick: pitch, length, how far the pitch falls in, how hard it is pushed,
+    // and how much click sits on the front of it. Everything else gets a decay
+    // at most -- and every drum gets a level, because balancing the kit
+    // against itself is the one adjustment nobody should have to leave the
+    // instrument for.
+    juce::CachedValue<float> kickTuneValue, kickDecayValue, kickSweepValue, kickDriveValue, kickClickValue,
                              snareSnappyValue, snareDecayValue, clapDecayValue,
                              closedHatDecayValue, openHatDecayValue, tomDecayValue,
                              kickLevelValue, rimLevelValue, snareLevelValue, clapLevelValue,
                              closedHatLevelValue, openHatLevelValue, tomLevelValue, cowbellLevelValue;
-    te::AutomatableParameter::Ptr kickTune, kickDecay, kickSweep, kickDrive,
+    te::AutomatableParameter::Ptr kickTune, kickDecay, kickSweep, kickDrive, kickClick,
                                   snareSnappy, snareDecay, clapDecay,
                                   closedHatDecay, openHatDecay, tomDecay,
                                   kickLevel, rimLevel, snareLevel, clapLevel,
@@ -125,7 +126,7 @@ private:
         double pitchEnv = 0.0, pitchCoef = 0.0;
         double burst = 0.0, burstCoef = 0.0;   // a second, faster decay (noise, click)
         double decaySeconds = 0.3;
-        double baseFreq = 50.0, sweep = 0.0, drive = 0.0, snappy = 0.6;
+        double baseFreq = 50.0, sweep = 0.0, drive = 0.0, click = 0.25, snappy = 0.6;
         std::array<double, 6> phase {};
         SVF filterA, filterB;
     };

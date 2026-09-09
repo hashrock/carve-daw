@@ -15,7 +15,7 @@ namespace carve::app
 // front panel: one column per drum, its pad at the top and its knobs under
 // it, so the pad you just hit is over the knobs that change it. The level
 // knobs line up across the top of every column and read as the kit's mixer;
-// what else a drum has -- a decay, the kick's tune and sweep and drive --
+// what else a drum has -- a decay, the kick's tune, sweep, drive and click --
 // sits below in smaller knobs.
 //
 // Small on purpose -- the synth is (see DrumSynthPlugin.h). The three toms
@@ -51,6 +51,7 @@ public:
             column.section->newRow();
             column.section->addKnob (knob (drums.kickSweep, "Sweep", S::small));
             column.section->addKnob (knob (drums.kickDrive, "Drive", S::small));
+            column.section->addKnob (knob (drums.kickClick, "Click", S::small));
         }
         {
             auto& column = addColumn ({ Drum::rim }, 1);

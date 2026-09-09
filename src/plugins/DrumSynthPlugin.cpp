@@ -7,6 +7,7 @@ namespace
 {
     const juce::Identifier kickTuneId ("kickTune"), kickDecayId ("kickDecay"),
                            kickSweepId ("kickSweep"), kickDriveId ("kickDrive"),
+                           kickClickId ("kickClick"),
                            snareSnappyId ("snareSnappy"), snareDecayId ("snareDecay"),
                            clapDecayId ("clapDecay"),
                            closedHatDecayId ("closedHatDecay"), openHatDecayId ("openHatDecay"),
@@ -115,6 +116,7 @@ DrumSynthPlugin::DrumSynthPlugin (te::PluginCreationInfo info) : te::Plugin (inf
     kickDecayValue.referTo (state, kickDecayId, um, 0.5f);
     kickSweepValue.referTo (state, kickSweepId, um, 0.5f);
     kickDriveValue.referTo (state, kickDriveId, um, 0.2f);
+    kickClickValue.referTo (state, kickClickId, um, 0.25f);
     snareSnappyValue.referTo (state, snareSnappyId, um, 0.6f);
     snareDecayValue.referTo (state, snareDecayId, um, 0.05f);
     clapDecayValue.referTo (state, clapDecayId, um, 0.05f);
@@ -138,6 +140,7 @@ DrumSynthPlugin::DrumSynthPlugin (te::PluginCreationInfo info) : te::Plugin (inf
     kickDecay = addParam ("kickDecay", TRANS ("Kick Decay"), { 0.1f, 2.0f, 0.0f, 0.5f }, secondsText, secondsValue);
     kickSweep = addParam ("kickSweep", TRANS ("Kick Sweep"), { 0.0f, 1.0f }, percentText, percentValue);
     kickDrive = addParam ("kickDrive", TRANS ("Kick Drive"), { 0.0f, 1.0f }, percentText, percentValue);
+    kickClick = addParam ("kickClick", TRANS ("Kick Click"), { 0.0f, 1.0f }, percentText, percentValue);
 
     snareSnappy = addParam ("snareSnappy", TRANS ("Snare Snappy"), { 0.0f, 1.0f }, percentText, percentValue);
     snareDecay  = addParam ("snareDecay",  TRANS ("Snare Decay"),  { 0.05f, 0.6f, 0.0f, 0.6f }, secondsText, secondsValue);
@@ -164,6 +167,7 @@ DrumSynthPlugin::DrumSynthPlugin (te::PluginCreationInfo info) : te::Plugin (inf
     kickDecay->attachToCurrentValue (kickDecayValue);
     kickSweep->attachToCurrentValue (kickSweepValue);
     kickDrive->attachToCurrentValue (kickDriveValue);
+    kickClick->attachToCurrentValue (kickClickValue);
     snareSnappy->attachToCurrentValue (snareSnappyValue);
     snareDecay->attachToCurrentValue (snareDecayValue);
     clapDecay->attachToCurrentValue (clapDecayValue);
@@ -203,8 +207,10 @@ void DrumSynthPlugin::deinitialise()
 
 void DrumSynthPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v)
 {
+    // A property the tree lacks -- a song or preset saved before the kick had
+    // a Click, say -- lands on the parameter's default.
     te::copyPropertiesToCachedValues (v, kickTuneValue, kickDecayValue, kickSweepValue, kickDriveValue,
-                                      snareSnappyValue, snareDecayValue, clapDecayValue,
+                                      kickClickValue, snareSnappyValue, snareDecayValue, clapDecayValue,
                                       closedHatDecayValue, openHatDecayValue, tomDecayValue,
                                       kickLevelValue, rimLevelValue, snareLevelValue, clapLevelValue,
                                       closedHatLevelValue, openHatLevelValue, tomLevelValue,
@@ -270,10 +276,12 @@ void DrumSynthPlugin::trigger (Drum drum, float velocity)
             v.baseFreq = kickTune->getCurrentValue();
             v.sweep = kickSweep->getCurrentValue();
             v.drive = kickDrive->getCurrentValue();
+            v.click = kickClick->getCurrentValue();
             v.decaySeconds = kickDecay->getCurrentValue();
             v.ampCoef = decayCoefficient (v.decaySeconds, sampleRate);
             v.pitchCoef = decayCoefficient (0.045, sampleRate);    // the drop-in
             v.burstCoef = decayCoefficient (0.004, sampleRate);    // the click
+            v.filterB.set (3000.0, 0.7, sampleRate);               // high-pass on the click's noise
             restartPhases();
             break;
 
@@ -350,9 +358,17 @@ float DrumSynthPlugin::renderVoiceSample (Voice& v)
             // A sine that starts up to five times too high and drops to pitch
             // in about 50ms -- that drop *is* the 808 kick's attack -- plus a
             // click, then pushed into a soft clip by Drive.
+            //
+            // The click is a few ms of two things: a pulse (the trigger
+            // bleeding through, as it does on the machine) and a tick of
+            // high-passed noise, which is what reads as attack once the kick
+            // is under a bass line. Click is how much of both; at zero the
+            // kick is the bare sine and its drop-in.
             const auto freq = v.baseFreq * (1.0 + 5.0 * v.sweep * v.pitchEnv);
             advance (v.phase[0], freq, sampleRate);
-            const auto body = sine (v.phase[0]) * v.amp + 0.3 * v.burst;
+            v.filterB.process (noise(), low, band, high);
+            const auto click = v.click * v.burst * (1.2 + 2.0 * high);
+            const auto body = sine (v.phase[0]) * v.amp + click;
             out = softClip (body, 1.0 + 8.0 * v.drive) * 1.4;   // the loudest drum in the kit
             v.amp *= v.ampCoef;
             v.pitchEnv *= v.pitchCoef;
