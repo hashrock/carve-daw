@@ -60,6 +60,10 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 
 素の CMake なら `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`。
 
+ロゴを変更するときは `carve.svg` を編集して `python3 scripts/generate-icons.py` を実行する。
+アプリ内ロゴ・アプリアイコン・Web 用ロゴと favicon を一括更新する（librsvg が必要。
+macOS では `brew install librsvg`）。その後のビルドで macOS の `.icns` にも反映される。
+
 ### テスト
 
 Catch2 + RapidCheck による property-based test。既定で有効なので、追加のフラグなしに走る。

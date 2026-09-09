@@ -63,6 +63,9 @@ function(carve_configure_target target)
 endfunction()
 
 # --- GUI app ---
+# JUCE generates platform icons at configure time; regenerate when the PNG changes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png")
 juce_add_gui_app(carve
     PRODUCT_NAME "Carve DAW"
     BUNDLE_ID    "com.hashrock.carve"

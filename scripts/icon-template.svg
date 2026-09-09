@@ -13,7 +13,6 @@
   <rect x="100.5" y="100.5" width="823" height="823" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
   <!-- Generated from carve.svg by scripts/generate-icons.py. -->
   <g transform="translate(202 202) scale(6.2)">
-    <path xmlns="http://www.w3.org/2000/svg" d="M5 26H27.5H43L50.625 38L58.25 26H72.5H95V75H5V26Z" fill="url(#mark)" />
-
+    __CARVE_MARK__
   </g>
 </svg>
