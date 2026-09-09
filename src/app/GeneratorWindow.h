@@ -513,7 +513,9 @@ class GeneratorWindow : public juce::DocumentWindow
 public:
     enum class Tab { instrument, pianoRoll };
 
-    GeneratorWindow (juce::UndoManager& um,
+    // The engine is only passed through: the roll keeps its view settings in
+    // the engine's prefs folder, beside the rest of the app's.
+    GeneratorWindow (te::Engine& engine, juce::UndoManager& um,
                      std::function<void()> onCloseCallback,
                      std::function<bool (const juce::KeyPress&)> keyHandler)
         : juce::DocumentWindow ("Generator",
@@ -521,7 +523,7 @@ public:
                                 juce::DocumentWindow::closeButton),
           onClose (std::move (onCloseCallback)),
           onKey (std::move (keyHandler)),
-          rollContent (um)
+          rollContent (engine, um)
     {
         rollContent.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
 

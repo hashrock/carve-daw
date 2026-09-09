@@ -253,17 +253,17 @@ void PianoRollComponent::zoomBy (double factor)
     setPixelsPerBeat (pixelsPerBeat * factor, anchorX);
 }
 
-double PianoRollComponent::snapDown (double beat) const
+double PianoRollComponent::snapDown (double beat, const juce::ModifierKeys& mods) const
 {
-    if (! snapEnabled)
+    if (! isSnapActive (mods))
         return beat;
 
     return std::floor (beat / gridBeats + 1.0e-9) * gridBeats;
 }
 
-double PianoRollComponent::snapUp (double beat) const
+double PianoRollComponent::snapUp (double beat, const juce::ModifierKeys& mods) const
 {
-    if (! snapEnabled)
+    if (! isSnapActive (mods))
         return beat;
 
     return std::ceil (beat / gridBeats - 1.0e-9) * gridBeats;
@@ -275,17 +275,17 @@ double PianoRollComponent::snapUp (double beat) const
 // division the instant the pointer moved one pixel left, while needing a
 // full division of travel to move right. Nearest makes the two directions
 // alike, and puts half a division of slack around standing still.
-double PianoRollComponent::snapNearest (double beat) const
+double PianoRollComponent::snapNearest (double beat, const juce::ModifierKeys& mods) const
 {
-    if (! snapEnabled)
+    if (! isSnapActive (mods))
         return beat;
 
     return std::floor (beat / gridBeats + 0.5) * gridBeats;
 }
 
-double PianoRollComponent::minLengthBeats() const
+double PianoRollComponent::minLengthBeats (const juce::ModifierKeys& mods) const
 {
-    return snapEnabled ? gridBeats : freeMinLengthBeats;
+    return isSnapActive (mods) ? gridBeats : freeMinLengthBeats;
 }
 
 juce::Rectangle<float> PianoRollComponent::noteBounds (const model::Note& note) const
@@ -307,6 +307,15 @@ std::optional<model::Note> PianoRollComponent::noteAt (juce::Point<float> positi
             return note;
     }
     return std::nullopt;
+}
+
+bool PianoRollComponent::isOnSelectedNote (juce::Point<float> position) const
+{
+    for (const auto& state : selectedNotes)
+        if (noteBounds (model::Note (state)).expanded (selectedNoteHitSlack).contains (position))
+            return true;
+
+    return false;
 }
 
 bool PianoRollComponent::isOverResizeZone (const model::Note& note, juce::Point<float> position) const
@@ -361,6 +370,19 @@ void PianoRollComponent::setSelection (std::vector<juce::ValueTree> newSelection
 void PianoRollComponent::clearSelection()
 {
     setSelection ({});
+}
+
+void PianoRollComponent::selectAllNotes()
+{
+    if (! pattern)
+        return;
+
+    std::vector<juce::ValueTree> all;
+
+    for (const auto& note : pattern->getNotes())
+        all.push_back (note.state);
+
+    setSelection (std::move (all));
 }
 
 void PianoRollComponent::pruneSelection()
@@ -527,25 +549,30 @@ void PianoRollComponent::syncDragDuplicate (const juce::ModifierKeys& mods)
     }
 }
 
-void PianoRollComponent::resizeSelectionTo (double length)
+void PianoRollComponent::resizeSelectionBy (double deltaBeats, const juce::ModifierKeys& mods)
 {
-    if (! pattern)
+    if (! pattern || resizeTargets.size() != resizeOriginLengths.size())
         return;
 
     // Every write calls back into patternChanged(), which rewrites
     // selectedNotes, so work from our own copy for the whole gesture.
     const auto targets = resizeTargets;
+    const auto minLength = minLengthBeats (mods);
 
-    for (const auto& state : targets)
+    for (size_t i = 0; i < targets.size(); ++i)
     {
-        model::Note note (state);
+        model::Note note (targets[i]);
 
+        // The same change for every note rather than the same length: a
+        // chord whose notes were voiced to different lengths should keep
+        // that voicing when the whole thing is stretched, and a selection
+        // resized to one length is only a drag away for anyone who wants it.
+        //
         // Clamped per note rather than once against the grabbed one: the
         // selection can reach further into the pattern than the note under the
         // pointer, and a note may not run off the end of it.
-        const auto maxLength = juce::jmax (minLengthBeats(),
-                                           pattern->getLengthBeats() - note.getStart());
-        const auto clamped = juce::jlimit (minLengthBeats(), maxLength, length);
+        const auto maxLength = juce::jmax (minLength, pattern->getLengthBeats() - note.getStart());
+        const auto clamped = juce::jlimit (minLength, maxLength, resizeOriginLengths[i] + deltaBeats);
 
         // Only write when the result actually changed: every property change
         // triggers a full EditSync resync, and a drag produces a lot of events.
@@ -601,6 +628,40 @@ bool PianoRollComponent::isVelocityEditable (const model::Note& note) const
     return selectedNotes.empty() || isSelected (note.state);
 }
 
+void PianoRollComponent::beginVelocityGesture()
+{
+    undoManager.beginNewTransaction();
+
+    velocityOriginNotes = selectedNotes;
+    velocityOrigins.clear();
+
+    for (const auto& state : velocityOriginNotes)
+        velocityOrigins.push_back (model::Note (state).getVelocity());
+}
+
+void PianoRollComponent::offsetSelectionVelocity (int delta)
+{
+    // The selection this gesture began on is the one it moves. Anything that
+    // changed it under the drag -- an undo, a pattern reload -- ends the
+    // gesture rather than having it write to notes the user never aimed at.
+    if (! pattern || velocityOriginNotes.empty() || velocityOriginNotes != selectedNotes)
+        return;
+
+    // Every write calls back into patternChanged(), so work from our own copy.
+    const auto notes = velocityOriginNotes;
+
+    for (size_t i = 0; i < notes.size(); ++i)
+    {
+        const auto velocity = model::Note::clampVelocity (velocityOrigins[i] + delta);
+        model::Note note (notes[i]);
+
+        // Only write when the result actually changed: every property change
+        // triggers a full EditSync resync, and a drag produces a lot of events.
+        if (velocity != note.getVelocity())
+            note.setVelocity (velocity, &undoManager);
+    }
+}
+
 void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
 {
     // The floor is 1, not 0: velocity 0 is a note-off in MIDI, so a bar
@@ -622,7 +683,8 @@ void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
 void PianoRollComponent::setQuantiseSettings (double strength, double swing)
 {
     quantiseStrength = juce::jlimit (0.0, 1.0, strength);
-    quantiseSwing = juce::jlimit (0.0, 1.0, swing);
+    quantiseSwing = juce::jlimit (gestures::QuantiseSettings::straightSwing,
+                                  gestures::QuantiseSettings::maxSwing, swing);
 }
 
 void PianoRollComponent::quantiseNotes()
@@ -719,7 +781,10 @@ double PianoRollComponent::getPasteTargetBeat (double originBeat) const
     if (position.x < (float) keyboardWidth)
         return originBeat;
 
-    return snapDown (juce::jmax (0.0, xToBeat (position.x)));
+    // The modifiers as they are now: a paste comes from the keyboard, so there
+    // is no mouse event to read them off, but Ctrl held while it is pressed
+    // should mean what it does everywhere else.
+    return snapDown (juce::jmax (0.0, xToBeat (position.x)), juce::ModifierKeys::getCurrentModifiers());
 }
 
 void PianoRollComponent::pasteNotes()
@@ -1006,14 +1071,20 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     // selection away. Sweeping notes out one by one is what the erase gesture
     // below is for; once a set has been picked out deliberately, "delete this"
     // is the only thing a right click on it can mean.
-    if (e.mods.isRightButtonDown() && selectedNotes.size() > 1)
+    //
+    // Tested against the selection with some slack rather than with noteAt:
+    // the exact test made this a coin toss. A press a pixel off a selected
+    // note -- on its outline, in the gap between rows -- fell through to the
+    // eraser, and the eraser then took out the one note under the pointer
+    // (there, or a pixel later, when the secondary click jittered) and left
+    // the rest selected. The outline is what the user is aiming at, so it
+    // counts. Nor does an unselected note lying over a selected one get in
+    // the way, as it did with noteAt: the selection is what is asked about.
+    if (e.mods.isRightButtonDown() && isOnSelectedNote (e.position))
     {
-        if (auto note = noteAt (e.position); note && isSelected (note->state))
-        {
-            deleteSelection();
-            updateCursor (e);
-            return;
-        }
+        deleteSelection();
+        updateCursor (e);
+        return;
     }
 
     if (isEraseGesture (e.mods))
@@ -1042,6 +1113,11 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
             resizeTargets = isSelected (note->state) && selectedNotes.size() > 1
                                 ? selectedNotes
                                 : std::vector<juce::ValueTree> { note->state };
+
+            resizeOriginLengths.clear();
+
+            for (const auto& state : resizeTargets)
+                resizeOriginLengths.push_back (model::Note (state).getLength());
 
             previewNote (note->getPitch(), note->getVelocity());
             updateCursor (e);
@@ -1116,10 +1192,11 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLengthBeats());
-    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x)));
+    const auto minLength = minLengthBeats (e.mods);
+    const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLength);
+    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x), e.mods));
     const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (e.position.y));
-    const auto length = juce::jmax (minLengthBeats(),
+    const auto length = juce::jmax (minLength,
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
     draggedNote = pattern->addNote (start, length, pitch, lastNoteVelocity, &undoManager);
@@ -1143,6 +1220,13 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 
     if (dragMode == DragMode::erase)
     {
+        // A press that has not yet travelled past JUCE's drag threshold is
+        // still a click as far as the user is concerned: the pixel or two a
+        // trackpad's secondary click drifts must not sweep the eraser across
+        // a neighbouring note that was never aimed at.
+        if (! e.mouseWasDraggedSinceMouseDown())
+            return;
+
         eraseAlong (lastErasePosition, e.position);
         lastErasePosition = e.position;
         return;
@@ -1182,15 +1266,16 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         const auto rowsMoved = (int) std::lround ((dragStartPosition.y - e.position.y)
                                                       / (float) rowHeight);
 
-        dragSelectionTo (snapNearest (xToBeat (e.position.x) - grabOffsetBeats),
+        dragSelectionTo (snapNearest (xToBeat (e.position.x) - grabOffsetBeats, e.mods),
                          dragAnchorOriginPitch + rowsMoved);
     }
-    else if (dragMode == DragMode::resize)
+    else if (dragMode == DragMode::resize && ! resizeOriginLengths.empty())
     {
         // The pointer sets the length of the note it grabbed; the rest of the
-        // selection takes the same length, not the same edge, so a resize does
-        // not line every note's end up on one beat.
-        resizeSelectionTo (snapUp (xToBeat (e.position.x) - draggedNote->getStart()));
+        // selection changes by the same amount, not to the same edge or the
+        // same length, so a resize keeps the shape of what was selected.
+        const auto grabbedLength = snapUp (xToBeat (e.position.x) - draggedNote->getStart(), e.mods);
+        resizeSelectionBy (grabbedLength - resizeOriginLengths.front(), e.mods);
     }
 }
 
@@ -1213,6 +1298,7 @@ void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
     dragOriginStarts.clear();
     dragOriginPitches.clear();
     resizeTargets.clear();
+    resizeOriginLengths.clear();
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateCursor (e);
@@ -1254,6 +1340,15 @@ bool PianoRollComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0))
     {
         pasteNotes();
+        return true;
+    }
+
+    // Ctrl as well as Cmd, for hands that learned it on a PC: Ctrl+A has no
+    // other meaning here, unlike the other Cmd shortcuts.
+    if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0)
+         || key == juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 0))
+    {
+        selectAllNotes();
         return true;
     }
 
@@ -1461,6 +1556,20 @@ bool PianoRollVelocityLane::isOverEditableBar (juce::Point<float> position) cons
     return false;
 }
 
+bool PianoRollVelocityLane::isOverSelectedBar (juce::Point<float> position) const
+{
+    for (const auto& note : roll.getNotes())
+        if (roll.isNoteSelected (note) && barSpan (note).contains (position.x))
+            return true;
+
+    return false;
+}
+
+bool PianoRollVelocityLane::startsGroupDrag (juce::Point<float> position) const
+{
+    return roll.getNumSelectedNotes() > 1 && isOverSelectedBar (position);
+}
+
 void PianoRollVelocityLane::paint (juce::Graphics& g)
 {
     const auto width = (float) getWidth();
@@ -1552,13 +1661,29 @@ void PianoRollVelocityLane::mouseDown (const juce::MouseEvent& e)
     roll.beginVelocityGesture();
     dragging = true;
     lastDragPosition = e.position;
-    applySweep (e.position, e.position);
+
+    // A press on the selection's own bars moves the selection, and moves it
+    // by nothing until the pointer does: the bars must not jump to wherever
+    // in the lane the press happened to land.
+    groupDragging = startsGroupDrag (e.position);
+    groupDragOriginVelocity = velocityAtY (e.position.y);
+
+    if (! groupDragging)
+        applySweep (e.position, e.position);
 }
 
 void PianoRollVelocityLane::mouseDrag (const juce::MouseEvent& e)
 {
     if (! dragging)
         return;
+
+    if (groupDragging)
+    {
+        // How far the pointer has come in velocity terms, so the lane's height
+        // means the same thing whether one note or a chord is being dragged.
+        roll.offsetSelectionVelocity (velocityAtY (e.position.y) - groupDragOriginVelocity);
+        return;
+    }
 
     applySweep (lastDragPosition, e.position);
     lastDragPosition = e.position;
@@ -1567,6 +1692,7 @@ void PianoRollVelocityLane::mouseDrag (const juce::MouseEvent& e)
 void PianoRollVelocityLane::mouseUp (const juce::MouseEvent&)
 {
     dragging = false;
+    groupDragging = false;
 }
 
 void PianoRollVelocityLane::applySweep (juce::Point<float> from, juce::Point<float> to)

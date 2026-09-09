@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <tracktion_engine/tracktion_engine.h>
 
 #include "IconButton.h"
 #include "PianoRollComponent.h"
@@ -38,9 +39,15 @@ public:
         {
             slider->setSliderStyle (juce::Slider::LinearHorizontal);
             slider->setTextBoxStyle (juce::Slider::TextBoxRight, false, 46, 20);
-            slider->setRange (0.0, 100.0, 1.0);
             slider->setTextValueSuffix ("%");
         }
+
+        strengthSlider.setRange (0.0, 100.0, 1.0);
+
+        // Swing on the scale every sequencer prints it on: 50% is straight
+        // and 66% the triplet feel (see gestures::QuantiseSettings). The top
+        // is the dotted feel, which is as far as anyone calls it swing.
+        swingSlider.setRange (50.0, 75.0, 1.0);
 
         strengthSlider.setValue (strength * 100.0, juce::dontSendNotification);
         swingSlider.setValue (swing * 100.0, juce::dontSendNotification);
@@ -108,7 +115,10 @@ private:
 // The toolbar mixes two kinds of setting. The pattern name and length belong to
 // the song, so they go through the model and the UndoManager; the tool, the
 // zoom, the grid unit and the snap toggle are view state that only the roll
-// cares about, so they never touch the model and are not undoable.
+// cares about, so they never touch the model and are not undoable. Snap is
+// remembered across launches, in a settings file of its own beside the
+// mixer's and the browser's: whoever turns it off means it as a way of
+// working, not as a choice about one pattern.
 //
 // The length is stepped in bars, which is how a pattern is thought about, but
 // bars are not a property of a pattern: the model stores a length in beats, and
@@ -120,8 +130,8 @@ class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
 public:
-    explicit PianoRollContent (juce::UndoManager& um)
-        : undoManager (um), pianoRoll (um)
+    PianoRollContent (te::Engine& engine, juce::UndoManager& um)
+        : undoManager (um), settings (createSettingsFile (engine)), pianoRoll (um)
     {
         nameLabel.setEditable (false, true, false);
         nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2c2c31));
@@ -160,8 +170,14 @@ public:
                 pianoRoll.setGridBeats (gridOptions[index].beats);
         };
 
+        pianoRoll.setSnapEnabled (settings->getBoolValue (snapKey, pianoRoll.isSnapEnabled()));
         snapButton.setToggleState (pianoRoll.isSnapEnabled(), juce::dontSendNotification);
-        snapButton.onClick = [this] { pianoRoll.setSnapEnabled (snapButton.getToggleState()); };
+        snapButton.onClick = [this]
+        {
+            pianoRoll.setSnapEnabled (snapButton.getToggleState());
+            settings->setValue (snapKey, snapButton.getToggleState());
+            updateShortcutBar();   // the override key only means something while snap is on
+        };
 
         drawToolButton.setTooltip ("Draw (D): click empty grid to add a note");
         selectToolButton.setTooltip ("Select (E): rubber-band notes, then move or delete them");
@@ -357,6 +373,22 @@ public:
 
 private:
     static constexpr int toolbarHeight = 34;
+    static constexpr const char* snapKey = "snap";
+
+    // Its own file rather than a second handle on the mixer's or the browser's:
+    // two PropertiesFile objects on one path would each write the other's keys
+    // back out stale. Same folder, so every setting the app has is in one
+    // place (see EngineSetup.h).
+    static std::unique_ptr<juce::PropertiesFile> createSettingsFile (te::Engine& engine)
+    {
+        juce::PropertiesFile::Options options;
+        options.storageFormat = juce::PropertiesFile::storeAsXML;
+        options.millisecondsBeforeSaving = 500;
+
+        return std::make_unique<juce::PropertiesFile> (
+            engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("pianoroll.settings"),
+            options);
+    }
 
     // Keeps the ruler and the velocity lane over the part of the roll that is
     // actually on screen. Their width follows the viewport's visible area
@@ -525,6 +557,7 @@ private:
 
         const auto mods = juce::ModifierKeys::getCurrentModifiers();
         const bool extending = selection::isExtendModifier (mods);
+        const bool bandExtending = selection::isRubberBandExtendModifier (mods);
 
         // Shift is the select tool while it is held, so the bar has to say what
         // the roll would actually do, not what the toolbar is set to.
@@ -539,7 +572,9 @@ private:
         }
         else if (selectTool)
         {
-            entries.push_back ({ "drag", extending ? "add to selection" : "select notes" });
+            // Cmd is the only key that makes a band add: Shift asked for the
+            // select tool, and a Shift-band starts a fresh selection.
+            entries.push_back ({ "drag", bandExtending ? "add to selection" : "select notes" });
             entries.push_back ({ "click note", extending ? "add / remove" : "select" });
             entries.push_back ({ "drag note", "move selection" });
             entries.push_back ({ "Cmd+drag note", "duplicate" });
@@ -554,6 +589,11 @@ private:
 
         if (! mods.isAltDown())
             entries.push_back ({ "drag edge", "resize" });
+
+        // Only while the toolbar has snap on: with it off there is nothing for
+        // the key to override, and listing it would suggest otherwise.
+        if (pianoRoll.isSnapEnabled() && ! mods.isAltDown())
+            entries.push_back ({ "Ctrl", pianoRoll.isSnapActive (mods) ? "ignore snap" : "ignoring snap" });
 
         const bool hasSelection = pianoRoll.getNumSelectedNotes() > 0;
 
@@ -574,6 +614,7 @@ private:
         // rebuilt on every selection change, so a rubber-band drag would be
         // reading the system clipboard once per mouse event to find out.
         entries.push_back ({ "Cmd+V", "paste at pointer" });
+        entries.push_back ({ "Cmd+A", "select all" });
 
         entries.push_back ({ selectTool ? "D" : "E", selectTool ? "draw tool" : "select tool" });
 
@@ -628,6 +669,7 @@ private:
     }
 
     juce::UndoManager& undoManager;
+    std::unique_ptr<juce::PropertiesFile> settings;   // flushes itself on destruction
     std::optional<model::Pattern> pattern;
     std::optional<model::Song> song;
     TimeSigWatcher timeSigWatcher;

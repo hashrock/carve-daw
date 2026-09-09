@@ -74,33 +74,64 @@ struct PitchRange
 
 // How quantise is set up: the grid the roll is drawing, and the two knobs over
 // it. `gridBeats` is always positive -- PianoRollComponent::setGridBeats
-// refuses anything else -- and strength and swing are both 0..1, clamped where
-// they are set.
+// refuses anything else -- and strength is 0..1, clamped where it is set.
+//
+// Swing is on the scale every sequencer prints it on: the share of a pair of
+// divisions that the first one takes. 0.5 is straight; 2/3 lands the off-beat
+// a third of a division late, which is the triplet feel a swung eighth is
+// written as; 0.75 is a dotted feel. Clamped to straightSwing..maxSwing where
+// it is set: below 0.5 would be a swing that rushes, and at 1.0 the off-beat
+// has been pushed onto the next on-beat and there is no pair left to swing.
 struct QuantiseSettings
 {
     double gridBeats = 0.25;
     double strength = 1.0;
-    double swing = 0.0;
+    double swing = 0.5;
+
+    static constexpr double straightSwing = 0.5;
+    static constexpr double maxSwing = 1.0;
 };
+
+// The grid quantise aims at, once swing has moved every second division: the
+// on-beat of the pair the note falls in, that pair's off-beat, and the on-beat
+// of the next pair. Only these three can be nearest to a start inside the
+// pair, so they are all a caller has to choose among.
+//
+// Measured against the swung positions rather than the straight ones and then
+// offset: with the offset added afterwards, a note already sitting on a swung
+// off-beat past the midpoint of its pair (any swing over 0.75) would be
+// counted to the next on-beat and pulled straight again, so quantising a
+// second time would undo the first.
+struct SwungPair
+{
+    double onBeat;
+    double offBeat;
+    double nextOnBeat;
+};
+
+inline SwungPair swungPairAround (double start, const QuantiseSettings& settings)
+{
+    const auto period = 2.0 * settings.gridBeats;
+    const auto onBeat = std::floor (start / period) * period;
+
+    return { onBeat, onBeat + period * settings.swing, onBeat + period };
+}
 
 // Where quantise puts one note.
 //
-// Strength 0 leaves the note alone and 1 puts it exactly on the grid; swing
-// then pushes every other division late, landing the off-beat a third of a
-// division after the on-beat at 1.0, which is the triplet feel a swung eighth
-// is written as.
+// Strength 0 leaves the note alone and 1 puts it exactly on the swung grid.
 inline double quantisedStart (double start, double lengthBeats,
                               const QuantiseSettings& settings, double patternLengthBeats)
 {
-    // Which division of the grid the note belongs to. floor(x + 0.5) rather
-    // than round() so that a note lying exactly between two divisions always
-    // goes to the later one instead of away from zero.
-    const auto division = std::floor (start / settings.gridBeats + 0.5);
+    const auto pair = swungPairAround (start, settings);
 
-    const auto swingOffset = std::fmod (division, 2.0) > 0.5
-                                 ? settings.swing * settings.gridBeats / 3.0
-                                 : 0.0;
-    const auto target = division * settings.gridBeats + swingOffset;
+    // Nearest of the three, and the later one when the note lies exactly
+    // between two, so that a note halfway never goes away from zero.
+    auto target = pair.onBeat;
+
+    for (const auto candidate : { pair.offBeat, pair.nextOnBeat })
+        if (std::abs (candidate - start) <= std::abs (target - start))
+            target = candidate;
 
     // Partial strength moves the note towards the grid rather than onto it,
     // which is what leaves a played-in part still sounding played in.

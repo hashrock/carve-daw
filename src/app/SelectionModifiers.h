@@ -11,6 +11,7 @@
 //   Shift / Cmd + click     add to the selection, or take a selected item out
 //   drag item               move the whole selection
 //   Cmd + drag item         duplicate the selection and move the copies
+//   Ctrl held               ignore the grid while it is held
 //   right-click selection   delete the whole selection
 //   Shift held              the select tool, for as long as it is held; from
 //                           the draw / paint tool its band may start on an item
@@ -33,11 +34,21 @@ inline bool isExtendModifier (const juce::ModifierKeys& mods)
     return mods.isCommandDown() || mods.isShiftDown();
 }
 
-// Turns a move into a copy. Cmd is the one the help bars name; Ctrl is taken
-// too, since it does nothing else on either grid and is the same key on a PC.
+// Turns a move into a copy. Cmd alone: Ctrl used to be an alias for it, but
+// it is the only modifier the grids had left over, and a key that ignores the
+// grid is worth more than a second spelling of one that copies.
 inline bool isDuplicateModifier (const juce::ModifierKeys& mods)
 {
-    return mods.isCommandDown() || mods.isCtrlDown();
+    return mods.isCommandDown();
+}
+
+// Snap is off for as long as this is held, so one note can be nudged off the
+// grid without the toolbar toggle being flipped twice around it. Ctrl because
+// it is the modifier nothing else on either grid reads: Shift is the select
+// tool, Cmd copies and Alt erases.
+inline bool isSnapOverrideModifier (const juce::ModifierKeys& mods)
+{
+    return mods.isCtrlDown();
 }
 
 // Holding Shift is the select tool for as long as it is held, whatever the

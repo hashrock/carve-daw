@@ -343,7 +343,7 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
         {
             return safe != nullptr && safe->handleGlobalKey (key);
         };
-        generatorWindow = std::make_unique<GeneratorWindow> (undoManager, std::move (onClose),
+        generatorWindow = std::make_unique<GeneratorWindow> (engine, undoManager, std::move (onClose),
                                                              std::move (keyHandler));
 
         generatorWindow->setPreviewNoteCallback (

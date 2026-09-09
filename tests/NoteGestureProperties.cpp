@@ -86,9 +86,21 @@ rc::Gen<double> genGrid()
                          [] (int i) { return units[(std::size_t) i]; });
 }
 
+// The swing knob's whole travel, straight to the off-beat pushed onto the
+// next on-beat, in half-percent steps so 2/3 is not the only interesting
+// value it can land near.
+rc::Gen<double> genSwing()
+{
+    return rc::gen::map (genUnitInterval(), [] (double amount)
+    {
+        return QuantiseSettings::straightSwing
+                 + amount * (QuantiseSettings::maxSwing - QuantiseSettings::straightSwing);
+    });
+}
+
 rc::Gen<QuantiseSettings> genQuantiseSettings()
 {
-    return rc::gen::map (rc::gen::tuple (genGrid(), genUnitInterval(), genUnitInterval()),
+    return rc::gen::map (rc::gen::tuple (genGrid(), genUnitInterval(), genSwing()),
                          [] (const std::tuple<double, double, double>& t)
                          {
                              return QuantiseSettings { std::get<0> (t), std::get<1> (t),
@@ -159,7 +171,7 @@ TEST_CASE ("Quantise never moves a note before the start of the pattern", "[pian
 TEST_CASE ("Quantise lands full strength on the grid", "[pianoroll][quantise]")
 {
     REQUIRE (rc::check ("strength 1 without swing puts the note on a division", [] {
-        const QuantiseSettings settings { *genGrid(), 1.0, 0.0 };
+        const QuantiseSettings settings { *genGrid(), 1.0, QuantiseSettings::straightSwing };
         const auto length = *genLength();
         const auto patternLength = *genPatternLength();
 
@@ -196,8 +208,8 @@ TEST_CASE ("Quantise keeps a note inside the pattern", "[pianoroll][quantise]")
 
 TEST_CASE ("Quantise settles after one pass", "[pianoroll][quantise]")
 {
-    REQUIRE (rc::check ("full strength without swing is idempotent", [] {
-        const QuantiseSettings settings { *genGrid(), 1.0, 0.0 };
+    REQUIRE (rc::check ("full strength is idempotent at any swing", [] {
+        const QuantiseSettings settings { *genGrid(), 1.0, *genSwing() };
         const auto length = *genLength();
         const auto patternLength = *genPatternLength();
 
@@ -206,7 +218,95 @@ TEST_CASE ("Quantise settles after one pass", "[pianoroll][quantise]")
 
         // Hitting Q a second time on an untouched selection must be a no-op,
         // or the command would walk the part somewhere new on every press.
+        // Swing included: a swung off-beat has to be recognised as one on the
+        // second pass rather than pulled straight again, however far it was
+        // pushed.
         RC_ASSERT (std::abs (twice - once) < tolerance);
+    }));
+}
+
+//==============================================================================
+// Swing
+
+TEST_CASE ("Straight swing is the plain grid", "[pianoroll][quantise][swing]")
+{
+    REQUIRE (rc::check ("50% moves a note exactly where no swing would", [] {
+        const auto grid = *genGrid();
+        const auto start = *genBeat();
+        const auto length = *genLength();
+        const auto patternLength = start + length + *genPatternLength();
+
+        const QuantiseSettings straight { grid, 1.0, QuantiseSettings::straightSwing };
+
+        // The plain rule, spelled out: the nearest division, the later one on
+        // a tie.
+        const auto expected = std::min (std::floor (start / grid + 0.5) * grid,
+                                        std::max (0.0, patternLength - length));
+
+        RC_ASSERT (std::abs (quantisedStart (start, length, straight, patternLength) - expected)
+                       < tolerance);
+    }));
+}
+
+TEST_CASE ("Swing leaves the on-beats alone", "[pianoroll][quantise][swing]")
+{
+    REQUIRE (rc::check ("a note on an even division does not move at any swing", [] {
+        const auto grid = *genGrid();
+        const auto start = 2.0 * grid * (double) *rc::gen::inRange (0, 64);
+        const auto length = *genLength();
+        const auto patternLength = start + length + *genPatternLength();
+
+        const QuantiseSettings settings { grid, 1.0, *genSwing() };
+
+        RC_ASSERT (std::abs (quantisedStart (start, length, settings, patternLength) - start)
+                       < tolerance);
+    }));
+}
+
+TEST_CASE ("Swing delays the off-beats by its share of the pair", "[pianoroll][quantise][swing]")
+{
+    REQUIRE (rc::check ("an odd division lands (2 * swing - 1) divisions late", [] {
+        const auto grid = *genGrid();
+        const auto start = grid * (double) (2 * *rc::gen::inRange (0, 64) + 1);
+        const auto length = *genLength();
+        const auto patternLength = start + length + grid + *genPatternLength();
+
+        const auto swing = *genSwing();
+        const QuantiseSettings settings { grid, 1.0, swing };
+
+        // The pair of divisions is split swing : (1 - swing), so the off-beat
+        // sits at 2 * grid * swing from the on-beat instead of at grid.
+        const auto expected = start + grid * (2.0 * swing - 1.0);
+
+        RC_ASSERT (std::abs (quantisedStart (start, length, settings, patternLength) - expected)
+                       < tolerance);
+    }));
+
+    // The two figures a swing knob is read by, checked outright: 2/3 is the
+    // triplet feel, a third of a division late, and 3/4 the dotted feel, half
+    // a division late. Sixteenths, a full bar of headroom.
+    const QuantiseSettings triplet { 0.25, 1.0, 2.0 / 3.0 };
+    const QuantiseSettings dotted { 0.25, 1.0, 0.75 };
+
+    REQUIRE (std::abs (quantisedStart (0.25, 0.25, triplet, 4.0) - (0.25 + 0.25 / 3.0)) < tolerance);
+    REQUIRE (std::abs (quantisedStart (0.25, 0.25, dotted, 4.0) - (0.25 + 0.125)) < tolerance);
+    REQUIRE (std::abs (quantisedStart (0.5, 0.25, triplet, 4.0) - 0.5) < tolerance);
+}
+
+TEST_CASE ("Swing never leaves the pair", "[pianoroll][quantise][swing]")
+{
+    REQUIRE (rc::check ("a note lands between its pair's on-beat and the next one", [] {
+        const auto grid = *genGrid();
+        const auto start = *genBeat();
+        const auto length = *genLength();
+        const auto patternLength = start + length + *genPatternLength();
+
+        const QuantiseSettings settings { grid, 1.0, *genSwing() };
+        const auto quantised = quantisedStart (start, length, settings, patternLength);
+
+        // However hard it swings, a note stays within a division of where it
+        // was: the off-beat only ever moves inside its own pair.
+        RC_ASSERT (std::abs (quantised - start) <= grid + tolerance);
     }));
 }
 

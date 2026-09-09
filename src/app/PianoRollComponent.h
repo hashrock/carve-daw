@@ -29,7 +29,9 @@ namespace carve::app
 // reads all of these gestures the same way: SelectionModifiers.h is the list.
 //
 // Cmd-scroll zooms in time about the pointer. Cmd+C / Cmd+X / Cmd+V copy, cut
-// and paste the selection through the system clipboard, and Q quantises.
+// and paste the selection through the system clipboard, Cmd+A selects every
+// note, and Q quantises. Holding Ctrl ignores the grid for as long as it is
+// held, whatever the toolbar's Snap says.
 //
 // A velocity lane sits under the roll (see PianoRollVelocityLane): it is a
 // separate component, but the notes it edits and the writes it makes belong
@@ -114,6 +116,14 @@ public:
     double getGridBeats() const  { return gridBeats; }
     bool isSnapEnabled() const   { return snapEnabled; }
 
+    // Whether a gesture made with these modifiers snaps: the toolbar's toggle,
+    // unless the override key is held (see SelectionModifiers.h). Every place
+    // that snaps asks this, and so does the window's help bar.
+    bool isSnapActive (const juce::ModifierKeys& mods) const
+    {
+        return snapEnabled && ! selection::isSnapOverrideModifier (mods);
+    }
+
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
 
@@ -126,6 +136,9 @@ public:
         return selection::isSelectToolOverride (mods) ? Tool::select : tool;
     }
     int getNumSelectedNotes() const  { return (int) selectedNotes.size(); }
+
+    // Every note of the pattern, which is what Cmd+A asks for.
+    void selectAllNotes();
 
     //==============================================================================
     // Velocity lane support. The lane owns the geometry of its bars, because
@@ -140,15 +153,26 @@ public:
     bool isVelocityEditable (const model::Note& note) const;
 
     // One transaction per lane drag, the same rule the roll's own gestures
-    // follow, so a whole sweep undoes in one step.
-    void beginVelocityGesture()  { undoManager.beginNewTransaction(); }
+    // follow, so a whole sweep undoes in one step. It also snapshots the
+    // selection's velocities, which is what offsetSelectionVelocity measures
+    // from.
+    void beginVelocityGesture();
     void setNoteVelocity (const model::Note& note, int velocity);
+
+    // A lane drag that began on one of several selected notes moves them all
+    // by the same amount: a chord that was voiced quieter on top should stay
+    // voiced that way when the whole thing is brought down. Measured from the
+    // velocities at the start of the gesture and clamped note by note, so a
+    // note pinned at the floor does not drag the rest with it and comes back
+    // up with them when the pointer returns.
+    void offsetSelectionVelocity (int delta);
 
     //==============================================================================
     // Quantise. Note starts are pulled towards the nearest grid unit by
     // `strength` (0 leaves them alone, 1 puts them exactly on it), and every
-    // other division is then pushed late by `swing` (1 lands it a third of a
-    // division late, which is the triplet feel). Both are 0..1.
+    // other division is pushed late by `swing`, on the scale sequencers print
+    // it on: 0.5 is straight, 2/3 the triplet feel, 0.75 dotted. Strength is
+    // 0..1, swing 0.5..1 (see gestures::QuantiseSettings); both are clamped.
     //
     // The settings live here rather than in the panel that edits them, so that
     // the Q key can repeat the last quantise without the panel being open.
@@ -190,6 +214,12 @@ private:
     static constexpr int lowestPitch = 24;    // C1
     static constexpr int highestPitch = 96;   // C7
     static constexpr float resizeZoneWidth = 6.0f;
+
+    // How far outside a selected note's bounds a right click still counts as
+    // on it: the width of the selection outline, and a little more, since the
+    // rows are only 12px tall and a secondary click on a trackpad lands a
+    // pixel or two from where the pointer was.
+    static constexpr float selectedNoteHitSlack = 3.0f;
     static constexpr double defaultLengthBeats = 16.0;   // grid shown with no pattern loaded
     static constexpr int defaultNoteVelocity = 100;
 
@@ -224,10 +254,17 @@ private:
     std::optional<model::Note> noteAt (juce::Point<float>) const;
     bool isOverResizeZone (const model::Note&, juce::Point<float>) const;
 
-    double snapDown (double beat) const;
-    double snapUp (double beat) const;
-    double snapNearest (double beat) const;
-    double minLengthBeats() const;
+    // Whether a press is on one of the selected notes, counting the selection
+    // outline drawn around them as part of the note. See mouseDown for why
+    // the exact hit test is not enough here.
+    bool isOnSelectedNote (juce::Point<float>) const;
+
+    // The grid a gesture made with these modifiers lands on, or the beat
+    // untouched when it is not snapping.
+    double snapDown (double beat, const juce::ModifierKeys& mods) const;
+    double snapUp (double beat, const juce::ModifierKeys& mods) const;
+    double snapNearest (double beat, const juce::ModifierKeys& mods) const;
+    double minLengthBeats (const juce::ModifierKeys& mods) const;
 
     juce::Viewport* getViewport() const;
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
@@ -251,9 +288,10 @@ private:
     void beginSelectionDrag();
     void dragSelectionTo (double anchorStart, int anchorPitch);
 
-    // Gives every note the resize drag is touching this length, clamped
-    // against the end of the pattern note by note.
-    void resizeSelectionTo (double length);
+    // Lengthens or shortens every note the resize drag is touching by the
+    // same amount, measured from where each was when the drag began and
+    // clamped against the end of the pattern note by note.
+    void resizeSelectionBy (double deltaBeats, const juce::ModifierKeys& mods);
     void deleteSelection();
     void updateRubberBand (juce::Point<float> position);
 
@@ -307,7 +345,7 @@ private:
     inline static int lastNoteVelocity = defaultNoteVelocity;
 
     double quantiseStrength = 1.0;
-    double quantiseSwing = 0.0;
+    double quantiseSwing = 0.5;   // straight: see gestures::QuantiseSettings
 
     // The notes the user has selected, as the NOTE trees themselves: a
     // ValueTree compares by identity, so this survives any edit that does not
@@ -323,8 +361,17 @@ private:
     int dragLastPitch = 0;                   // last pitch previewed during the drag
 
     // Resize drag: the notes it writes to -- the whole selection when the
-    // grabbed note is part of it, otherwise just that note.
+    // grabbed note is part of it, otherwise just that note -- and how long
+    // each was at the press, so the whole drag is measured from there rather
+    // than creeping from wherever the last event left them.
     std::vector<juce::ValueTree> resizeTargets;
+    std::vector<double> resizeOriginLengths;   // parallel to resizeTargets
+
+    // Velocity gesture: what the selection was at the press, for the same
+    // reason. Parallel to selectedNotes as it stood then; a selection that
+    // changes under the gesture ends it (see offsetSelectionVelocity).
+    std::vector<juce::ValueTree> velocityOriginNotes;
+    std::vector<int> velocityOrigins;
 
     // Cmd went down on a note that was already selected. Which gesture that is
     // depends on what happens next: a drag copies the selection and moves the
@@ -392,9 +439,11 @@ private:
 // pitches, and it lines up with the grid by drawing in the roll's own
 // coordinates shifted by the viewport's horizontal scroll offset.
 //
-// Unlike the ruler it is an editor: dragging in it writes velocities. Only
-// the geometry is worked out here -- which notes are fair game, and the model
-// writes themselves, belong to the roll.
+// Unlike the ruler it is an editor: dragging in it writes velocities. A drag
+// begun on the bar of one of several selected notes moves all of them by the
+// same amount; any other drag sets whatever it sweeps to the pointer's height.
+// Only the geometry is worked out here -- which notes are fair game, and the
+// model writes themselves, belong to the roll.
 class PianoRollVelocityLane : public juce::Component
 {
 public:
@@ -432,6 +481,13 @@ private:
     juce::Rectangle<float> barBounds (const model::Note&) const;
     int velocityAtY (float y) const;
     bool isOverEditableBar (juce::Point<float>) const;
+    bool isOverSelectedBar (juce::Point<float>) const;
+
+    // Whether a press here starts a group move of the selection rather than a
+    // sweep: on a selected note's bar, with more than one note selected. A
+    // single selected note is still set to the pointer's height, because that
+    // is where the bar is dragged *to* rather than *by*.
+    bool startsGroupDrag (juce::Point<float>) const;
 
     // Applies the pointer's velocity to every editable note the drag swept,
     // interpolated across the sweep so a diagonal drag draws a ramp rather
@@ -442,6 +498,11 @@ private:
     int scrollOffset = 0;
     bool dragging = false;
     juce::Point<float> lastDragPosition;
+
+    // Group move: the velocity the pointer stood at when it pressed, which
+    // the selection's change is measured from on every drag event.
+    bool groupDragging = false;
+    int groupDragOriginVelocity = 0;
 };
 
 } // namespace carve::app
