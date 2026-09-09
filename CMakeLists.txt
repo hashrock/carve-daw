@@ -100,6 +100,7 @@ target_sources(carve PRIVATE
     src/app/PluginWindows.h
     src/app/PresetManager.h
     src/app/PresetManager.cpp
+    src/app/SelectionModifiers.h
     src/app/SampleBrowser.h
     src/app/SampleBrowser.cpp
     src/app/PlaylistComponent.h

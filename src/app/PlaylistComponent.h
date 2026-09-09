@@ -8,6 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "IconButton.h"
+#include "SelectionModifiers.h"
 #include "ShortcutHelpBar.h"
 #include "model/SongModel.h"
 
@@ -17,11 +18,16 @@ namespace carve::app
 // Song timeline: one row per Generator, pattern placements as blocks.
 //
 // Two tools, picked from the strip in the header band (or with B / E):
-//   paint   left-drag lays the row's current pattern into empty bars
+//   paint   left-drag lays the row's current pattern into empty bars, and
+//           the clips it lays become the selection
 //   select  left-drag on empty space rubber-band selects
 // In both tools a left click on a clip selects it (⌘ or ⇧ extends the
-// selection) and dragging it moves it in time; a double click asks the host to
-// open that pattern in the editor; right-drag (or alt-drag) erases.
+// selection), dragging it moves the whole selection in time, ⌘-dragging it
+// moves a copy of the selection, a right click on the selection deletes all
+// of it, and so does Backspace; a double click asks the host to open that
+// pattern in the editor; right-drag (or alt-drag) erases. Holding ⇧ is the
+// select tool for as long as it is held. The piano roll reads every one of
+// these gestures the same way: SelectionModifiers.h is the list.
 //
 // A clip carries one handle: the chevron in its top-right corner swaps which of
 // the generator's patterns it plays. How long the placement runs for is a
@@ -117,6 +123,14 @@ public:
 
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
+
+    // Holding shift is the select tool for as long as it is held, whatever the
+    // toolbar says (see SelectionModifiers.h). Every gesture that asks "which
+    // tool is this?" asks this instead, and so does the help bar.
+    Tool getEffectiveTool (const juce::ModifierKeys& mods) const
+    {
+        return selection::isSelectToolOverride (mods) ? Tool::select : tool;
+    }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -333,17 +347,37 @@ private:
     juce::Rectangle<float> patternMenuBounds (juce::Rectangle<float> clipRect) const;
     juce::Rectangle<float> trimHandleBounds (juce::Rectangle<float> clipRect) const;
 
-    bool paintClip (int row, double beat);
+    // The clip painted, or an invalid tree when the slot was not free.
+    juce::ValueTree paintClip (int row, double beat);
     bool eraseClip (int row, double beat);
+
+    // Gives every clip the trim drag is touching the same length in beats,
+    // each one refused on its own if it would run into a neighbour.
     void trimSelectionTo (double targetEnd);
 
-    // The two writes that have to know which kind of placement they are
-    // holding, so that nothing else does.
+    // The three writes that have to know which kind of placement they are
+    // holding, so that nothing else does. copyPlacement puts the same clip
+    // (same pattern or file slice, same length and offset) down at start.
     void removePlacement (const juce::ValueTree&);
     void setPlacementStart (const juce::ValueTree&, double startBeats);
+    juce::ValueTree copyPlacement (const juce::ValueTree&, double startBeats);
     void duplicateSelection();
     void deleteSelection();
-    void dragSelectionTo (double targetStart);
+
+    // Moves the selection so the grabbed clip starts at targetStart, keeping
+    // the set's shape. The modifiers say whether this is a duplicate drag; see
+    // syncDragDuplicate.
+    void dragSelectionTo (double targetStart, const juce::ModifierKeys& mods);
+
+    // The modifier pressed part way through a move (or held from the press):
+    // the clips being dragged carry on, and copies are put down where they
+    // started, so the result is the same as having held it from the press.
+    // Released again before the mouse goes up, those copies are taken back.
+    // Clips never stack, so the copies only go down once the selection has
+    // left its origin slots -- and until they have, dragSelectionTo refuses
+    // any move that would keep overlapping them, so a ⌘-drag can never end as
+    // a plain move by accident.
+    void syncDragDuplicate (const juce::ModifierKeys& mods);
 
     // The clipboard. It goes through juce::SystemClipboard as XML rather than
     // through a member of ours, so a copy made here survives being pasted from
@@ -429,6 +463,7 @@ private:
 
     bool isSelected (const juce::ValueTree& clip) const;
     void selectClip (const juce::ValueTree&, bool extend);
+    void addToSelection (const juce::ValueTree&);
     void clearSelection();
     void pruneSelection();
 
@@ -500,9 +535,22 @@ private:
     double dragLastStart = 0.0;          // last start we wrote, so a drag only writes on a change
     std::vector<double> dragOriginStarts;   // parallel to selectedClips
 
-    // Trim drag: the one audio clip being trimmed, and the end we last wrote,
-    // so dragging within the same beat writes nothing.
+    // ⌘ went down on a clip that was already selected. Which gesture that is
+    // depends on what happens next: a drag copies the selection and moves it,
+    // a click without one takes the clip out of the selection. So it is held
+    // here until the mouse says which.
+    juce::ValueTree pendingToggleClip;
+
+    // The copies a duplicate drag has put down at the selection's origin, so
+    // that letting go of ⌘ before the mouse can take them back again.
+    std::vector<juce::ValueTree> originCopies;
+
+    // Trim drag: the audio clip whose edge was grabbed, every clip the drag
+    // writes to (the whole selection when the grabbed one is part of it,
+    // otherwise just that clip), and the end we last wrote, so dragging within
+    // the same beat writes nothing.
     juce::ValueTree trimClip;
+    std::vector<juce::ValueTree> trimTargets;
     double trimLastEnd = 0.0;
 
     // A file drag currently over us, and where it would land.
@@ -539,7 +587,7 @@ private:
     double autoPointLastBeat = 0.0;
     float autoPointLastValue = 0.0f;
 
-    // Rubber band, plus the selection it started from so ⌘/⇧ adds to it.
+    // Rubber band, plus the selection it started from so ⌘ adds to it.
     juce::Rectangle<float> rubberBand;
     juce::Point<float> rubberBandAnchor;
     std::vector<juce::ValueTree> rubberBandBaseSelection;
