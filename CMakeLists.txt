@@ -66,6 +66,7 @@ endfunction()
 juce_add_gui_app(carve
     PRODUCT_NAME "Carve DAW"
     BUNDLE_ID    "com.hashrock.carve"
+    ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
     MICROPHONE_PERMISSION_ENABLED TRUE)
 target_sources(carve PRIVATE
     src/app/Main.cpp

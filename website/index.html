@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carve DAW</title>
+<meta name="description" content="曲を彫刻のように盛ったり削ったりして作る、ノートのようにミニマルな macOS の DAW。">
+<link rel="icon" href="img/favicon.png">
+<meta property="og:title" content="Carve DAW">
+<meta property="og:description" content="曲を彫刻のように盛ったり削ったりして作る、ノートのようにミニマルな macOS の DAW。">
+<meta property="og:image" content="https://hashrock.github.io/carve-daw/img/shot-playlist.png">
+<style>
+  :root {
+    --bg: #1b1b1f; --panel: #232327; --panel-2: #2a2a31; --line: #3a3a40;
+    --text: #e6e6ea; --dim: #9a9aa4; --accent: #e08a3c; --accent-2: #e0a24f;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 16px; line-height: 1.7; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 72px 0 40px; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .brand img { width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+  .brand h1 { margin: 0; font-size: 40px; letter-spacing: -0.02em; }
+  .tagline { margin: 22px 0 0; font-size: 22px; line-height: 1.55; max-width: 720px; }
+  .sub { color: var(--dim); margin: 10px 0 0; max-width: 720px; }
+  .cta { margin-top: 30px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600;
+    background: var(--accent); color: #1b1b1f; border: 1px solid transparent;
+  }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+  .note { color: var(--dim); font-size: 14px; }
+
+  .hero { margin: 8px 0 0; }
+  .hero img { width: 100%; display: block; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+
+  section { padding: 56px 0 0; }
+  h2 { font-size: 26px; margin: 0 0 18px; letter-spacing: -0.01em; }
+  h2 small { color: var(--dim); font-weight: 400; font-size: 15px; margin-left: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 17px; color: var(--accent-2); }
+  .card p { margin: 0; color: var(--dim); font-size: 15px; }
+
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; display: block; border-radius: 10px; border: 1px solid var(--line); }
+  .shots figcaption { color: var(--dim); font-size: 14px; margin-top: 8px; }
+  @media (max-width: 720px) { .shots { grid-template-columns: 1fr; } .brand h1 { font-size: 32px; } .tagline { font-size: 19px; } }
+
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { color: var(--accent-2); white-space: nowrap; width: 34%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+
+  footer { margin-top: 72px; padding: 28px 0 56px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="brand">
+    <img src="img/icon-256.png" alt="">
+    <h1>Carve DAW</h1>
+  </div>
+  <p class="tagline">曲を彫刻のように、盛って、削って。<br>試行錯誤するための、ノートのようにミニマルな DAW。</p>
+  <p class="sub">Synapse Audio Software の Orion を参考に作った、Generator 中心・パターンベースの macOS 用 DAW。パターンを直せば曲中の全配置に反映され、手を動かした分だけ曲が変わる。</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/hashrock/carve-daw/releases/latest">macOS 版をダウンロード</a>
+    <a class="btn ghost" href="https://github.com/hashrock/carve-daw">GitHub</a>
+    <span class="note">macOS 11 以降 / Apple Silicon・Intel / 署名・公証済み</span>
+  </div>
+</header>
+
+<div class="wrap hero">
+  <img src="img/shot-playlist.png" alt="Carve DAW のプレイリスト">
+</div>
+
+<section class="wrap">
+  <h2>特徴</h2>
+  <div class="grid">
+    <div class="card"><h3>パターンが第一級</h3><p>曲はパターンの配置。パターンを直せば、曲中に並べた全部が同時に変わる。コピーの管理はしない。</p></div>
+    <div class="card"><h3>盛って、削って</h3><p>ペイントで並べ、Alt ドラッグで消す。ノートは Shift で一時的に選択、⌘ドラッグで複製 — ドラッグの途中からでも。</p></div>
+    <div class="card"><h3>808 Drums 内蔵</h3><p>キック・スネア・クラップ・ハイハット・タム・カウベル。ハイハットは 6 基の矩形波を帯域通過した 808 の回路どおり。</p></div>
+    <div class="card"><h3>4OSC 内蔵シンセ</h3><p>2 オシレータ・フィルタ・アンプが 1 ページ。パッチは曲と一緒に保存される。</p></div>
+    <div class="card"><h3>VST3 / AU</h3><p>お手持ちのプラグインをそのまま。プラグイン自身のプリセットも Carve 側のメニューから選べる。</p></div>
+    <div class="card"><h3>ミキサーとオートメーション</h3><p>センド / リターン、サイドチェイン・コンプ、拍基準のオートメーションと LFO。テンポを変えても追従する。</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>画面</h2>
+  <div class="shots">
+    <figure><img src="img/shot-pianoroll.png" alt="ピアノロール"><figcaption>ピアノロール — Generator ウィンドウの Pianoroll タブ</figcaption></figure>
+    <figure><img src="img/shot-808.png" alt="808 Drums"><figcaption>808 Drums — Inst タブ。パッドを叩いて試聴</figcaption></figure>
+    <figure><img src="img/shot-4osc.png" alt="4OSC"><figcaption>4OSC — 内蔵シンセのエディタ</figcaption></figure>
+    <figure><img src="img/shot-mixer.png" alt="ミキサー"><figcaption>ミキサー — フェーダー、インサート FX、リターンバス</figcaption></figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>操作 <small>各ウィンドウ下部のヘルプバーが「その時できる操作」を表示する</small></h2>
+  <table>
+    <tr><td>ロゴ (左上)</td><td>Open / Save / Save As / Export</td></tr>
+    <tr><td>行ラベルをダブルクリック</td><td>Generator ウィンドウを開く。右クリックでリネーム / 削除</td></tr>
+    <tr><td>B / E, D / E</td><td>ペイント / 選択 (プレイリスト)、描画 / 選択 (ピアノロール)</td></tr>
+    <tr><td>Shift</td><td>押している間だけ選択ツール (ピアノロール)</td></tr>
+    <tr><td>⌘ / Ctrl + ドラッグ</td><td>ノートを複製して移動。ドラッグ途中の押下 / 解放でも切り替わる</td></tr>
+    <tr><td>右クリック</td><td>選択中のノート上で選択を削除、それ以外は消しゴム</td></tr>
+    <tr><td>⌘D</td><td>複製 (クリップ / パターン)</td></tr>
+    <tr><td>⌘E</td><td>WAV 書き出し</td></tr>
+  </table>
+</section>
+
+<footer class="wrap">
+  Carve DAW は tracktion_engine と JUCE の上に作られています。ソースコードは <a href="https://github.com/hashrock/carve-daw">GitHub</a> に。
+</footer>
+
+</body>
+</html>

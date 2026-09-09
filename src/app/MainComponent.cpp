@@ -174,6 +174,16 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 
     editSync = std::make_unique<sync::EditSync> (song, *edit);
 
+    // A generator added or retyped gets its instrument from the sync, which
+    // runs after the selection change that opened the window on it; point
+    // the window at the instrument once it exists. Cheap when nothing
+    // changed: setGenerator returns early on the same kind and plugin.
+    editSync->onSynced = [this]
+    {
+        if (generatorWindow != nullptr)
+            retargetGeneratorWindow();
+    };
+
     // The playback context is allocated up front rather than lazily on the
     // first note preview, so the first preview doesn't pay for the allocation
     // cascade (the live MIDI node's listener registration schedules a second

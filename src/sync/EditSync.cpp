@@ -1517,6 +1517,9 @@ void EditSync::resyncNow()
 {
     cancelPendingUpdate();
     syncSongToEdit (song, edit, std::exchange (firstSync, false));
+
+    if (onSynced)
+        onSynced();
 }
 
 void EditSync::applyTempoOnly()

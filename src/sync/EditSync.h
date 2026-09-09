@@ -47,6 +47,14 @@ public:
 
     void resyncNow();
 
+    // Fired after every full sync. The views that hold a pointer into the
+    // Edit -- the generator window's instrument editor above all -- are
+    // told about a model change before the sync that acts on it has run
+    // (both arrive through the message loop), so a window opened on a
+    // generator that was just added finds no track to look at yet. This is
+    // where it gets to look again.
+    std::function<void()> onSynced;
+
     // Copies each live external plugin's state (getStateInformation) back
     // into the model. Call before saving the song.
     void captureLivePluginState();

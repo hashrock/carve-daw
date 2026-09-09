@@ -37,8 +37,13 @@ public:
             const auto drum = (Drum) i;
             const int note = plugins::DrumSynthPlugin::getNoteForDrum (drum);
 
+            // Short names on the pads -- "Low Tom" wraps into nonsense at pad
+            // width -- with the note under each, so the row is the key map.
+            static const char* padNames[] { "Kick", "Rim", "Snare", "Clap", "CH", "OH",
+                                            "LTom", "MTom", "HTom", "Bell" };
+
             auto pad = std::make_unique<juce::TextButton> (
-                juce::String (plugins::DrumSynthPlugin::getDrumName (drum)) + "\n"
+                juce::String (padNames[i]) + "\n"
                     + juce::MidiMessage::getMidiNoteName (note, true, true, 3));
             pad->setTooltip ("MIDI note " + juce::String (note));
             pad->setWantsKeyboardFocus (false);
@@ -96,7 +101,7 @@ public:
         startTimerHz (15);
     }
 
-    static constexpr int width = 560;
+    static constexpr int width = 680;
 
     void paint (juce::Graphics& g) override
     {
