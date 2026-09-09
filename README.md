@@ -11,8 +11,11 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 
 ## 画面
 
-- **メイン**: 左上のロゴがファイルメニュー。プレイリストの左の行ラベルが
-  Generator の一覧で、最下段の「+ Generator」で追加、右クリックでリネーム / 削除
+- **メイン**: 左上のロゴがファイルメニュー。ツールバーは Orion 流に BPM /
+  Pattern・Song / トランスポート / BAR / LOOP (Start・Length) / マスター。
+  **Pattern** は選択中のパターンだけをループ再生、**Song** はプレイリストを再生。
+  プレイリストの左の行ラベルが Generator の一覧で、最下段の「+ Generator」で
+  追加、右クリックでリネーム / 削除
 - **Generator ウィンドウ**: 行ラベルのダブルクリックで開く。**Inst** タブが音源の
   エディタ、**Pianoroll** タブがパターンの編集。上部のピッカーでパターンを選び、
   New / Clone / … (他 Generator へコピー、MIDI 入出力)。Inst タブは表示中の

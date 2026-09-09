@@ -176,8 +176,9 @@ public:
             return juce::Point<int> (externalEditor->getWidth(),
                                      externalEditor->getHeight() + (presetBar != nullptr ? PresetBar::height : 0));
 
+        // The built-in editors size themselves.
         if (fourOsc != nullptr)
-            return juce::Point<int> (FourOscEditor::width, FourOscEditor::height);
+            return juce::Point<int> (fourOsc->getWidth(), fourOsc->getHeight());
 
         if (drumSynth != nullptr)
             return juce::Point<int> (drumSynth->getWidth(), drumSynth->getHeight());
@@ -421,13 +422,7 @@ public:
             dropHint.setBounds (centre);
         }
 
-        if (fourOsc != nullptr)
-        {
-            viewport.setBounds (area);
-            fourOsc->setSize (FourOscEditor::width, FourOscEditor::height);
-        }
-
-        if (drumSynth != nullptr)
+        if (fourOsc != nullptr || drumSynth != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         if (externalEditor != nullptr || presetBar != nullptr)

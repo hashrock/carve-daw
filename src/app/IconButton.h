@@ -12,7 +12,7 @@ namespace carve::app
 // nothing to add to a new button.
 enum class Icon
 {
-    play, pause, stop, loop,
+    play, pause, stop, loop, rewind, fastForward,
     mixer, exportFile, undo, redo, save, open,
     instrument, pianoRoll,
     plus, clone, menu,
@@ -98,6 +98,15 @@ namespace icons
 
             case Icon::stop:
                 p.addRectangle (0.08f, 0.08f, 0.84f, 0.84f);
+                break;
+
+            case Icon::fastForward:
+            case Icon::rewind:
+                // Two triangles nose to tail; rewind is the mirror image.
+                p.addTriangle (0.0f, 0.12f, 0.0f, 0.88f, 0.5f, 0.5f);
+                p.addTriangle (0.5f, 0.12f, 0.5f, 0.88f, 1.0f, 0.5f);
+                if (icon == Icon::rewind)
+                    p.applyTransform (juce::AffineTransform::scale (-1.0f, 1.0f).translated (1.0f, 0.0f));
                 break;
 
             case Icon::loop:
