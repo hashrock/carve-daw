@@ -42,6 +42,10 @@ set(CARVE_CORE_SOURCES
     src/sync/EditSync.cpp
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp
+    src/plugins/SaturationPlugin.h
+    src/plugins/SaturationPlugin.cpp
+    src/plugins/MeteredCompressorPlugin.h
+    src/plugins/MeteredCompressorPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp)
 

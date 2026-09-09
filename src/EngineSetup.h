@@ -6,6 +6,8 @@
 
 #include "plugins/DistortionPlugin.h"
 #include "plugins/DrumSynthPlugin.h"
+#include "plugins/MeteredCompressorPlugin.h"
+#include "plugins/SaturationPlugin.h"
 
 namespace te = tracktion;
 
@@ -132,6 +134,8 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     // Our own plugins, registered like tracktion's own internal ones so they
     // are created from a song by type name and need no plugin scan.
     engine->getPluginManager().createBuiltInType<plugins::DistortionPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::SaturationPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::MeteredCompressorPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::DrumSynthPlugin>();
 
     return engine;

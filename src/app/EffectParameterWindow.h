@@ -10,6 +10,7 @@
 
 #include "ParameterRows.h"
 #include "PresetManager.h"
+#include "../plugins/MeteredCompressorPlugin.h"
 
 namespace te = tracktion;
 
@@ -95,6 +96,84 @@ private:
     std::vector<std::unique_ptr<ParameterSliderRow>> rows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectParameterPanel)
+};
+
+// The compressor's gain-reduction meter: a bar growing leftwards from 0dB,
+// laid out like a parameter row so it reads as part of the same list.
+//
+// Polled on its own timer rather than through the panel's refresh: a meter
+// wants to move at a rate a slider list has no reason to repaint at. The
+// plugin publishes one atomic float per block, so a tick costs a load and a
+// repaint. Fall-off is applied here, not in the plugin: the reading is per
+// block and would flicker at the block rate otherwise.
+class GainReductionMeter : public juce::Component,
+                           private juce::Timer
+{
+public:
+    explicit GainReductionMeter (plugins::MeteredCompressorPlugin& compressorToWatch)
+        : compressor (compressorToWatch)
+    {
+        setInterceptsMouseClicks (false, false);
+        startTimerHz (30);
+    }
+
+    static constexpr int height = EditorRow::height;
+
+    void paint (juce::Graphics& g) override
+    {
+        auto area = getLocalBounds().reduced (6, 2);
+
+        g.setColour (juce::Colour (0xffd8d8dc));
+        g.setFont (juce::FontOptions (EditorRow::rowFontHeight));
+        g.drawText ("Reduction", area.removeFromLeft (nameWidth), juce::Justification::centredLeft);
+
+        auto valueArea = area.removeFromRight (valueWidth);
+        g.setColour (juce::Colour (0xff9a9aa4));
+        g.drawText (juce::String (-shownDb, 1) + " dB", valueArea, juce::Justification::centredRight);
+
+        const auto track = area.reduced (4, 0).toFloat();
+        auto bar = track.reduced (0.0f, 6.0f);
+        g.setColour (juce::Colour (0xff1c1c20));
+        g.fillRect (bar);
+
+        // 0dB sits at the right, so the bar reaches left as the compressor
+        // bites -- the direction every hardware reduction meter swings.
+        const auto proportion = juce::jlimit (0.0f, 1.0f, shownDb / rangeDb);
+        g.setColour (juce::Colour (0xffe0a24f));
+        g.fillRect (bar.removeFromRight (bar.getWidth() * proportion));
+
+        // Ticks every 6dB above the bar, so a reading has a scale.
+        g.setColour (juce::Colour (0xff707078));
+
+        for (float db = 6.0f; db < rangeDb; db += 6.0f)
+            g.drawVerticalLine ((int) (track.getRight() - track.getWidth() * (db / rangeDb)),
+                                track.getY() + 1.0f, track.getY() + 5.0f);
+    }
+
+private:
+    static constexpr int nameWidth = 100;    // as ParameterSliderRow lays out
+    static constexpr int valueWidth = 64;
+    static constexpr float rangeDb = 24.0f;
+
+    // dB per tick: at 30Hz a 30dB/s fall, slow enough to read a transient.
+    static constexpr float decayDb = 1.0f;
+
+    void timerCallback() override
+    {
+        // EditSync can delete the plugin under an open window; a bypassed one
+        // is not called at all, so its last reading would otherwise stick.
+        const auto live = compressor != nullptr && compressor->isEnabled()
+                            ? -compressor->getGainReductionDb()
+                            : 0.0f;
+
+        shownDb = juce::jmax (live, shownDb - decayDb);
+        repaint();
+    }
+
+    te::SafeSelectable<plugins::MeteredCompressorPlugin> compressor;
+    float shownDb = 0.0f;   // magnitude, so the maths above reads as a level
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GainReductionMeter)
 };
 
 // What the sidechain picker needs to know and do. Supplied by the owner for
@@ -185,6 +264,12 @@ private:
                 addAndMakeVisible (*sidechainBox);
             }
 
+            if (auto* compressor = dynamic_cast<plugins::MeteredCompressorPlugin*> (&plugin))
+            {
+                meter = std::make_unique<GainReductionMeter> (*compressor);
+                addAndMakeVisible (*meter);
+            }
+
             auto panel = std::make_unique<EffectParameterPanel> (plugin);
             panelHeight = panel->getHeight();
 
@@ -196,7 +281,11 @@ private:
         }
 
         int getPanelHeight() const  { return panelHeight; }
-        int getExtraRowsHeight() const  { return sidechainBox != nullptr ? sidechainRowHeight : 0; }
+        int getExtraRowsHeight() const
+        {
+            return (sidechainBox != nullptr ? sidechainRowHeight : 0)
+                 + (meter != nullptr ? GainReductionMeter::height : 0);
+        }
 
         static constexpr int sidechainRowHeight = 28;
 
@@ -207,6 +296,9 @@ private:
 
             if (sidechainBox != nullptr)
                 sidechainBox->setBounds (area.removeFromTop (sidechainRowHeight).reduced (6, 3));
+
+            if (meter != nullptr)
+                meter->setBounds (area.removeFromTop (GainReductionMeter::height));
 
             viewport.setBounds (area);
 
@@ -220,6 +312,7 @@ private:
         PresetBar presetBar;
         std::optional<SidechainPicker> sidechain;
         std::unique_ptr<juce::ComboBox> sidechainBox;
+        std::unique_ptr<GainReductionMeter> meter;
         juce::Viewport viewport;
         int panelHeight = 0;
     };

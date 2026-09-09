@@ -1,13 +1,20 @@
 #include "EffectSlotList.h"
 
+#include "../plugins/DistortionPlugin.h"
+#include "../plugins/SaturationPlugin.h"
+
 namespace carve::app
 {
 
 namespace
 {
-    // The tracktion internal plugins worth offering as inserts, in the order
-    // they appear in the menu. `type` is the plugin's xmlTypeName, which is
-    // what the model stores and EditSync creates from.
+    // The internal plugins worth offering as inserts -- tracktion's and our
+    // own -- in the order they appear in the menu. `type` is the plugin's
+    // xmlTypeName, which is what the model stores and EditSync creates from.
+    //
+    // Our own are named through the class rather than spelled out: the
+    // distortion went missing from this menu for a while because nothing
+    // tied the two spellings together.
     struct InternalEffect
     {
         const char* type;
@@ -15,11 +22,13 @@ namespace
         const char* shortName;   // what fits on a 100px slot row
     };
 
-    constexpr InternalEffect internalEffects[] =
+    const InternalEffect internalEffects[] =
     {
         { "compressor",   "Compressor / Limiter", "Comp" },
         { "4bandEq",      "4-Band EQ",            "EQ" },
         { "lowpass",      "Low / High Pass",      "Filter" },
+        { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },
+        { plugins::SaturationPlugin::xmlTypeName, "Saturation", "Sat" },
         { "reverb",       "Reverb",               "Reverb" },
         { "delay",        "Delay",                "Delay" },
         { "chorus",       "Chorus",               "Chorus" },

@@ -45,7 +45,8 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 - **プレイリスト**: 配置ごとの長さ (ループ / 切り詰め) と transpose、途中での
   テンポ・拍子変更、オーディオファイルのドラッグ & ドロップ
 - **ミキサー**: センド / リターンバス。コンプは別 Generator を**サイドチェイン**元に
-  できる。エフェクトは tracktion 内蔵 + 自前の Distortion + VST3 / AU
+  できる。コンプのウィンドウにはリダクション量のメーターが出る。エフェクトは
+  tracktion 内蔵 + 自前の Distortion / Saturation + VST3 / AU
 - **オートメーション**: パラメータカーブと LFO モディファイア。どちらも拍基準で
   テンポ変更に追従
 

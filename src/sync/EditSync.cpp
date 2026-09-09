@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "EngineIds.h"
+#include "../plugins/MeteredCompressorPlugin.h"
 
 namespace carve::sync
 {
@@ -309,6 +310,20 @@ namespace
         return true;
     }
 
+    // The type the engine builds for a model effect type. The model keeps
+    // tracktion's "compressor" -- it is what the menu offers and what every
+    // saved song says -- but the plugin that gets built is our subclass with
+    // the gain-reduction reading, which the registry only accepts under a
+    // name of its own. A song saved since carries the subclass's name in its
+    // stored state, which passes through unchanged.
+    juce::String engineTypeFor (const juce::String& modelType)
+    {
+        if (modelType == te::CompressorPlugin::xmlTypeName)
+            return plugins::MeteredCompressorPlugin::xmlTypeName;
+
+        return modelType;
+    }
+
     te::Plugin::Ptr createEffectPlugin (te::Edit& edit, const model::Effect& effect)
     {
         te::Plugin::Ptr plugin;
@@ -324,11 +339,12 @@ namespace
             // Rebuild it from the state we saved, so its parameters come back.
             auto copy = stored.createCopy();
             copy.removeProperty (te::IDs::id, nullptr);   // see captureInternalState
+            copy.setProperty (te::IDs::type, engineTypeFor (copy[te::IDs::type].toString()), nullptr);
             plugin = edit.getPluginCache().createNewPlugin (copy);
         }
         else
         {
-            plugin = edit.getPluginCache().createNewPlugin (effect.getType(), {});
+            plugin = edit.getPluginCache().createNewPlugin (engineTypeFor (effect.getType()), {});
         }
 
         if (plugin != nullptr)
