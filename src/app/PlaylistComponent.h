@@ -26,8 +26,10 @@ namespace carve::app
 // moves a copy of the selection, a right click on the selection deletes all
 // of it, and so does Backspace; a double click asks the host to open that
 // pattern in the editor; right-drag (or alt-drag) erases. Holding ⇧ is the
-// select tool for as long as it is held. The piano roll reads every one of
-// these gestures the same way: SelectionModifiers.h is the list.
+// select tool for as long as it is held, and with the paint tool up the ⇧
+// rubber band may start on a clip as well as on empty space, since a painted
+// section leaves no empty bar to start one from. The piano roll reads every
+// one of these gestures the same way: SelectionModifiers.h is the list.
 //
 // A clip carries one handle: the chevron in its top-right corner swaps which of
 // the generator's patterns it plays. How long the placement runs for is a
@@ -132,6 +134,18 @@ public:
         return selection::isSelectToolOverride (mods) ? Tool::select : tool;
     }
 
+    // ⇧ with the paint tool up starts a rubber band wherever the pointer is,
+    // clips included, where the select tool itself would grab the clip. ⇧ is
+    // what stands in for the select tool while painting, and a painted section
+    // is a wall of clips with no empty bar to start a band from, so the band
+    // has to be able to start on one. ⌘ still wins: ⌘-drag from a clip is the
+    // duplicate, whichever tool is up.
+    bool bandStartsOnClips (const juce::ModifierKeys& mods) const
+    {
+        return tool == Tool::paint && selection::isSelectToolOverride (mods)
+                && ! selection::isDuplicateModifier (mods);
+    }
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void moved() override;
@@ -206,7 +220,7 @@ private:
         loopRange,   // on the ruler
         marker,      // a tempo or time signature change on the lane above it
         autoPoint,   // a point on a row's automation lane
-        rubberBand   // select tool on empty space
+        rubberBand   // select tool on empty space, or ⇧ anywhere with the paint tool
     };
 
     // One tempo or time signature change as the lane draws and hit-tests it.
@@ -535,10 +549,12 @@ private:
     double dragLastStart = 0.0;          // last start we wrote, so a drag only writes on a change
     std::vector<double> dragOriginStarts;   // parallel to selectedClips
 
-    // ⌘ went down on a clip that was already selected. Which gesture that is
-    // depends on what happens next: a drag copies the selection and moves it,
-    // a click without one takes the clip out of the selection. So it is held
-    // here until the mouse says which.
+    // ⌘ went down on a clip that was already selected, or ⇧ went down on a
+    // clip with the paint tool up. Which gesture that is depends on what
+    // happens next: a drag copies the selection and moves it (⌘) or starts a
+    // rubber band (⇧), a click without one is the toggle -- ⌘ takes the clip
+    // out of the selection, ⇧ adds or removes it. So it is held here until
+    // the mouse says which.
     juce::ValueTree pendingToggleClip;
 
     // The copies a duplicate drag has put down at the selection's origin, so

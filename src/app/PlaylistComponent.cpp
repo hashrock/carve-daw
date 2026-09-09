@@ -744,9 +744,19 @@ void PlaylistComponent::updateShortcutHelp()
 
         if (getEffectiveTool (mods) == Tool::select)
         {
-            entries.push_back ({ "drag", extending ? "add to selection" : "select clips" });
+            // Only ⌘ makes the band add to the selection; a ⇧-band replaces
+            // it (see SelectionModifiers.h), so "extending" is the wrong test
+            // for this entry even though it is the right one for the click.
+            entries.push_back ({ "drag", selection::isRubberBandExtendModifier (mods) ? "add to selection"
+                                                                                       : "select clips" });
             entries.push_back ({ "click clip", extending ? "add / remove" : "select" });
-            entries.push_back ({ "drag clip", "move selection" });
+
+            // With ⇧ holding the select tool up for the paint tool, a drag
+            // from a clip is the band too, so there is no separate "drag
+            // clip" to list.
+            if (! bandStartsOnClips (mods))
+                entries.push_back ({ "drag clip", "move selection" });
+
             entries.push_back ({ "Cmd+drag clip", "duplicate" });
         }
         else
@@ -2621,6 +2631,11 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
             return juce::MouseCursor::PointingHandCursor;
         }
 
+        // ⇧ with the paint tool starts a band from the clip rather than
+        // grabbing it, so the clip is aimed at like the empty grid is.
+        if (bandStartsOnClips (mods))
+            return juce::MouseCursor::CrosshairCursor;
+
         return juce::MouseCursor::DraggingHandCursor;   // click selects, drag moves
     }
 
@@ -2944,6 +2959,24 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
+        // ⇧ on a clip with the paint tool up is the rubber band, not a grab
+        // (see bandStartsOnClips): the band has to be able to start on a clip
+        // or a painted section could never be banded at all. A click that
+        // never moves is still the ⇧-click toggle, so the toggle is armed
+        // the way ⌘'s is below and mouseDrag / mouseUp decide. Nothing is
+        // selected or cleared yet: the click keeps the selection and toggles
+        // one clip, the band replaces it, and neither is known until then.
+        if (bandStartsOnClips (e.mods))
+        {
+            pendingToggleClip = placement->state;
+            dragMode = DragMode::rubberBand;
+            rubberBandAnchor = e.position;
+            rubberBand = {};
+            rubberBandBaseSelection.clear();
+            updateHover (e.position);
+            return;
+        }
+
         // ⌘ on a clip is two gestures at once, and which one it is only
         // becomes clear when the mouse either moves or does not: a drag from
         // here duplicates the selection, a click alone is the selection
@@ -3080,6 +3113,16 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             break;
 
         case DragMode::rubberBand:
+            // A band armed on a clip (⇧ with the paint tool) held its toggle
+            // back in case this was a click. The mouse has moved, so it is a
+            // band, and a ⇧-band starts a fresh selection just as one from
+            // empty space does.
+            if (pendingToggleClip.isValid())
+            {
+                pendingToggleClip = {};
+                clearSelection();
+            }
+
             updateRubberBand (e.position);
             break;
 
@@ -3095,8 +3138,8 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
     if (dragMode == DragMode::loopRange && ! loopDragMoved && onSeek)
         onSeek (rulerPressBeats);
 
-    // An armed toggle that never became a drag was a plain ⌘ click, and those
-    // take the clip out of the selection.
+    // An armed toggle that never became a drag was a plain ⌘ or ⇧ click, and
+    // those add the clip to the selection or take it out again.
     if (pendingToggleClip.isValid())
         selectClip (pendingToggleClip, true);
 

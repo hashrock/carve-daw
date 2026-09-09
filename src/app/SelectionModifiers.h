@@ -12,7 +12,8 @@
 //   drag item               move the whole selection
 //   Cmd + drag item         duplicate the selection and move the copies
 //   right-click selection   delete the whole selection
-//   Shift held              the select tool, for as long as it is held
+//   Shift held              the select tool, for as long as it is held; from
+//                           the draw / paint tool its band may start on an item
 //   Cmd + rubber band       add to the selection instead of replacing it
 //   right / Alt + drag      erase whatever the pointer sweeps over
 //
@@ -41,7 +42,9 @@ inline bool isDuplicateModifier (const juce::ModifierKeys& mods)
 
 // Holding Shift is the select tool for as long as it is held, whatever the
 // toolbar says. Picking a few items out of a part being drawn is a constant
-// interruption otherwise: switch tool, rubber-band, switch back.
+// interruption otherwise: switch tool, rubber-band, switch back. The playlist
+// lets that band start on a clip, since a painted section leaves no empty bar
+// to start one from (PlaylistComponent::bandStartsOnClips).
 inline bool isSelectToolOverride (const juce::ModifierKeys& mods)
 {
     return mods.isShiftDown();
