@@ -58,6 +58,8 @@ class PlaylistComponent : public juce::Component,
                           private juce::ValueTree::Listener
 {
 public:
+    void invalidateWaveforms() { peakCache.clear(); repaint(); }
+
     enum class Tool
     {
         paint,
@@ -89,8 +91,12 @@ public:
     // host should open in the pattern editor.
     std::function<void (const juce::String&, const juce::String&)> onEditPattern;
 
-    // Fired whenever the set of selected clips changes; empty when nothing is selected.
-    std::function<void (const std::vector<model::PlaylistClip>&)> onClipSelectionChanged;
+    // Fired whenever the set of selected clips changes, with the pattern
+    // placements and the audio placements apart -- they are different node
+    // types with different properties, and the host's panel shows one kind
+    // or the other. Both empty when nothing is selected.
+    std::function<void (const std::vector<model::PlaylistClip>&,
+                        const std::vector<model::AudioClip>&)> onClipSelectionChanged;
 
     // The shortcuts that apply right now, for whichever help bar the host owns.
     // Only ours: the host appends its own global ones.

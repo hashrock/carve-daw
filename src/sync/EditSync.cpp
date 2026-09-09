@@ -219,16 +219,27 @@ namespace
 
             if (index < 0)
             {
-                // Start 0 / length 0 is the whole file: trimming a sample is
-                // not something the model describes yet. A non-empty return
+                // Start at the beginning, with zero length meaning the whole file.
+                // A non-empty return
                 // means the sampler is full, and so are we.
-                if (sampler.addSound (path, sound.getName(), 0.0, 0.0, sound.getGainDb()).isNotEmpty())
+                if (sampler.addSound (path, sound.getName(), 0.0, sound.getLengthSeconds(), sound.getGainDb()).isNotEmpty())
                     break;
 
                 index = sampler.getNumSounds() - 1;
                 claimed.resize ((size_t) sampler.getNumSounds(), false);
                 claimed[(size_t) index] = true;
             }
+
+            // Compare stored excerpt values: getSoundLength reports the resolved
+            // file length, while zero in the state means the whole file.
+            int soundIndex = 0;
+            for (auto engineSound : sampler.state)
+                if (engineSound.hasType (te::IDs::SOUND) && soundIndex++ == index)
+                {
+                    if (std::abs ((double) engineSound[te::IDs::length] - sound.getLengthSeconds()) > 0.000001)
+                        sampler.setSoundExcerpt (index, 0.0, sound.getLengthSeconds());
+                    break;
+                }
 
             if (sampler.getSoundName (index) != sound.getName())
                 sampler.setSoundName (index, sound.getName());
@@ -1629,6 +1640,29 @@ void EditSync::resyncNow()
 
     if (onSynced)
         onSynced();
+}
+
+void EditSync::reloadAudioClip (const juce::String& placementId)
+{
+    if (placementId.isEmpty())
+        return;
+
+    // The engine caches what it parsed off the file (length, sample rate) and
+    // keeps readers open on it, both keyed by path, so a re-insert alone would
+    // build the new clip on the old file's figures. Told to look again first.
+    for (const auto& placement : song.getPlaylist().getAudioClips())
+        if (placement.getId() == placementId && placement.getFile().existsAsFile())
+            edit.engine.getAudioFileManager().forceFileUpdate (te::AudioFile (edit.engine, placement.getFile()));
+
+    // Copies: removal mutates the lists being walked. With the clip gone the
+    // resync below finds a placement with nothing to match and inserts it
+    // afresh, which is the one path that reads the file.
+    for (auto track : te::getAudioTracks (edit))
+        for (auto clip : juce::Array<te::Clip*> (track->getClips()))
+            if (getAudioClipId (*clip) == placementId)
+                clip->removeFromParent();
+
+    resyncNow();
 }
 
 void EditSync::setAudition (std::optional<Audition> newAudition)

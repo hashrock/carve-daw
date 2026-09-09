@@ -103,6 +103,7 @@ public:
 
     void setPadState (int pad, const PadInfo&);
     void clearPads();
+    void setSelectedPad (int pad) { selectedPad = pad; repaint(); }
 
     // Where the pads' note-ons are seen: the monitor EditSync keeps in front
     // of the kit's sampler. Null stops the lights. Polled, and held weakly --
@@ -141,6 +142,7 @@ private:
     void timerCallback() override;
 
     std::array<PadState, (size_t) drumkit::numPads> pads;
+    int selectedPad = 0;
     std::optional<int> dragTargetPad;
     te::SafeSelectable<plugins::NoteMonitorPlugin> monitor;
 };

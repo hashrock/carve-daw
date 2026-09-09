@@ -108,6 +108,15 @@ public:
     // into the model. Call before saving the song.
     void captureLivePluginState();
 
+    // Re-reads one audio placement's file from disk. A resync deliberately
+    // leaves a wave clip it has already built alone, so a file re-exported
+    // under the same name keeps playing as it was: this is the one way to
+    // make the engine look again. Not a model change -- nothing in the song
+    // is different, only the bytes on disk -- so it is not undoable and does
+    // not dirty the document. Also the way to pick up a file that was missing
+    // when the song loaded and has since been put back.
+    void reloadAudioClip (const juce::String& placementId);
+
 private:
     // True until the first sync has run: see syncSongToEdit's rebuildInstruments.
     bool firstSync = true;

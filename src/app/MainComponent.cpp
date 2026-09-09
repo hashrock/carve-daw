@@ -142,9 +142,17 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         return result;
     };
 
-    playlist.onClipSelectionChanged = [this] (const std::vector<model::PlaylistClip>& clips)
+    playlist.onClipSelectionChanged = [this] (const std::vector<model::PlaylistClip>& clips,
+                                              const std::vector<model::AudioClip>& audioClips)
     {
-        clipProperties.setSelection (clips);
+        clipProperties.setSelection (clips, audioClips);
+    };
+
+    clipProperties.onReloadAudioClip = [this] (const juce::String& placementId)
+    {
+        if (editSync != nullptr)
+            editSync->reloadAudioClip (placementId);
+        playlist.invalidateWaveforms();
     };
 
     // The playlist knows the current tool; the global shortcuts are ours, and
@@ -438,6 +446,17 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             // note the pad is mapped to.
             if (safe != nullptr)
                 safe->previewNote (drumkit::getNoteForPad (pad), drumkit::previewVelocity);
+        };
+        inst.onPadParameterChanged = [this] (int pad, int parameter, double value)
+        {
+            if (auto generator = song.findGenerator (selectedGeneratorId))
+                if (auto sound = drumkit::findSoundForPad (*generator, pad))
+                {
+                    undoManager.beginNewTransaction();
+                    if (parameter == 0) sound->setGainDb ((float) value, &undoManager);
+                    if (parameter == 1) sound->setRootNote (drumkit::getNoteForPad (pad) - (int) value, &undoManager);
+                    if (parameter == 2) sound->setLengthSeconds (value, &undoManager);
+                }
         };
         inst.onPadFilesDropped = [safe = juce::Component::SafePointer (this)] (int startPad,
                                                                                const juce::StringArray& files)

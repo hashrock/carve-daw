@@ -27,7 +27,7 @@
 // │     ├─ INSTRUMENT                        for "internal-synth" / "drum-synth": holds the
 // │     │  └─ PLUGIN {...}                   tracktion plugin's own state tree, as an effect does
 // │     ├─ SOUNDS                           sampler types only, absent otherwise
-// │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan}
+// │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan, length}
 // │     │        file: absolute path to the sample. relPath: the same file
 // │     │        relative to the .carve's folder, rewritten on every save.
 // │     │        Loading prefers relPath when it resolves to a file that

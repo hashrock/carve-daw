@@ -3,21 +3,6 @@
 完了した項目は履歴にある (git log で追える)。ここには残作業と、
 着手時に必要になる調査済みの事実だけを置く。
 
-## 2026-09-09 バッチの残り
-
-worktree 並列は重すぎたので main で直列に取り込んだ。20 件中 18 件は済み
-(git log)。残り:
-
-- [ ] ドラムサンプラー: パッドごとの音量・ピッチ・長さ
-      tracktion の SamplerPlugin は sound ごとに gain/pan/pitch
-      (setSoundParams)、開始・長さ (setSoundExcerpt)、open-ended を持つ。
-      モデル (SamplerSound) に持たせて EditSync で compare-before-set、
-      Inst タブでパッド選択時にノブを出す (KnobPanel.h)
-- [ ] オーディオクリップ選択中はクリッププロパティパネルでオーディオの
-      プロパティ (ファイル・開始・長さ) を編集、リロード / Relocate ボタン
-      syncAudioClips はクリップを id で保持するので、リロードは配置側に
-      再読込カウンタを持たせるか EditSync::reloadAudioClip(id) を足す
-
 ## 残作業
 
 

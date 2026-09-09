@@ -215,6 +215,13 @@ public:
     void setGainDb (float db, juce::UndoManager* um)  { state.setProperty (ids::gainDb, juce::jlimit (-48.0f, 48.0f, db), um); }
     void setPan (float p, juce::UndoManager* um)      { state.setProperty (ids::pan, juce::jlimit (-1.0f, 1.0f, p), um); }
 
+    // Source excerpt in seconds; zero preserves whole-file playback for old songs.
+    double getLengthSeconds() const { return state.getProperty (ids::length, 0.0); }
+    void setLengthSeconds (double seconds, juce::UndoManager* um)
+    {
+        state.setProperty (ids::length, juce::jlimit (0.0, 36000.0, seconds), um);
+    }
+
     juce::ValueTree state;
 };
 

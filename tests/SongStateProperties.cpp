@@ -1200,6 +1200,43 @@ TEST_CASE ("A node with no file is not missing", "[song][media]")
     REQUIRE (song.relinkMissingMedia (juce::File::getSpecialLocation (juce::File::tempDirectory), nullptr) == 0);
 }
 
+// The properties panel's Relocate button is an edit, unlike the load-time
+// relink: the placement is repointed through the undo manager, so it has to
+// come back whole -- absolute path and the relative one a save wrote -- and
+// go forward again the same way.
+TEST_CASE ("Relocating a placement is one undoable step", "[song][media][undo]")
+{
+    REQUIRE (rc::check ("setFile through the undo manager round-trips", [] {
+        auto song = Song::create ("relocate");
+        auto audio = song.addGenerator ("Audio", Generator::audioType, nullptr);
+
+        const auto before = audioFileFor (*rc::gen::inRange (0, 8));
+        const auto after = audioFileFor (*rc::gen::inRange (0, 8));
+
+        auto clip = song.getPlaylist().addAudioClip (audio, before, 0.0, 1.0, nullptr);
+
+        // As a saved song holds it: the relative path a previous save wrote
+        // sits beside the absolute one until the file changes.
+        clip.state.setProperty (ids::relPath, "media/" + before.getFileName(), nullptr);
+
+        juce::UndoManager um;
+        um.beginNewTransaction();
+        clip.setFile (after, &um);
+
+        RC_ASSERT (clip.getFile() == after);
+        RC_ASSERT (! clip.state.hasProperty (ids::relPath));   // stale: the next save writes a fresh one
+
+        RC_ASSERT (um.undo());
+        RC_ASSERT (clip.getFile() == before);
+        RC_ASSERT (clip.state[ids::relPath].toString() == "media/" + before.getFileName());
+        RC_ASSERT (! um.canUndo());   // one step, not one per property
+
+        RC_ASSERT (um.redo());
+        RC_ASSERT (clip.getFile() == after);
+        RC_ASSERT (! clip.state.hasProperty (ids::relPath));
+    }));
+}
+
 //==============================================================================
 // One change per beat
 //
@@ -1554,4 +1591,36 @@ TEST_CASE ("A placed copy says exactly what the original said", "[song][state]")
         RC_ASSERT (copy.getLength (pattern.getLengthBeats())
                        == source.getLength (pattern.getLengthBeats()));
     }));
+}
+
+TEST_CASE ("Pad settings survive save and undo independently", "[song][state][sampler]")
+{
+    auto song = Song::create ("Kit");
+    auto kit = song.addGenerator ("Drums", Generator::drumKitType, nullptr);
+    auto first = kit.addSound (juce::File ("/tmp/kick.wav"), nullptr);
+    auto second = kit.addSound (juce::File ("/tmp/snare.wav"), nullptr);
+    first.setKeyRange (36, 36, nullptr);
+    first.setRootNote (36, nullptr);
+    REQUIRE (first.getLengthSeconds() == 0.0);
+    juce::UndoManager undo;
+    undo.beginNewTransaction();
+    first.setGainDb (-9.0f, &undo);
+    first.setRootNote (29, &undo);
+    first.setLengthSeconds (0.25, &undo);
+    REQUIRE (second.getGainDb() == 0.0f);
+    REQUIRE (second.getLengthSeconds() == 0.0);
+    auto loaded = Song::fromXml (song.toXmlString());
+    REQUIRE (loaded.has_value());
+    auto restored = loaded->findGenerator (kit.getId())->getSounds().front();
+    REQUIRE (restored.getGainDb() == -9.0f);
+    REQUIRE (restored.getRootNote() == 29);
+    REQUIRE (restored.getMinNote() == 36);
+    REQUIRE (restored.getMaxNote() == 36);
+    REQUIRE (restored.getLengthSeconds() == 0.25);
+    REQUIRE (undo.undo());
+    REQUIRE (first.getGainDb() == 0.0f);
+    REQUIRE (first.getRootNote() == 36);
+    REQUIRE (first.getLengthSeconds() == 0.0);
+    REQUIRE (undo.redo());
+    REQUIRE (first.getLengthSeconds() == 0.25);
 }

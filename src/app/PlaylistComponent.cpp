@@ -271,6 +271,10 @@ void PlaylistComponent::updateSize()
 
     // addRowHeight is the band under the last row that holds "+ Generator".
     setSize (width, headerHeight + juce::jmax (rowHeight, rowsHeight) + addRowHeight);
+
+    // Zero and one row share the same minimum height, so adding the first
+    // generator need not trigger resized(). Its button still has to move.
+    layOutToolStrip();
 }
 
 //==============================================================================
@@ -689,16 +693,22 @@ void PlaylistComponent::selectionChanged()
 
     if (onClipSelectionChanged)
     {
-        // Pattern clips only: what the host puts on the other end of this is a
-        // panel of pattern-clip properties, and an audio placement has none of
-        // them (its length is trimmed on the grid, and transposing it would
-        // mean pitch-shifting). Selecting one still moves, copies and deletes.
+        // Sorted by node type rather than handed over raw: the host's panel
+        // edits a pattern placement (length, transpose) and an audio one
+        // (file, start, length) with different controls, and a mixed
+        // selection is its call to make, not ours.
         std::vector<model::PlaylistClip> clips;
+        std::vector<model::AudioClip> audioClips;
+
         for (const auto& state : selectedClips)
+        {
             if (state.hasType (model::ids::CLIP))
                 clips.emplace_back (state);
+            else if (state.hasType (model::ids::AUDIOCLIP))
+                audioClips.emplace_back (state);
+        }
 
-        onClipSelectionChanged (clips);
+        onClipSelectionChanged (clips, audioClips);
     }
 }
 

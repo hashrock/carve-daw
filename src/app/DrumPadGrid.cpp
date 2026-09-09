@@ -212,7 +212,7 @@ void DrumPadGrid::paint (juce::Graphics& g)
             g.drawRoundedRectangle (bounds.toFloat().reduced (0.75f), 3.0f, 1.5f);
         }
 
-        if (dragTargetPad.has_value() && *dragTargetPad == pad)
+        if (selectedPad == pad || (dragTargetPad.has_value() && *dragTargetPad == pad))
         {
             g.setColour (juce::Colours::white);
             g.drawRoundedRectangle (bounds.toFloat().reduced (0.75f), 3.0f, 1.5f);

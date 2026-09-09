@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -153,6 +154,7 @@ public:
     std::function<void (int startPad, const juce::StringArray&)> onPadFilesDropped;
     std::function<bool (const juce::StringArray&)> isInterestedInAudioFiles;
     std::function<void()> onLoadSample;
+    std::function<void (int pad, int parameter, double value)> onPadParameterChanged;
 
     // Files dropped on a plain sampler: the first readable one replaces its
     // sample.
@@ -176,6 +178,9 @@ public:
         if (externalEditor != nullptr)
             return juce::Point<int> (externalEditor->getWidth(),
                                      externalEditor->getHeight() + (presetBar != nullptr ? PresetBar::height : 0));
+
+        if (shownKind == Kind::drumKit)
+            return juce::Point<int> (640, 384);
 
         // The built-in editors size themselves.
         if (fourOsc != nullptr)
@@ -211,11 +216,13 @@ public:
 
         pads.onPadClicked = [this] (int pad)
         {
+            selectPad (pad);
             if (onPadClicked)
                 onPadClicked (pad, pads.localAreaToGlobal (pads.getPadBounds (pad)));
         };
         pads.onPadTriggered = [this] (int pad)
         {
+            selectPad (pad);
             if (onPadTriggered)
                 onPadTriggered (pad);
         };
@@ -229,6 +236,37 @@ public:
             return isInterestedInAudioFiles && isInterestedInAudioFiles (files);
         };
         addChildComponent (pads);
+
+        const char* names[] = { "Volume", "Pitch", "Length" };
+        const char* units[] = { " dB", " st", " %" };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& slider = padControls[(size_t) i];
+            padLabels[(size_t) i].setText (names[i], juce::dontSendNotification);
+            slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 90, 20);
+            slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffe0a24f));
+            slider.setDoubleClickReturnValue (true, i == 2 ? 100.0 : 0.0);
+            slider.setRange (i == 0 ? -48.0 : i == 1 ? -24.0 : 1.0,
+                             i == 0 ? 48.0 : i == 1 ? 24.0 : 100.0,
+                             i == 0 ? 0.1 : i == 1 ? 1.0 : 0.1);
+            slider.setTextValueSuffix (units[i]);
+            slider.onValueChange = [this, i]
+            {
+                if (onPadParameterChanged)
+                {
+                    const auto value = padControls[(size_t) i].getValue();
+                    // Keep the document's seconds representation; zero means
+                    // the whole source, including when that source is replaced.
+                    onPadParameterChanged (selectedPad, i,
+                        i == 2 ? (value >= 100.0 ? 0.0 : padSourceSeconds * value / 100.0) : value);
+                }
+            };
+            addChildComponent (slider);
+            addChildComponent (padLabels[(size_t) i]);
+        }
+        padControls[2].setTooltip ("Percentage of the source sample to play. 100% plays the whole file. Double-click to reset.");
+        addChildComponent (padTitle);
 
         loadSampleButton.onClick = [this]
         {
@@ -267,6 +305,11 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (shownKind == Kind::drumKit)
+        {
+            g.setColour (juce::Colour (0xff2b2b30));
+            g.fillRoundedRectangle (padPanelBounds.toFloat(), 6.0f);
+        }
         if (shownKind != Kind::sampler)
             return;
 
@@ -312,6 +355,12 @@ public:
         pads.setActivitySource (kitTrack != nullptr ? sync::findNoteMonitorPlugin (*kitTrack) : nullptr);
 
         pads.setVisible (kind == Kind::drumKit);
+        padTitle.setVisible (kind == Kind::drumKit);
+        for (int i = 0; i < 3; ++i)
+        {
+            padControls[(size_t) i].setVisible (kind == Kind::drumKit);
+            padLabels[(size_t) i].setVisible (kind == Kind::drumKit);
+        }
         loadSampleButton.setVisible (kind == Kind::sampler);
         sampleName.setVisible (kind == Kind::sampler);
         dropHint.setVisible (kind == Kind::sampler);
@@ -382,6 +431,8 @@ public:
     void refresh (const std::optional<model::Generator>& generator,
                   const juce::String& selectedPatternId)
     {
+        currentGenerator = generator;
+        refreshPadControls();
         if (shownKind == Kind::drumKit && generator)
         {
             // Which pads the pattern being edited plays, so the kit and the
@@ -408,9 +459,11 @@ public:
 
                 if (sound && sampler != nullptr)
                     for (int i = 0; i < sampler->getNumSounds(); ++i)
-                        if (sampler->getSoundName (i) == info.sampleName)
+                        if (sampler->getMinKey (i) == drumkit::getNoteForPad (pad)
+                             && sampler->getMaxKey (i) == drumkit::getNoteForPad (pad))
                         {
-                            info.soundSeconds = sampler->getSoundLength (i);
+                            info.soundSeconds = sampler->getSoundLength (i)
+                                / std::pow (2.0, (drumkit::getNoteForPad (pad) - sampler->getKeyNote (i)) / 12.0);
                             info.oneShot = sampler->isSoundOpenEnded (i);
                             break;
                         }
@@ -436,8 +489,22 @@ public:
         info.setBounds (area);
 
         if (pads.isVisible())
-            pads.setBounds (area.reduced (16).withHeight (
-                juce::jmin (area.getHeight() - 32, DrumPadGrid::getPreferredHeight())));
+        {
+            auto kit = area.reduced (16);
+            auto panel = kit.removeFromRight (200);
+            padPanelBounds = panel;
+            kit.removeFromRight (16);
+            pads.setBounds (kit.withHeight (DrumPadGrid::getPreferredHeight()));
+            panel = panel.reduced (10);
+            padTitle.setBounds (panel.removeFromTop (24));
+            panel.removeFromTop (8);
+            for (int i = 0; i < 3; ++i)
+            {
+                auto row = panel.removeFromTop (100);
+                padLabels[(size_t) i].setBounds (row.removeFromLeft (64));
+                padControls[(size_t) i].setBounds (row);
+            }
+        }
 
         if (loadSampleButton.isVisible())
         {
@@ -513,6 +580,47 @@ private:
         shownKind = Kind::none;
     }
 
+    void selectPad (int pad)
+    {
+        selectedPad = pad;
+        pads.setSelectedPad (pad);
+        refreshPadControls();
+    }
+
+    void refreshPadControls()
+    {
+        auto sound = currentGenerator && currentGenerator->isDrumKit()
+                         ? drumkit::findSoundForPad (*currentGenerator, selectedPad) : std::nullopt;
+        padTitle.setText (drumkit::getNoteName (drumkit::getNoteForPad (selectedPad))
+                             + " — " + (sound ? sound->getName() : "No sample"), juce::dontSendNotification);
+        for (auto& control : padControls)
+            control.setEnabled (sound.has_value());
+        padControls[0].setValue (sound ? sound->getGainDb() : 0.0, juce::dontSendNotification);
+        padControls[1].setValue (sound ? drumkit::getNoteForPad (selectedPad) - sound->getRootNote() : 0.0, juce::dontSendNotification);
+        const auto file = sound ? sound->getFile() : juce::File();
+        const auto stamp = file.getLastModificationTime();
+        if (file != padSourceFile || stamp != padSourceStamp)
+        {
+            padSourceFile = file;
+            padSourceStamp = stamp;
+            padSourceSeconds = model::readAudioFileLengthSeconds (file);
+        }
+        padControls[2].setEnabled (sound.has_value() && padSourceSeconds > 0.0);
+        const auto length = sound ? sound->getLengthSeconds() : 0.0;
+        padControls[2].setValue (length > 0.0 && padSourceSeconds > 0.0
+                                    ? 100.0 * length / padSourceSeconds : 100.0,
+                                juce::dontSendNotification);
+    }
+
+    juce::Rectangle<int> padPanelBounds;
+    juce::File padSourceFile;
+    juce::Time padSourceStamp;
+    double padSourceSeconds = 0.0;
+    int selectedPad = 0;
+    std::optional<model::Generator> currentGenerator;
+    juce::Label padTitle;
+    std::array<juce::Label, 3> padLabels;
+    std::array<juce::Slider, 3> padControls;
     Kind shownKind = Kind::none;
     te::Plugin* shownInstrument = nullptr;
     juce::Rectangle<int> lastEditorSize;
