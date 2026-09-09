@@ -116,11 +116,11 @@ private:
     std::optional<double> patternBeatOfPlayhead (double songBeat) const;
 
     // Pattern mode (the transport bar's Pattern / Song switch): the Edit is
-    // built around the selected pattern alone rather than the playlist, and
-    // follows the selection while the mode is on.
+    // built around every generator's current pattern rather than the
+    // playlist, and follows the pattern pickers while the mode is on.
     bool patternMode = false;
     void updateAudition();
-    double selectedPatternLengthBeats() const;
+    double auditionLengthBeats() const;
 
     te::Engine& engine;
     std::unique_ptr<te::Edit> edit;

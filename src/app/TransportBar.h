@@ -130,12 +130,20 @@ public:
     void setBrowserShown (bool shown);
 
     // Pattern mode was switched on or off. The owner rebuilds the Edit around
-    // the selected pattern (or the playlist again) -- see sync::Audition.
+    // every generator's current pattern (or the playlist again) -- see
+    // sync::Audition.
     std::function<void (bool patternMode)> onPlayModeChanged;
 
-    // The length in beats of the pattern Pattern mode is looping, or 0 when
-    // there is none; asked for whenever playback starts in that mode.
+    // The length in beats of the loop Pattern mode runs -- the longest of the
+    // patterns it plays -- or 0 when there is none; asked for whenever
+    // playback starts in that mode, and again from refreshPatternLoop.
     std::function<double()> getAuditionLengthBeats;
+
+    // The auditioned patterns changed under a running transport: re-asks
+    // getAuditionLengthBeats and hands the transport the new loop, since it
+    // keeps its own copy of the range. Nothing happens outside Pattern mode
+    // or while stopped -- togglePlay sets the range afresh on the next play.
+    void refreshPatternLoop();
 
     bool isPatternMode() const  { return playMode.isPatternMode(); }
 
@@ -157,6 +165,10 @@ private:
     void timerCallback() override;
     void showFileMenu();
     double getSongLengthBeats() const;
+
+    // Beat zero to the end of the longest auditioned pattern: what Pattern
+    // mode loops over.
+    te::BeatRange patternLoopRange() const;
 
     // Bars are 1-based on the bar and in the loop fields, as on every ruler.
     int getCurrentBar() const;

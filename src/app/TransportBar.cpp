@@ -396,10 +396,9 @@ void TransportBar::togglePlay()
 
     if (isPatternMode())
     {
-        // Pattern mode loops the pattern alone, from beat zero, and always
+        // Pattern mode loops the patterns alone, from beat zero, and always
         // loops -- a one-shot of a bar is not what the mode is for.
-        const auto length = getAuditionLengthBeats ? getAuditionLengthBeats() : 0.0;
-        loop = { te::BeatPosition(), te::BeatPosition::fromBeats (std::max (1.0, length)) };
+        loop = patternLoopRange();
         transport.setPosition (te::TimePosition());
     }
     else if (song.hasLoopRange())
@@ -416,6 +415,37 @@ void TransportBar::togglePlay()
     transport.looping = loopCheck.getToggleState() || isPatternMode();
     transport.ensureContextAllocated();
     transport.play (false);
+}
+
+te::BeatRange TransportBar::patternLoopRange() const
+{
+    // Never shorter than a beat: a song with nothing to audition still needs
+    // a range for the transport to loop over.
+    const auto length = getAuditionLengthBeats ? getAuditionLengthBeats() : 0.0;
+    return { te::BeatPosition(), te::BeatPosition::fromBeats (std::max (1.0, length)) };
+}
+
+void TransportBar::refreshPatternLoop()
+{
+    auto& transport = edit.getTransport();
+
+    if (! isPatternMode() || ! transport.isPlaying())
+        return;
+
+    const auto wanted = edit.tempoSequence.toTime (patternLoopRange());
+
+    // This is reached on every model change while the mode is on -- each
+    // note drawn -- so an unchanged range is left alone rather than re-set.
+    if (std::abs ((transport.getLoopRange().getEnd() - wanted.getEnd()).inSeconds()) < 1.0e-6)
+        return;
+
+    transport.setLoopRange (wanted);
+
+    // A loop that just got shorter can leave the playhead past its end; wrap
+    // it back the way the loop would have, rather than waiting for the
+    // engine to decide.
+    if (transport.getPosition() >= wanted.getEnd())
+        transport.setPosition (wanted.getStart());
 }
 
 void TransportBar::timerCallback()

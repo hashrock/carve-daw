@@ -385,6 +385,7 @@ void GeneratorController::setSong (model::Song newSong)
     selectedGeneratorId = song.getNumGenerators() > 0 ? song.getGenerator (0).getId()
                                                       : juce::String();
     selectedPatternId.clear();
+    lastPatternByGenerator.clear();   // ids from another song mean nothing here
     refresh();
     fireSelectionChanged();
 }
@@ -394,11 +395,40 @@ void GeneratorController::selectGenerator (const juce::String& generatorId)
     if (generatorId == selectedGeneratorId || ! song.findGenerator (generatorId))
         return;
 
-    // Selecting a generator selects its first pattern unless the current
-    // pattern already belongs to it; refresh does that.
+    // Selecting a generator selects the pattern it was last left on (its
+    // first, the first time) unless the current pattern already belongs to
+    // it; refresh does that.
     selectedGeneratorId = generatorId;
     refresh();
     fireSelectionChanged();
+}
+
+std::vector<GeneratorController::CurrentPattern> GeneratorController::getCurrentPatterns() const
+{
+    std::vector<CurrentPattern> current;
+
+    for (const auto& generator : song.getGenerators())
+    {
+        if (generator.getNumPatterns() == 0)
+            continue;
+
+        // The selected generator's pattern is read from the selection itself:
+        // the map is only written by ensureValidSelection, and a caller
+        // reached from a selection change wants what was just picked.
+        auto patternId = generator.getId() == selectedGeneratorId ? selectedPatternId : juce::String();
+
+        if (patternId.isEmpty())
+            if (const auto remembered = lastPatternByGenerator.find (generator.getId());
+                remembered != lastPatternByGenerator.end() && generator.findPattern (remembered->second))
+                patternId = remembered->second;
+
+        if (patternId.isEmpty())
+            patternId = generator.getPattern (0).getId();
+
+        current.push_back ({ generator.getId(), patternId });
+    }
+
+    return current;
 }
 
 void GeneratorController::selectPattern (const juce::String& patternId)
@@ -832,11 +862,23 @@ void GeneratorController::ensureValidSelection()
         selectedPatternId.clear();
     }
 
-    // The piano roll follows this id, so it must never dangle: fall back to the
-    // generator's first pattern.
+    // The piano roll follows this id, so it must never dangle: fall back to
+    // the pattern this generator was last left on, then to its first.
     if (generator && ! generator->findPattern (selectedPatternId))
-        selectedPatternId = generator->getNumPatterns() > 0 ? generator->getPattern (0).getId()
-                                                            : juce::String();
+    {
+        selectedPatternId.clear();
+
+        if (const auto remembered = lastPatternByGenerator.find (generator->getId());
+            remembered != lastPatternByGenerator.end() && generator->findPattern (remembered->second))
+            selectedPatternId = remembered->second;
+        else if (generator->getNumPatterns() > 0)
+            selectedPatternId = generator->getPattern (0).getId();
+    }
+
+    // Every path that changes the selection comes through here before it is
+    // announced, so this is the one place the generator's pattern is noted.
+    if (generator && selectedPatternId.isNotEmpty())
+        lastPatternByGenerator[generator->getId()] = selectedPatternId;
 }
 
 void GeneratorController::refresh()

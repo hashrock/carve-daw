@@ -13,7 +13,9 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 
 - **メイン**: 左上のロゴがファイルメニュー。ツールバーは Orion 流に BPM /
   Pattern・Song / トランスポート / BAR / LOOP (Start・Length) / マスター。
-  **Pattern** は選択中のパターンだけをループ再生、**Song** はプレイリストを再生。
+  **Pattern** は各 Generator で最後に選んだパターンを全部同時にループ再生
+  (いちばん長いパターンの長さでループし、短いものは繰り返す)、**Song** は
+  プレイリストを再生。
   プレイリストの左の行ラベルが Generator の一覧で、最下段の「+ Generator」で
   追加、右クリックでリネーム / 削除
 - **Generator ウィンドウ**: 行ラベルのダブルクリックで開く。**Inst** タブが音源の

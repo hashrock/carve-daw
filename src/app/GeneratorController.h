@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
@@ -35,13 +37,24 @@ public:
     void selectGenerator (const juce::String& generatorId);
 
     // Selects one of the current generator's patterns. Call after
-    // selectGenerator: selecting a generator picks its first pattern, so the
-    // order matters.
+    // selectGenerator: selecting a generator picks the pattern it was last
+    // left on (its first, to begin with), so the order matters.
     void selectPattern (const juce::String& patternId);
 
     juce::String getSelectedGeneratorId() const;
     juce::String getSelectedPatternId() const;
     std::optional<model::Generator> getSelectedGenerator() const;
+
+    // Every generator's current pattern, in generator order: the one its
+    // window last showed, or its first until one has been picked. Generators
+    // without a pattern (audio, or emptied by an undo) are left out. Pattern
+    // mode plays all of these together -- the pattern under each instrument,
+    // not just the one under the cursor.
+    struct CurrentPattern
+    {
+        juce::String generatorId, patternId;
+    };
+    std::vector<CurrentPattern> getCurrentPatterns() const;
 
     // The picker's New button: a fresh, empty, automatically named pattern on
     // the selected generator, selected on the spot. Nothing to type, so a new
@@ -157,6 +170,14 @@ private:
 
     juce::String selectedGeneratorId;
     juce::String selectedPatternId;
+
+    // Each generator's last selected pattern, by generator id, so coming back
+    // to a generator lands on the pattern it was left on and Pattern mode can
+    // play that one for every generator at once. Session state rather than
+    // part of the song: writing it to the tree would dirty the document and
+    // resync the Edit on every click of the picker. Entries can name patterns
+    // that have since been deleted; readers validate against the song.
+    std::map<juce::String, juce::String> lastPatternByGenerator;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GeneratorController)
 };

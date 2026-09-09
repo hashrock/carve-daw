@@ -576,8 +576,8 @@ namespace
     // changes nothing else: a tempo change moves every clip but rewrites none.
     // Clips are found by placement id, the key rebuildClips stamps on them.
     // False when a placement has no clip to move -- not yet built, or pattern
-    // mode, whose one clip sits at beat zero regardless -- and the caller
-    // falls back to a full resync.
+    // mode, whose clips sit at beat zero regardless -- and the caller falls
+    // back to a full resync.
     bool repositionPatternClips (const model::Song& song, const model::Generator& generator,
                                  te::Edit& edit, te::AudioTrack& track)
     {
@@ -1194,7 +1194,8 @@ namespace
     // note sounding in the deleted clip rang on until its neighbour's new
     // position was reached.
     void rebuildClips (const model::Song& song, const model::Generator& generator,
-                       te::Edit& edit, te::AudioTrack& track, const Audition* audition)
+                       te::Edit& edit, te::AudioTrack& track,
+                       const Audition* audition, double auditionLoopBeats)
     {
         struct Desired
         {
@@ -1205,18 +1206,24 @@ namespace
 
         std::vector<Desired> desired;
 
-        // Pattern mode: the one pattern, once, from beat zero -- and nothing
-        // on any other generator's track.
+        // Pattern mode: this generator's auditioned pattern from beat zero,
+        // repeated out to the shared loop length so it keeps time with the
+        // longest one -- and nothing on the track of a generator without an
+        // entry. The clip id carries the generator as well as the pattern:
+        // ids are matched per track, but a pattern copied to another
+        // generator keeps its id, and two tracks sharing a key would be one
+        // rename away from confusing each other.
         if (audition != nullptr)
         {
-            if (generator.getId() == audition->generatorId)
-                if (auto pattern = generator.findPattern (audition->patternId))
-                    if (const auto length = pattern->getLengthBeats(); length > 0.0)
+            if (const auto* entry = audition->findEntry (generator.getId()))
+                if (auto pattern = generator.findPattern (entry->patternId))
+                    if (const auto length = pattern->getLengthBeats(); length > 0.0 && auditionLoopBeats > 0.0)
                     {
-                        const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (length));
-                        desired.push_back ({ "audition:" + pattern->getId(), pattern->getName(),
+                        const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (auditionLoopBeats));
+                        desired.push_back ({ "audition:" + generator.getId() + ":" + pattern->getId(),
+                                             pattern->getName(),
                                              edit.tempoSequence.toTime (beats),
-                                             wantedNotesFor (*pattern, length, length, 0) });
+                                             wantedNotesFor (*pattern, length, auditionLoopBeats, 0) });
                     }
         }
         else for (const auto& placement : song.getPlaylist().getClips())
@@ -1357,6 +1364,18 @@ namespace
 
 } // namespace
 
+double auditionLengthBeats (const model::Song& song, const Audition& audition)
+{
+    double longest = 0.0;
+
+    for (const auto& entry : audition.entries)
+        if (auto generator = song.findGenerator (entry.generatorId))
+            if (auto pattern = generator->findPattern (entry.patternId))
+                longest = std::max (longest, pattern->getLengthBeats());
+
+    return longest;
+}
+
 void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments,
                      const Audition* audition)
 {
@@ -1365,6 +1384,10 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
 
     const auto generators = song.getGenerators();
     const auto returns = song.getReturns();
+
+    // Computed once: every auditioned clip is cut to the same loop, and the
+    // generators are walked one at a time below.
+    const auto auditionLoopBeats = audition != nullptr ? auditionLengthBeats (song, *audition) : 0.0;
 
     // Track layout: generator tracks first, in generator order, then one track
     // per return bus. Return tracks are told apart by a stamp, never by
@@ -1457,7 +1480,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         if (generator.isAudio())
             syncAudioClips (song, generator, edit, track);
         else
-            rebuildClips (song, generator, edit, track, audition);
+            rebuildClips (song, generator, edit, track, audition, auditionLoopBeats);
     }
 
     syncSidechains (song, edit, tracks);

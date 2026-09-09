@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
 #include <tracktion_engine/tracktion_engine.h>
 
@@ -29,15 +30,43 @@ namespace carve::sync
 // EditSync to the same Edit, tracks and all -- and an instrument left over
 // from the previous song would otherwise be taken for this one's and keep
 // its old patch. EditSync passes this on its first sync only.
-// Pattern mode: instead of the playlist, one pattern alone, placed at beat
-// zero on its generator's track with every other track empty. The transport
-// loops over its length and the user hears the pattern being edited and
-// nothing else -- Orion's Pattern/Song switch.
+// Pattern mode: instead of the playlist, one pattern per generator -- the one
+// its window last showed -- each placed at beat zero on its own track, so the
+// user hears the patterns being worked on together and nothing else, Orion's
+// Pattern/Song switch. The transport loops over the longest of them and the
+// shorter ones repeat to fill that, so a one-bar hat pattern keeps going under
+// a four-bar bass line the way it would on the playlist. A generator with no
+// entry here plays nothing.
 struct Audition
 {
-    juce::String generatorId, patternId;
+    struct Entry
+    {
+        juce::String generatorId, patternId;
+        bool operator== (const Entry&) const = default;
+    };
+
+    // At most one entry per generator; the sync only ever looks a generator's
+    // own entry up, so order is immaterial but kept in generator order by the
+    // caller for stable value comparison.
+    std::vector<Entry> entries;
+
     bool operator== (const Audition&) const = default;
+
+    const Entry* findEntry (const juce::String& generatorId) const
+    {
+        for (const auto& entry : entries)
+            if (entry.generatorId == generatorId)
+                return &entry;
+
+        return nullptr;
+    }
 };
+
+// The loop Pattern mode runs: the longest auditioned pattern's length, which
+// the others repeat to fill. Zero when no entry names a pattern with any
+// length. One definition, so the clips the sync builds and the loop range
+// the transport bar sets can never disagree about it.
+double auditionLengthBeats (const model::Song& song, const Audition& audition);
 
 void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments = false,
                      const Audition* audition = nullptr);
@@ -60,8 +89,10 @@ public:
 
     void resyncNow();
 
-    // Switches between the playlist and one pattern alone (see Audition), and
-    // resyncs on the spot: a mode switch should be heard on the next beat.
+    // Switches between the playlist and the auditioned patterns (see Audition),
+    // and resyncs on the spot: a mode switch should be heard on the next beat.
+    // Compared by value, so handing over the same list again costs nothing --
+    // the owner rebuilds it on every selection change without checking.
     void setAudition (std::optional<Audition> newAudition);
     const std::optional<Audition>& getAudition() const  { return audition; }
 

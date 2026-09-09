@@ -36,6 +36,13 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         if (generatorWindow != nullptr)
             generatorWindow->updatePatterns (song.findGenerator (selectedGeneratorId),
                                              selectedPatternId);
+
+        // Pattern mode plays a pattern of every generator, not only the
+        // selected one, so a pattern deleted or restored on another generator
+        // changes what it should play without moving the selection. Cheap
+        // when nothing did: setAudition compares by value.
+        if (patternMode)
+            updateAudition();
     };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
@@ -44,7 +51,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         patternMode = on;
         updateAudition();
     };
-    transportBar->getAuditionLengthBeats = [this] { return selectedPatternLengthBeats(); };
+    transportBar->getAuditionLengthBeats = [this] { return auditionLengthBeats(); };
     transportBar->onExport = [this] { openExport(); };
     transportBar->onToggleBrowser = [this] { toggleBrowser(); };
 
@@ -283,17 +290,34 @@ void MainComponent::updateAudition()
     if (editSync == nullptr)
         return;
 
-    if (patternMode && selectedGeneratorId.isNotEmpty() && selectedPatternId.isNotEmpty())
-        editSync->setAudition (sync::Audition { selectedGeneratorId, selectedPatternId });
-    else
+    if (! patternMode)
+    {
         editSync->setAudition (std::nullopt);
+        return;
+    }
+
+    // Every generator's current pattern, so the mode plays the song's parts
+    // together the way they are being worked on. An empty list is still
+    // Pattern mode -- a song with nothing to audition plays silence, not the
+    // playlist.
+    sync::Audition audition;
+
+    for (const auto& current : generatorController->getCurrentPatterns())
+        audition.entries.push_back ({ current.generatorId, current.patternId });
+
+    editSync->setAudition (std::move (audition));
+
+    // Picking a longer pattern on any generator lengthens the loop; a running
+    // transport keeps its own copy of the range, so it is told.
+    if (transportBar != nullptr)
+        transportBar->refreshPatternLoop();
 }
 
-double MainComponent::selectedPatternLengthBeats() const
+double MainComponent::auditionLengthBeats() const
 {
-    if (auto generator = song.findGenerator (selectedGeneratorId))
-        if (auto pattern = generator->findPattern (selectedPatternId))
-            return pattern->getLengthBeats();
+    if (editSync != nullptr)
+        if (const auto& audition = editSync->getAudition())
+            return sync::auditionLengthBeats (song, *audition);
 
     return 0.0;
 }
