@@ -704,6 +704,25 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     return handleGlobalKey (key);
 }
 
+void MainComponent::perform (Action action)
+{
+    switch (action)
+    {
+        case Action::newSong:           newSong(); break;
+        case Action::openSong:          openSong(); break;
+        case Action::openDemoSong:      openDemoSong(); break;
+        case Action::save:              saveSong(); break;
+        case Action::saveAs:            saveSongAs(); break;
+        case Action::exportWav:         openExport(); break;
+        case Action::undo:              undoManager.undo(); break;
+        case Action::redo:              undoManager.redo(); break;
+        case Action::toggleBrowser:     toggleBrowser(); break;
+        case Action::openMixer:         openMixer(); break;
+        case Action::openPatternEditor: openPatternEditor(); break;
+        case Action::pluginManager:     openPluginManager(); break;
+    }
+}
+
 bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::spaceKey)

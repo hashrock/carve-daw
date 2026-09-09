@@ -188,6 +188,7 @@ private:
     NumberDisplay loopStartDisplay { 3 }, loopLengthDisplay { 3 };
     IconButton undoButton { "", Icon::undo }, redoButton { "", Icon::redo };
     IconButton mixerButton { "Mixer", Icon::mixer };
+    IconButton saveButton { "Save", Icon::save };
     IconButton browserButton { "Browser", Icon::folder };
     juce::Slider masterKnob;
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };

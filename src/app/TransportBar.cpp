@@ -238,6 +238,11 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     // --- mixer, master
     mixerButton.onClick = [this] { if (onOpenMixer) onOpenMixer(); };
 
+    // Save, on the bar next to the document's name: Cmd-S is there too, but
+    // the state it acts on is what the name shows, so the button sits by it.
+    addAndMakeVisible (saveButton);
+    saveButton.onClick = [this] { if (onSave) onSave(); };
+
     masterKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     masterKnob.setRange (0.0, 1.0);
@@ -564,7 +569,9 @@ void TransportBar::resized()
     masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));
     masterMeter.setBounds (take (110, 12).withSizeKeepingCentre (110, 14));
 
-    // whatever is left goes to the document name
+    // Save at the far right, then whatever is left goes to the document name
+    saveButton.setBounds (area.removeFromRight (70).withSizeKeepingCentre (70, 28));
+    area.removeFromRight (8);
     documentLabel.setBounds (area);
 
     repaint();

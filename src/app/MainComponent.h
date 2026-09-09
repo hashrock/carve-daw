@@ -36,6 +36,19 @@ public:
     // save behind its first button.
     void confirmDiscardChanges (std::function<void (bool goAhead)> onResolved);
 
+    // What the menu bar can ask for. The same handlers the logo menu, the
+    // transport buttons and the shortcuts call, reached by name so the
+    // application's MenuBarModel (Main.cpp) needs nothing else from here.
+    enum class Action
+    {
+        newSong, openSong, openDemoSong, save, saveAs, exportWav,
+        undo, redo,
+        toggleBrowser, openMixer, openPatternEditor, pluginManager
+    };
+
+    void perform (Action);
+    bool isBrowserShown() const  { return browser.isVisible(); }
+
 private:
     void timerCallback() override;
 
