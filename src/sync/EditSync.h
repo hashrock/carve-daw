@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
@@ -27,7 +29,18 @@ namespace carve::sync
 // EditSync to the same Edit, tracks and all -- and an instrument left over
 // from the previous song would otherwise be taken for this one's and keep
 // its old patch. EditSync passes this on its first sync only.
-void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments = false);
+// Pattern mode: instead of the playlist, one pattern alone, placed at beat
+// zero on its generator's track with every other track empty. The transport
+// loops over its length and the user hears the pattern being edited and
+// nothing else -- Orion's Pattern/Song switch.
+struct Audition
+{
+    juce::String generatorId, patternId;
+    bool operator== (const Audition&) const = default;
+};
+
+void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments = false,
+                     const Audition* audition = nullptr);
 
 // Samplers pick their sounds up out of their own state from a message-loop
 // callback, so anything that renders straight after syncing would get silence.
@@ -47,6 +60,11 @@ public:
 
     void resyncNow();
 
+    // Switches between the playlist and one pattern alone (see Audition), and
+    // resyncs on the spot: a mode switch should be heard on the next beat.
+    void setAudition (std::optional<Audition> newAudition);
+    const std::optional<Audition>& getAudition() const  { return audition; }
+
     // Fired after every full sync. The views that hold a pointer into the
     // Edit -- the generator window's instrument editor above all -- are
     // told about a model change before the sync that acts on it has run
@@ -62,6 +80,8 @@ public:
 private:
     // True until the first sync has run: see syncSongToEdit's rebuildInstruments.
     bool firstSync = true;
+
+    std::optional<Audition> audition;
 
     // A full resync tears down and rebuilds every MIDI clip, which glitches
     // playback. Mixer moves arrive continuously while a fader is dragged and
