@@ -89,6 +89,7 @@ target_sources(carve PRIVATE
     src/app/GeneratorController.h
     src/app/GeneratorController.cpp
     src/app/GeneratorWindow.h
+    src/app/KnobPanel.h
     src/app/MixerComponent.h
     src/app/MixerComponent.cpp
     src/app/MixerWindow.h
