@@ -3,6 +3,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "plugins/DrumSynthPlugin.h"
+#include "plugins/NoteMonitorPlugin.h"
 
 namespace te = tracktion;
 
@@ -37,6 +38,14 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
             return plugin;
 
     return nullptr;
+}
+
+// The note monitor EditSync keeps in front of a drum kit's sampler (see
+// NoteMonitorPlugin.h), or null on a track that has none. The pad grid polls
+// it to light the pads.
+inline plugins::NoteMonitorPlugin* findNoteMonitorPlugin (te::AudioTrack& track)
+{
+    return track.pluginList.findFirstPluginOfType<plugins::NoteMonitorPlugin>();
 }
 
 // Stamped onto a return bus's track so track management can tell it from a

@@ -8,6 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "DrumPadGrid.h"
+#include "sync/EngineIds.h"
 #include "DrumSynthEditor.h"
 #include "FourOscEditor.h"
 #include "IconButton.h"
@@ -303,6 +304,13 @@ public:
         shownKind = kind;
         shownInstrument = instrument;
 
+        // The pads light from the note monitor on the kit's track (see
+        // NoteMonitorPlugin.h); anything else has no pads to light.
+        auto kitTrack = kind == Kind::drumKit && instrument != nullptr
+                            ? dynamic_cast<te::AudioTrack*> (instrument->getOwnerTrack())
+                            : nullptr;
+        pads.setActivitySource (kitTrack != nullptr ? sync::findNoteMonitorPlugin (*kitTrack) : nullptr);
+
         pads.setVisible (kind == Kind::drumKit);
         loadSampleButton.setVisible (kind == Kind::sampler);
         sampleName.setVisible (kind == Kind::sampler);
@@ -385,11 +393,29 @@ public:
                     if (auto pad = drumkit::getPadForNote (note.getPitch()))
                         used[(size_t) *pad] = true;
 
+            // The live sampler knows how long each sound runs and whether it
+            // plays through, which is what bounds a pad's light; the model
+            // only names the file. Matched by name, the way the sync fills
+            // the sampler from the model.
+            const auto sampler = dynamic_cast<te::SamplerPlugin*> (shownInstrument);
+
             for (int pad = 0; pad < drumkit::numPads; ++pad)
             {
                 const auto sound = drumkit::findSoundForPad (*generator, pad);
-                pads.setPadState (pad, sound ? sound->getName() : juce::String(),
-                                  used[(size_t) pad]);
+                DrumPadGrid::PadInfo info;
+                info.sampleName = sound ? sound->getName() : juce::String();
+                info.usedByPattern = used[(size_t) pad];
+
+                if (sound && sampler != nullptr)
+                    for (int i = 0; i < sampler->getNumSounds(); ++i)
+                        if (sampler->getSoundName (i) == info.sampleName)
+                        {
+                            info.soundSeconds = sampler->getSoundLength (i);
+                            info.oneShot = sampler->isSoundOpenEnded (i);
+                            break;
+                        }
+
+                pads.setPadState (pad, info);
             }
 
             pads.repaint();

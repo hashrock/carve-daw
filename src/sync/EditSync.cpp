@@ -271,6 +271,47 @@ namespace
         syncSamplerSounds (*sampler, generator);
     }
 
+    // A drum kit's track carries a NoteMonitorPlugin in front of its sampler,
+    // which is what lets the pad grid light the pads that are sounding (see
+    // NoteMonitorPlugin.h). It is not an instrument, so removeInstruments
+    // leaves it in place and it survives a resync -- but the sampler is
+    // inserted at index 0 whenever it is (re)built, which puts it ahead of the
+    // monitor, and the monitor sees nothing from behind an instrument. Hence
+    // the reorder: through the track's own tree, since insertPlugin can't move
+    // a plugin that is already in the list (the same route orderEffects takes).
+    void ensureNoteMonitor (te::Edit& edit, te::AudioTrack& track, bool wanted)
+    {
+        auto monitor = sync::findNoteMonitorPlugin (track);
+
+        if (! wanted)
+        {
+            if (monitor != nullptr)
+                monitor->deleteFromParent();
+
+            return;
+        }
+
+        if (monitor == nullptr)
+        {
+            auto plugin = edit.getPluginCache().createNewPlugin (plugins::NoteMonitorPlugin::xmlTypeName, {});
+            monitor = dynamic_cast<plugins::NoteMonitorPlugin*> (plugin.get());
+
+            if (monitor == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        if (auto instrument = findInstrument (track))
+        {
+            const int monitorSlot = track.state.indexOf (monitor->state);
+            const int instrumentSlot = track.state.indexOf (instrument->state);
+
+            if (instrumentSlot >= 0 && monitorSlot > instrumentSlot)
+                track.state.moveChild (monitorSlot, instrumentSlot, nullptr);
+        }
+    }
+
     void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
         if (generator.isAudio())
@@ -279,23 +320,22 @@ namespace
             // the sound. Still worth clearing, so retyping a generator to
             // "audio" doesn't leave the old synth sitting in the chain.
             removeInstruments (track);
-            return;
         }
-
-        if (generator.isSampler())
+        else if (generator.isSampler())
         {
             ensureSamplerInstrument (edit, track, generator);
-            return;
         }
-
-        if (generator.getType() == "plugin")
+        else if (generator.getType() == "plugin")
         {
             if (auto description = generator.getPluginDescription())
                 ensureExternalInstrument (edit, track, generator, *description);
-            return;
+        }
+        else
+        {
+            ensureInternalInstrument (edit, track, generator);
         }
 
-        ensureInternalInstrument (edit, track, generator);
+        ensureNoteMonitor (edit, track, generator.isDrumKit());
     }
 
     bool samplerSoundsAreLoaded (te::Edit& edit)

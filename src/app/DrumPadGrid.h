@@ -1,11 +1,13 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <optional>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "model/SongModel.h"
+#include "plugins/NoteMonitorPlugin.h"
 
 namespace carve::app
 {
@@ -48,11 +50,20 @@ namespace drumkit
 // single sample. It holds no model state: the generator window pushes a state
 // per pad on every refresh, so the grid never has to look at the tree or
 // worry about it changing under it.
+//
+// The one live thing it does look at is the kit's note monitor, polled on a
+// timer to light a pad while its sound plays -- from the pattern and from a
+// click alike, since both reach the sampler as MIDI and the monitor sits in
+// front of it. A pad lights on the hit and stays lit while the note is held
+// and the sound has not run out, with a short minimum so a hit shorter than
+// a timer tick is still seen.
 class DrumPadGrid final : public juce::Component,
-                          public juce::FileDragAndDropTarget
+                          public juce::FileDragAndDropTarget,
+                          private juce::Timer
 {
 public:
     DrumPadGrid();
+    ~DrumPadGrid() override;
 
     // The pad wants a sample, or the replace/clear menu: an empty pad clicked
     // with either button, or a filled one right-clicked. The panel knows which
@@ -72,11 +83,31 @@ public:
     // both agree on what counts as audio.
     std::function<bool (const juce::StringArray&)> isInterestedInFiles;
 
-    // Empty name = no sample on this pad. `usedByPattern` lights the pads the
-    // pattern being edited actually plays, so the kit and the piano roll line
-    // up without opening the roll.
-    void setPadState (int pad, const juce::String& sampleName, bool usedByPattern);
+    struct PadInfo
+    {
+        juce::String sampleName;    // empty = no sample on this pad
+
+        // The pattern being edited plays this pad: marked, so the kit and the
+        // piano roll line up without opening the roll.
+        bool usedByPattern = false;
+
+        // How long a hit on this pad sounds, in seconds, or 0 when unknown.
+        // Bounds how long the pad stays lit: a held note outlasting a short
+        // hit is silence, and the pad should say so.
+        double soundSeconds = 0.0;
+
+        // The sound plays through regardless of note-off, so the pad stays
+        // lit for the sound's length rather than for the note's.
+        bool oneShot = false;
+    };
+
+    void setPadState (int pad, const PadInfo&);
     void clearPads();
+
+    // Where the pads' note-ons are seen: the monitor EditSync keeps in front
+    // of the kit's sampler. Null stops the lights. Polled, and held weakly --
+    // the plugin can go with its track while the grid is up.
+    void setActivitySource (plugins::NoteMonitorPlugin*);
 
     // Height needed for four rows of pads; the pads take whatever width there is.
     static int getPreferredHeight();
@@ -96,15 +127,22 @@ public:
 private:
     struct PadState
     {
-        juce::String sampleName;
-        bool usedByPattern = false;
+        PadInfo info;
+
+        // The monitor's hit count as last seen, and when it last moved: a
+        // count that changed between two ticks is a hit, however short.
+        std::uint32_t seenHits = 0;
+        double lastHitMs = 0.0;   // 0 = never, on the hi-res clock
+        bool lit = false;
     };
 
     std::optional<int> getPadAt (juce::Point<int>) const;
     void setDragTarget (std::optional<int> pad);
+    void timerCallback() override;
 
     std::array<PadState, (size_t) drumkit::numPads> pads;
     std::optional<int> dragTargetPad;
+    te::SafeSelectable<plugins::NoteMonitorPlugin> monitor;
 };
 
 } // namespace carve::app

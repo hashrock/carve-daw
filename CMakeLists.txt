@@ -47,7 +47,9 @@ set(CARVE_CORE_SOURCES
     src/plugins/MeteredCompressorPlugin.h
     src/plugins/MeteredCompressorPlugin.cpp
     src/plugins/DrumSynthPlugin.h
-    src/plugins/DrumSynthPlugin.cpp)
+    src/plugins/DrumSynthPlugin.cpp
+    src/plugins/NoteMonitorPlugin.h
+    src/plugins/NoteMonitorPlugin.cpp)
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
