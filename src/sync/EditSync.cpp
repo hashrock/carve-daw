@@ -447,6 +447,25 @@ namespace
     // recognise a placement it has already built and leave it -- and the audio
     // tracktion has read off disk for it -- alone.
     const juce::Identifier audioClipIdProperty ("carveAudioClipId");
+    const juce::Identifier midiClipIdProperty ("carvePlaylistClipId");
+
+    juce::String getPlaylistClipId (const te::Clip& clip)
+    {
+        return clip.state.getProperty (midiClipIdProperty).toString();
+    }
+
+    te::MidiClip* findMidiClip (te::AudioTrack& track, const juce::String& placementId)
+    {
+        if (placementId.isEmpty())
+            return nullptr;
+
+        for (auto clip : track.getClips())
+            if (auto midi = dynamic_cast<te::MidiClip*> (clip))
+                if (getPlaylistClipId (*midi) == placementId)
+                    return midi;
+
+        return nullptr;
+    }
 
     juce::String getAudioClipId (const te::Clip& clip)
     {
@@ -494,7 +513,7 @@ namespace
             {
                 // Without an id there is nothing to match a live clip by, so
                 // this one would be torn down and rebuilt on every resync --
-                // worse than not playing. Song::ensureAudioClipIds gives every
+                // worse than not playing. Song::ensureClipIds gives every
                 // loaded placement one; this covers a song built in memory.
                 jassert (clip.getId().isNotEmpty());
 
@@ -553,26 +572,15 @@ namespace
         }
     }
 
-    // Moves the pattern clips a tempo change displaced, without rebuilding them.
-    //
-    // A tempo change alters where every clip sits in time but not which clips
-    // exist or what is in them, and a full resync tears down and refills every
-    // MIDI clip in the song -- once per beat crossed while a tempo marker is
-    // being dragged, during playback. The clips are matched positionally
-    // because rebuildClips creates them in this same order and a tempo change
-    // cannot have reordered them; if the counts disagree, something structural
-    // did change after all and this bails out to let a full resync handle it.
+    // Moves the generator's MIDI clips to where the playlist now puts them and
+    // changes nothing else: a tempo change moves every clip but rewrites none.
+    // Clips are found by placement id, the key rebuildClips stamps on them.
+    // False when a placement has no clip to move -- not yet built, or pattern
+    // mode, whose one clip sits at beat zero regardless -- and the caller
+    // falls back to a full resync.
     bool repositionPatternClips (const model::Song& song, const model::Generator& generator,
                                  te::Edit& edit, te::AudioTrack& track)
     {
-        std::vector<te::MidiClip*> midiClips;
-
-        for (auto clip : track.getClips())
-            if (auto midi = dynamic_cast<te::MidiClip*> (clip))
-                midiClips.push_back (midi);
-
-        size_t index = 0;
-
         for (const auto& placement : song.getPlaylist().getClips())
         {
             if (placement.getGeneratorId() != generator.getId())
@@ -588,7 +596,8 @@ namespace
             if (patternLength <= 0.0 || clipLength <= 0.0)
                 continue;
 
-            if (index >= midiClips.size())
+            auto clip = findMidiClip (track, placement.getId());
+            if (clip == nullptr)
                 return false;
 
             const auto startBeat = placement.getStart();
@@ -596,13 +605,11 @@ namespace
                                        te::BeatPosition::fromBeats (startBeat + clipLength));
             const te::ClipPosition wanted { edit.tempoSequence.toTime (beats), te::TimeDuration() };
 
-            if (! positionsMatch (midiClips[index]->getPosition(), wanted))
-                midiClips[index]->setPosition (wanted);
-
-            ++index;
+            if (! positionsMatch (clip->getPosition(), wanted))
+                clip->setPosition (wanted);
         }
 
-        return index == midiClips.size();
+        return true;
     }
 
     // Applies the model's sidechain routing to the live effect plugins.
@@ -1173,23 +1180,25 @@ namespace
     }
 
     // Reconciles the track's MIDI clips against the playlist instead of
-    // deleting and recreating them. This is not (only) an optimisation:
-    // inserting or removing a te::Clip makes tracktion rebuild the whole
-    // playback graph, and a rebuild a few milliseconds after a note preview
-    // races the preview's voice -- which is how "add a note, hear nothing,
-    // add another, hear that one" happened. Rewriting a clip's MidiList
-    // touches no graph, so the common edit (notes changing inside a pattern)
-    // leaves playback and previews alone.
+    // deleting and recreating them, so the common edit (notes changing inside
+    // a pattern) rewrites a clip's MidiList in place. tracktion still rebuilds
+    // the playback graph for that, but the clip's node survives the rebuild
+    // by id, sounding notes and all (see newClipAdded in EngineSetup.h).
     //
-    // Clips are matched positionally: every clip on a generator track is ours
-    // and created in playlist order, the same invariant repositionPatternClips
-    // already relies on.
+    // Clips are matched to placements by the placement's id, stamped on the
+    // clip when it is made, the way syncAudioClips does for wave clips. So a
+    // deleted placement's clip is the one that goes -- and its node with it,
+    // which is how the engine knows to turn off what it was sounding -- and a
+    // moved placement keeps its clip. Matched positionally, as this once was,
+    // a deletion rewrote every clip after it and removed the last, and a
+    // note sounding in the deleted clip rang on until its neighbour's new
+    // position was reached.
     void rebuildClips (const model::Song& song, const model::Generator& generator,
                        te::Edit& edit, te::AudioTrack& track, const Audition* audition)
     {
         struct Desired
         {
-            juce::String name;
+            juce::String id, name;
             te::TimeRange time;
             std::vector<WantedNote> notes;
         };
@@ -1205,7 +1214,8 @@ namespace
                     if (const auto length = pattern->getLengthBeats(); length > 0.0)
                     {
                         const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (length));
-                        desired.push_back ({ pattern->getName(), edit.tempoSequence.toTime (beats),
+                        desired.push_back ({ "audition:" + pattern->getId(), pattern->getName(),
+                                             edit.tempoSequence.toTime (beats),
                                              wantedNotesFor (*pattern, length, length, 0) });
                     }
         }
@@ -1224,44 +1234,49 @@ namespace
             if (patternLength <= 0.0 || clipLength <= 0.0)
                 continue;
 
+            // Without an id there is nothing to match a live clip by: see the
+            // same check in syncAudioClips.
+            jassert (placement.getId().isNotEmpty());
+
+            if (placement.getId().isEmpty())
+                continue;
+
             const auto startBeat = placement.getStart();
             const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
                                        te::BeatPosition::fromBeats (startBeat + clipLength));
 
-            desired.push_back ({ pattern->getName(),
+            desired.push_back ({ placement.getId(), pattern->getName(),
                                  edit.tempoSequence.toTime (beats),
                                  wantedNotesFor (*pattern, patternLength, clipLength,
                                                  placement.getTranspose()) });
         }
 
-        // The live clips, positionally. Anything that is not one of our MIDI
-        // clips (there should be none on a generator track) is removed rather
-        // than reasoned about.
-        std::vector<te::MidiClip*> live;
-
-        for (auto clip : juce::Array<te::Clip*> (track.getClips()))   // copy: removal mutates the list
+        // Copy: removal mutates the list we would be walking. Anything that is
+        // not the clip of a placement still on the playlist goes.
+        for (auto clip : juce::Array<te::Clip*> (track.getClips()))
         {
-            if (auto midi = dynamic_cast<te::MidiClip*> (clip); midi != nullptr && live.size() < desired.size())
-                live.push_back (midi);
-            else
+            const auto id = getPlaylistClipId (*clip);
+            const auto stillWanted = dynamic_cast<te::MidiClip*> (clip) != nullptr
+                                      && id.isNotEmpty()
+                                      && std::any_of (desired.begin(), desired.end(),
+                                                      [&] (const Desired& d) { return d.id == id; });
+
+            if (! stillWanted)
                 clip->removeFromParent();
         }
 
-        for (size_t i = 0; i < desired.size(); ++i)
+        for (const auto& want : desired)
         {
-            const auto& want = desired[i];
-            te::MidiClip* midiClip = nullptr;
+            auto midiClip = findMidiClip (track, want.id);
 
-            if (i < live.size())
-            {
-                midiClip = live[i];
-            }
-            else
+            if (midiClip == nullptr)
             {
                 midiClip = track.insertMIDIClip (want.name, want.time, nullptr).get();
 
                 if (midiClip == nullptr)
                     continue;
+
+                midiClip->state.setProperty (midiClipIdProperty, want.id, nullptr);
             }
 
             if (midiClip->getName() != want.name)
@@ -1283,6 +1298,7 @@ namespace
             }
         }
     }
+
     // Rebuilds the Edit's tempo sequence from the model. Everything downstream
     // is positioned in beats and converted through this sequence, so it has to
     // be right before a single clip is placed.

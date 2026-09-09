@@ -514,6 +514,7 @@ PlaylistClip Playlist::addClip (const Generator& generator, const Pattern& patte
                                 juce::UndoManager* um)
 {
     juce::ValueTree clip (ids::CLIP);
+    clip.setProperty (ids::id, newId(), nullptr);
     clip.setProperty (ids::generatorId, generator.getId(), nullptr);
     clip.setProperty (ids::patternId, pattern.getId(), nullptr);
     clip.setProperty (ids::start, PlaylistClip::clampStart (startBeats), nullptr);
@@ -584,7 +585,7 @@ std::optional<Song> Song::fromXml (const juce::String& xml)
         return std::nullopt;
 
     Song song (tree);
-    song.ensureAudioClipIds();
+    song.ensureClipIds();
     song.dropPatternSlots();
     song.dropDuplicateChanges();
     song.clampValues();
@@ -620,10 +621,14 @@ bool Song::saveToFile (const juce::File& file) const
 // Both of these write to the tree from a const method, the way getPlaylist
 // already does: the wrapper is a handle onto shared state, and neither is an
 // edit the user should be able to undo.
-void Song::ensureAudioClipIds() const
+void Song::ensureClipIds() const
 {
     // By value: the wrapper is a handle onto shared state, and writing needs a
     // non-const one -- the same shape resolveMediaPaths uses below.
+    for (auto clip : getPlaylist().getClips())
+        if (clip.getId().isEmpty())
+            clip.state.setProperty (ids::id, newId(), nullptr);
+
     for (auto clip : getPlaylist().getAudioClips())
         if (clip.getId().isEmpty())
             clip.state.setProperty (ids::id, newId(), nullptr);

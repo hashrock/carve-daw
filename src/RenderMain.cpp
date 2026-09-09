@@ -4,6 +4,7 @@
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
 #include "sync/EditSync.h"
+#include "NoteOffPlayback.h"
 
 namespace
 {
@@ -44,6 +45,8 @@ void printUsage()
                  "  carve-render --scan                    scan VST3/AU plugins (cached in settings)\n"
                  "  carve-render --plugin-demo <name> <out.wav>\n"
                  "        render the demo song using the named (substring-matched) instrument plugin\n"
+                 "  carve-render --check-note-offs         play a song and delete what is sounding;\n"
+                 "        exits with the number of notes left ringing (see tests/NoteOffPlayback.cpp)\n"
                  "\n"
                  "Options:\n"
                  "  --rate <hz>    sample rate of the rendered file (default 44100)\n";
@@ -297,9 +300,10 @@ int main (int argc, char* argv[])
     if (! takeSampleRateOption (args))
         return 1;
 
-    if (args.isEmpty() || (args[0] == "--scan" ? args.size() != 1
-                           : args[0] == "--plugin-demo" ? args.size() != 3
-                                                        : args.size() != 2))
+    const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs" ? 1
+                           : args[0] == "--plugin-demo"                             ? 3
+                                                                                    : 2;
+    if (args.isEmpty() || args.size() != expectedArgs)
     {
         printUsage();
         return args.isEmpty() ? 0 : 1;
@@ -311,6 +315,9 @@ int main (int argc, char* argv[])
 
     if (args[0] == "--scan")
         return scanPlugins (engine);
+
+    if (args[0] == "--check-note-offs")
+        return carve::test::runNoteOffPlaybackChecks (engine);
 
     if (args[0] == "--plugin-demo")
         return renderPluginDemo (engine, args[1], resolveFile (args[2]));

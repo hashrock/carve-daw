@@ -57,6 +57,21 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
     // context exists (previewNote allocates one on demand).
     bool shouldPlayMidiGuideNotes() override  { return true; }
 
+    // Every MIDI clip plays through a LoopingMidiNode rather than the older
+    // MidiNode, which is what tracktion picks unless this is cleared
+    // (createNodeForMidiClip keys on canUseProxy). Only the former keeps an
+    // ActiveNoteList across graph rebuilds: it turns off a note deleted while
+    // it sounded, and the track's CombiningNode turns off the notes of a clip
+    // whose node is gone from the rebuilt graph. The MidiNode derives its
+    // note-offs from whatever sequence it has now, so a deleted note or clip
+    // rang on for ever. Every clip added to an Edit passes through here,
+    // however it was made; carve-render --check-note-offs is the check.
+    void newClipAdded (te::Clip& clip, bool) override
+    {
+        if (auto midi = dynamic_cast<te::MidiClip*> (&clip))
+            midi->setUsesProxy (false);
+    }
+
     // Scan plugins in a child process. A scan loads arbitrary third-party code
     // and plenty of plugins crash on load or on destruction; in-process that
     // takes the whole app down mid-scan. The engine restarts the child, gives

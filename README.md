@@ -81,6 +81,8 @@ RC_PARAMS="max_success=20000 max_size=200 seed=1" ./run.sh --test
 
 対象は「モデル層の算術」「ドキュメントの編集操作（undo/redo・XML 往復を含む）」「ピアノロールのノート移動ジェスチャ」。エンジン（tracktion）と GUI コンポーネントは対象外で、テストバイナリは engine をリンクしない。フェッチを避けたいときは `-DCARVE_BUILD_TESTS=OFF`。
 
+エンジンを通す検査は一つだけ、`carve-render --check-note-offs`（`tests/NoteOffPlayback.cpp`）。再生中にノート・クリップ・パターンを消して、鳴っていた音のノートオフが楽器に届くかを、ホスト型オーディオデバイスでブロック単位に回して確かめる。終了コードは鳴りっぱなしになったシナリオ数。
+
 ### CLI
 
 ```sh

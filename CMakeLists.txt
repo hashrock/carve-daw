@@ -116,7 +116,11 @@ carve_configure_target(carve)
 # --- Headless renderer CLI ---
 juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
-target_sources(carve-render PRIVATE src/RenderMain.cpp)
+# NoteOffPlayback is a test, but it needs a playing engine, and carve-render is
+# the console target that already links one -- a target of its own would
+# compile the whole of tracktion_engine a third time.
+target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp)
+target_include_directories(carve-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 carve_configure_target(carve-render)
 
 

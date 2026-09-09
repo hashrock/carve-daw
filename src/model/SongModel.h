@@ -534,6 +534,7 @@ class PlaylistClip
 public:
     explicit PlaylistClip (juce::ValueTree v) : state (std::move (v)) {}
 
+    juce::String getId() const           { return state[ids::id]; }
     juce::String getGeneratorId() const  { return state[ids::generatorId]; }
     juce::String getPatternId() const    { return state[ids::patternId]; }
     double getStart() const              { return state[ids::start]; }
@@ -869,12 +870,13 @@ public:
     void resolveMediaPaths (const juce::File& songFile) const;
     void refreshMediaPaths (const juce::File& songFile) const;
 
-    // EditSync matches an audio placement to the wave clip it already built by
-    // id, so one without an id would be torn down and rebuilt on every resync
-    // -- re-reading the file and cutting whatever it is playing. Everything
-    // this code writes has an id; a hand-written song is the gap, and loading
-    // is the moment to close it. Called by fromXml, so every load path gets it.
-    void ensureAudioClipIds() const;
+    // EditSync matches a placement to the clip it already built by id, so one
+    // without an id would be torn down and rebuilt on every resync -- an audio
+    // placement re-reading its file, a pattern placement cutting the notes it
+    // is playing. Everything this code writes has an id; a hand-written song
+    // is the gap, and loading is the moment to close it. Called by fromXml, so
+    // every load path gets it.
+    void ensureClipIds() const;
 
     // Patterns used to live in a fixed A1..D9 grid, and a song saved then
     // carries a `slot` key on each of them. Nothing reads it any more -- the
