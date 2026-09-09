@@ -1,0 +1,20 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f2f36"/>
+      <stop offset="1" stop-color="#1b1b1f"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f4f6"/>
+      <stop offset="1" stop-color="#c9c9d1"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#bg)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <!-- carve.svg, scaled 6.2x and centred -->
+  <g transform="translate(192 200) scale(6.2)" fill="url(#mark)">
+    <path d="M100 22L84.5777 77.0685H48.3387L46.0712 65.4625H44.0626L37.4125 77.0685H3V22L100 22ZM13.276 66.7925H31.4564L38.1065 55.1853H54.5348L56.8023 66.7925H76.7833L86.4492 32.276H13.276V66.7925Z"/>
+    <path d="M18.717 57.7855V41.4643H37.7595L29.5984 57.7855H18.717Z"/>
+    <path d="M59.5226 57.9668V41.6456H78.565L70.8574 57.9668H59.5226Z"/>
+  </g>
+</svg>
