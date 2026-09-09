@@ -15,6 +15,11 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     };
 
     mixerButton.onClick = [this] { if (onOpenMixer) onOpenMixer(); };
+
+    browserButton.setClickingTogglesState (false);   // MainComponent sets the state
+    browserButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff35608a));
+    browserButton.setTooltip ("Sample browser (cmd-B)");
+    browserButton.onClick = [this] { if (onToggleBrowser) onToggleBrowser(); };
     logoButton.onClick = [this] { showFileMenu(); };
 
     undoButton.onClick = [this] { undoManager.undo(); };
@@ -57,7 +62,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &logoButton, &playButton, &stopButton, &loopButton, &undoButton, &redoButton,
-             &bpmLabel, &positionLabel, &mixerButton, &documentLabel })
+             &bpmLabel, &positionLabel, &browserButton, &mixerButton, &documentLabel })
         addAndMakeVisible (c);
 
     startTimerHz (15);
@@ -94,6 +99,11 @@ void TransportBar::showFileMenu()
 void TransportBar::setSong (model::Song newSong)
 {
     song = std::move (newSong);
+}
+
+void TransportBar::setBrowserShown (bool shown)
+{
+    browserButton.setToggleState (shown, juce::dontSendNotification);
 }
 
 void TransportBar::setDocumentState (const juce::String& documentName, bool hasUnsavedChanges)
@@ -178,6 +188,7 @@ void TransportBar::resized()
     place (redoButton, 30, 12);
     place (bpmLabel, 90);
     place (positionLabel, 110);
+    place (browserButton, 90);
     place (mixerButton, 76);
 
     // whatever is left goes to the document name

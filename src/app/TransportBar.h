@@ -64,7 +64,12 @@ class TransportBar : public juce::Component,
 public:
     TransportBar (te::Edit& editToControl, model::Song songModel, juce::UndoManager& um);
 
-    std::function<void()> onSave, onSaveAs, onOpen, onOpenMixer, onExport;
+    std::function<void()> onSave, onSaveAs, onOpen, onOpenMixer, onExport, onToggleBrowser;
+
+    // The Browser button is a lit toggle showing whether the panel is up;
+    // MainComponent owns the panel and tells the bar, so a cmd-B and a click
+    // both land the same way.
+    void setBrowserShown (bool shown);
 
     void setSong (model::Song newSong);
 
@@ -93,7 +98,8 @@ private:
                loopButton   { "",       Icon::loop },     // flat symbols: loop is a lit toggle
                undoButton   { "",       Icon::undo },
                redoButton   { "",       Icon::redo },
-               mixerButton  { "Mixer",  Icon::mixer };
+               mixerButton  { "Mixer",  Icon::mixer },
+               browserButton { "Browser", Icon::folder };
     juce::Label bpmLabel, positionLabel, documentLabel;
 };
 

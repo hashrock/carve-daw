@@ -77,6 +77,18 @@ public:
     void padClicked (int pad, juce::Rectangle<int> screenArea);
     void padFilesDropped (int startPad, const juce::StringArray& files);
 
+    // Files dropped on a plain sampler's Inst tab: the first one the engine
+    // can read replaces its sample. Ignored for every other kind, whose
+    // drops land elsewhere (a kit's on its pads).
+    void sampleFilesDropped (const juce::StringArray& files);
+
+    // The browser's double-click. What "load" means depends on what is
+    // selected: a plain sampler takes the file as its sample, a drum kit
+    // puts it on its first empty pad, and anything else gets a new sampler
+    // generator made from it -- the add menu's "Sampler..." without the
+    // chooser.
+    void loadSampleIntoSelected (const juce::File& sample);
+
     // Whether the engine can read any of these as audio, for the pad grid's
     // drag-over test.
     bool canImportAudioFiles (const juce::StringArray& files) const;

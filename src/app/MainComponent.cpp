@@ -38,6 +38,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
 
     transportBar->onOpenMixer = [this] { openMixer(); };
     transportBar->onExport = [this] { openExport(); };
+    transportBar->onToggleBrowser = [this] { toggleBrowser(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
     {
@@ -138,20 +139,39 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         for (auto& global : globalShortcutHelp())
             entries.push_back (global);
 
+        playlistHelpEntries = entries;
         helpBar.setEntries (std::move (entries));
+    };
+
+    // The browser takes the bar over while the pointer is on it and hands it
+    // back (an empty list) on leaving: the playlist only re-sends its entries
+    // when they change, so the bar has to remember them for it.
+    browser.onShortcutHelpChanged = [this] (std::vector<ShortcutHelpBar::Entry> entries)
+    {
+        helpBar.setEntries (entries.empty() ? playlistHelpEntries : std::move (entries));
+    };
+
+    // Double-clicking a file in the browser loads it: into the selected
+    // sampler, onto the selected kit's next empty pad, or as a new sampler.
+    browser.onFileActivated = [this] (const juce::File& file)
+    {
+        generatorController->loadSampleIntoSelected (file);
     };
 
     addAndMakeVisible (playlistViewport);
     addAndMakeVisible (clipProperties);
+    addChildComponent (browser);
     addAndMakeVisible (helpBar);
 
     helpBar.setEntries (globalShortcutHelp());
+    playlistHelpEntries = globalShortcutHelp();
+    setBrowserShown (browser.wasShownLastSession());
 
     loadSong (model::buildDemoSong());
 
     setWantsKeyboardFocus (true);
     startTimerHz (30);
-    setSize (1100, 620);
+    setSize (1320, 640);   // room for the browser beside the playlist
 }
 
 MainComponent::~MainComponent()
@@ -326,9 +346,14 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->padFilesDropped (startPad, files);
         };
-        inst.isInterestedInPadFiles = [safe = juce::Component::SafePointer (this)] (const juce::StringArray& files)
+        inst.isInterestedInAudioFiles = [safe = juce::Component::SafePointer (this)] (const juce::StringArray& files)
         {
             return safe != nullptr && safe->generatorController->canImportAudioFiles (files);
+        };
+        inst.onSampleFilesDropped = [safe = juce::Component::SafePointer (this)] (const juce::StringArray& files)
+        {
+            if (safe != nullptr)
+                safe->generatorController->sampleFilesDropped (files);
         };
         inst.onLoadSample = [safe = juce::Component::SafePointer (this)]
         {
@@ -443,6 +468,18 @@ void MainComponent::openMixer()
     mixerWindow = std::make_unique<MixerWindow> (*edit, undoManager,
                                                  std::move (onClose), std::move (keyHandler));
     mixerWindow->setSong (song);
+}
+
+void MainComponent::toggleBrowser()
+{
+    setBrowserShown (! browser.isVisible());
+}
+
+void MainComponent::setBrowserShown (bool shown)
+{
+    browser.setVisible (shown);   // the browser remembers this itself
+    transportBar->setBrowserShown (shown);
+    resized();
 }
 
 void MainComponent::openPluginManager()
@@ -604,6 +641,11 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
         openExport();
         return true;
     }
+    if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0))
+    {
+        toggleBrowser();
+        return true;
+    }
 
     if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0))
     {
@@ -707,6 +749,10 @@ void MainComponent::resized()
     transportBar->setBounds (area.removeFromTop (44));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     clipProperties.setBounds (area.removeFromRight (210));
+
+    if (browser.isVisible())
+        browser.setBounds (area.removeFromLeft (SampleBrowser::preferredWidth));
+
     playlistViewport.setBounds (area);
     playlist.hostViewportResized();   // its minimum width is the viewport's
 }

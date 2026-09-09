@@ -137,7 +137,12 @@ private:
 // kit its 16 pads, a plain sampler its Load Sample chooser; an audio row just
 // says what it is. The model edits behind the pads and the sample button live
 // in GeneratorController -- this view only reports gestures and shows state.
-class InstrumentView : public juce::Component
+//
+// A plain sampler's whole surface takes a file drop, the way a pad does: the
+// Load Sample button is the same gesture with a chooser in it, and a browser
+// drag that has to find a button is a drag that misses.
+class InstrumentView : public juce::Component,
+                       public juce::FileDragAndDropTarget
 {
 public:
     // Pad gestures, forwarded from the grid with the pad's screen area so the
@@ -145,8 +150,12 @@ public:
     std::function<void (int pad, juce::Rectangle<int> screenArea)> onPadClicked;
     std::function<void (int pad)> onPadTriggered;
     std::function<void (int startPad, const juce::StringArray&)> onPadFilesDropped;
-    std::function<bool (const juce::StringArray&)> isInterestedInPadFiles;
+    std::function<bool (const juce::StringArray&)> isInterestedInAudioFiles;
     std::function<void()> onLoadSample;
+
+    // Files dropped on a plain sampler: the first readable one replaces its
+    // sample.
+    std::function<void (const juce::StringArray&)> onSampleFilesDropped;
 
     // The drum synth's pads audition through this, the same route as the
     // piano roll's previews.
@@ -215,7 +224,7 @@ public:
         };
         pads.isInterestedInFiles = [this] (const juce::StringArray& files)
         {
-            return isInterestedInPadFiles && isInterestedInPadFiles (files);
+            return isInterestedInAudioFiles && isInterestedInAudioFiles (files);
         };
         addChildComponent (pads);
 
@@ -229,6 +238,47 @@ public:
         sampleName.setJustificationType (juce::Justification::centred);
         sampleName.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
         addChildComponent (sampleName);
+
+        dropHint.setText ("or drop an audio file here", juce::dontSendNotification);
+        dropHint.setJustificationType (juce::Justification::centred);
+        dropHint.setColour (juce::Label::textColourId, juce::Colour (0xff5e5e68));
+        addChildComponent (dropHint);
+    }
+
+    // Only a plain sampler takes a drop on the view itself; a drum kit's
+    // drops belong to its pads, which are a target of their own.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        return shownKind == Kind::sampler && isInterestedInAudioFiles && isInterestedInAudioFiles (files);
+    }
+
+    void fileDragEnter (const juce::StringArray&, int, int) override  { setSampleDragOver (true); }
+    void fileDragExit (const juce::StringArray&) override             { setSampleDragOver (false); }
+
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        setSampleDragOver (false);
+
+        if (onSampleFilesDropped)
+            onSampleFilesDropped (files);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (shownKind != Kind::sampler)
+            return;
+
+        // The drop zone is the whole view; the outline says so while a file
+        // is over it, and dashed, so it reads as a target rather than a box.
+        juce::Path outline;
+        outline.addRoundedRectangle (getLocalBounds().toFloat().reduced (12.0f), 6.0f);
+
+        juce::Path dashed;
+        const float dashes[] = { 6.0f, 4.0f };
+        juce::PathStrokeType (sampleDragOver ? 2.0f : 1.0f).createDashedStroke (dashed, outline, dashes, 2);
+
+        g.setColour (sampleDragOver ? juce::Colours::white : juce::Colour (0xff3a3a40));
+        g.fillPath (dashed);
     }
 
     ~InstrumentView() override
@@ -255,7 +305,9 @@ public:
         pads.setVisible (kind == Kind::drumKit);
         loadSampleButton.setVisible (kind == Kind::sampler);
         sampleName.setVisible (kind == Kind::sampler);
+        dropHint.setVisible (kind == Kind::sampler);
         info.setVisible (false);
+        repaint();
 
         if (kind == Kind::instrument)
         {
@@ -362,10 +414,11 @@ public:
 
         if (loadSampleButton.isVisible())
         {
-            auto centre = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 32, 320), 64);
+            auto centre = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 32, 320), 88);
             loadSampleButton.setBounds (centre.removeFromTop (28));
             centre.removeFromTop (8);
-            sampleName.setBounds (centre);
+            sampleName.setBounds (centre.removeFromTop (24));
+            dropHint.setBounds (centre);
         }
 
         if (fourOsc != nullptr)
@@ -418,6 +471,15 @@ private:
         info.setText (text, juce::dontSendNotification);
     }
 
+    void setSampleDragOver (bool over)
+    {
+        if (sampleDragOver != over)
+        {
+            sampleDragOver = over;
+            repaint();
+        }
+    }
+
     void clearEditors()
     {
         externalEditor.reset();
@@ -436,7 +498,8 @@ private:
     juce::Label info;
     DrumPadGrid pads;
     juce::TextButton loadSampleButton { "Load Sample..." };
-    juce::Label sampleName;
+    juce::Label sampleName, dropHint;
+    bool sampleDragOver = false;
     juce::Viewport viewport;
     std::unique_ptr<FourOscEditor> fourOsc;
     std::unique_ptr<DrumSynthEditor> drumSynth;

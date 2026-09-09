@@ -10,6 +10,7 @@
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
+#include "SampleBrowser.h"
 #include "TransportBar.h"
 #include "model/SongModel.h"
 #include "sync/EditSync.h"
@@ -70,6 +71,11 @@ private:
     void openExport();
     void previewNote (int pitch, int velocity);
 
+    // The sample browser down the left of the playlist, shown or not; the
+    // choice is remembered between sessions by the browser itself.
+    void toggleBrowser();
+    void setBrowserShown (bool shown);
+
     // Shortcuts that work from anywhere, appended after whatever the focused
     // view contributes.
     static std::vector<ShortcutHelpBar::Entry> globalShortcutHelp()
@@ -77,7 +83,8 @@ private:
         return { { "Space", "play/stop" },
                  { "Cmd+Z", "undo" },
                  { "Cmd+S", "save" },
-                 { "Cmd+E", "export" } };
+                 { "Cmd+E", "export" },
+                 { "Cmd+B", "browser" } };
     }
     bool handleGlobalKey (const juce::KeyPress&);
 
@@ -108,7 +115,12 @@ private:
     PlaylistComponent playlist { undoManager };
     juce::Viewport playlistViewport;
     ClipPropertiesPanel clipProperties { undoManager };
+    SampleBrowser browser { engine };
     ShortcutHelpBar helpBar;
+
+    // What the playlist last asked the help bar to show, so the bar can go
+    // back to it when the pointer leaves the browser.
+    std::vector<ShortcutHelpBar::Entry> playlistHelpEntries;
 
     juce::String selectedGeneratorId, selectedPatternId;
 
