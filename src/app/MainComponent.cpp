@@ -37,6 +37,12 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
+    transportBar->onPlayModeChanged = [this] (bool on)
+    {
+        patternMode = on;
+        updateAudition();
+    };
+    transportBar->getAuditionLengthBeats = [this] { return selectedPatternLengthBeats(); };
     transportBar->onExport = [this] { openExport(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
@@ -184,6 +190,8 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
             retargetGeneratorWindow();
     };
 
+    updateAudition();   // the mode outlives the song
+
     // The playback context is allocated up front rather than lazily on the
     // first note preview, so the first preview doesn't pay for the allocation
     // cascade (the live MIDI node's listener registration schedules a second
@@ -240,6 +248,30 @@ void MainComponent::selectionChanged (const juce::String& generatorId, const juc
 
     if (generatorWindow != nullptr)
         retargetGeneratorWindow();   // retarget the open editor to the new selection
+
+    // In pattern mode the selection is what plays.
+    if (patternMode)
+        updateAudition();
+}
+
+void MainComponent::updateAudition()
+{
+    if (editSync == nullptr)
+        return;
+
+    if (patternMode && selectedGeneratorId.isNotEmpty() && selectedPatternId.isNotEmpty())
+        editSync->setAudition (sync::Audition { selectedGeneratorId, selectedPatternId });
+    else
+        editSync->setAudition (std::nullopt);
+}
+
+double MainComponent::selectedPatternLengthBeats() const
+{
+    if (auto generator = song.findGenerator (selectedGeneratorId))
+        if (auto pattern = generator->findPattern (selectedPatternId))
+            return pattern->getLengthBeats();
+
+    return 0.0;
 }
 
 void MainComponent::openPatternEditor()
@@ -647,6 +679,13 @@ void MainComponent::seekToSongBeat (double beat)
 
 void MainComponent::seekToPatternBeat (double patternBeat)
 {
+    // In pattern mode the pattern starts at beat zero, by construction.
+    if (patternMode)
+    {
+        seekToSongBeat (patternBeat);
+        return;
+    }
+
     // The earliest placement of the pattern: seeking "into the pattern" has to
     // pick one of its placements, and the first is the one the user can
     // predict without looking at the playlist.
@@ -672,6 +711,9 @@ std::optional<double> MainComponent::patternBeatOfPlayhead (double songBeat) con
         return std::nullopt;
 
     const auto patternLength = pattern->getLengthBeats();
+
+    if (patternMode)
+        return std::fmod (std::max (0.0, songBeat), patternLength);
 
     // Inside any placement counts; a clip longer than the pattern loops it, so
     // the position folds back into pattern beats the same way playback does.
@@ -704,7 +746,7 @@ void MainComponent::timerCallback()
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
-    transportBar->setBounds (area.removeFromTop (44));
+    transportBar->setBounds (area.removeFromTop (TransportBar::preferredHeight));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     clipProperties.setBounds (area.removeFromRight (210));
     playlistViewport.setBounds (area);

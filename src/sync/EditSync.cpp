@@ -1185,7 +1185,7 @@ namespace
     // and created in playlist order, the same invariant repositionPatternClips
     // already relies on.
     void rebuildClips (const model::Song& song, const model::Generator& generator,
-                       te::Edit& edit, te::AudioTrack& track)
+                       te::Edit& edit, te::AudioTrack& track, const Audition* audition)
     {
         struct Desired
         {
@@ -1196,7 +1196,20 @@ namespace
 
         std::vector<Desired> desired;
 
-        for (const auto& placement : song.getPlaylist().getClips())
+        // Pattern mode: the one pattern, once, from beat zero -- and nothing
+        // on any other generator's track.
+        if (audition != nullptr)
+        {
+            if (generator.getId() == audition->generatorId)
+                if (auto pattern = generator.findPattern (audition->patternId))
+                    if (const auto length = pattern->getLengthBeats(); length > 0.0)
+                    {
+                        const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (length));
+                        desired.push_back ({ pattern->getName(), edit.tempoSequence.toTime (beats),
+                                             wantedNotesFor (*pattern, length, length, 0) });
+                    }
+        }
+        else for (const auto& placement : song.getPlaylist().getClips())
         {
             if (placement.getGeneratorId() != generator.getId())
                 continue;
@@ -1328,7 +1341,8 @@ namespace
 
 } // namespace
 
-void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments)
+void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments,
+                     const Audition* audition)
 {
     syncTempoSequence (song, edit);
     syncMasterBus (song, edit);
@@ -1427,7 +1441,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         if (generator.isAudio())
             syncAudioClips (song, generator, edit, track);
         else
-            rebuildClips (song, generator, edit, track);
+            rebuildClips (song, generator, edit, track, audition);
     }
 
     syncSidechains (song, edit, tracks);
@@ -1516,10 +1530,19 @@ EditSync::~EditSync()
 void EditSync::resyncNow()
 {
     cancelPendingUpdate();
-    syncSongToEdit (song, edit, std::exchange (firstSync, false));
+    syncSongToEdit (song, edit, std::exchange (firstSync, false), audition ? &*audition : nullptr);
 
     if (onSynced)
         onSynced();
+}
+
+void EditSync::setAudition (std::optional<Audition> newAudition)
+{
+    if (audition == newAudition)
+        return;
+
+    audition = std::move (newAudition);
+    resyncNow();
 }
 
 void EditSync::applyTempoOnly()
