@@ -270,11 +270,24 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
 void TransportBar::showFileMenu()
 {
-    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId };
+    // The recent songs get IDs of their own above the fixed items, so one
+    // callback can tell "the third recent song" from "Save As".
+    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId, firstRecentId = 100 };
 
     juce::PopupMenu menu;
     menu.addItem (newId, "New");
     menu.addItem (openId, "Open...");
+
+    const auto recent = getRecentSongs != nullptr ? getRecentSongs() : juce::StringArray();
+    juce::PopupMenu recentMenu;
+
+    for (int i = 0; i < recent.size(); ++i)
+        recentMenu.addItem (firstRecentId + i, recent[i]);
+
+    // Shown greyed rather than hidden when there is nothing in it: a menu that
+    // grows an item is harder to learn than one whose item is dim at first.
+    menu.addSubMenu ("Open Recent", recentMenu, ! recent.isEmpty());
+
     menu.addItem (openDemoId, "Open Demo Song");
     menu.addSeparator();
     menu.addItem (saveId, "Save");
@@ -296,7 +309,12 @@ void TransportBar::showFileMenu()
             case saveId:      if (safe->onSave)     safe->onSave();     break;
             case saveAsId:    if (safe->onSaveAs)   safe->onSaveAs();   break;
             case exportId:    if (safe->onExport)   safe->onExport();   break;
-            default: break;
+
+            default:
+                if (result >= firstRecentId && safe->onOpenRecent != nullptr)
+                    safe->onOpenRecent (result - firstRecentId);
+
+                break;
         }
     });
 }

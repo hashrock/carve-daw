@@ -8,6 +8,11 @@
 namespace carve::app
 {
 
+//==============================================================================
+// The recent songs, in the same properties file. juce::RecentlyOpenedFilesList
+// does the ordering and the de-duplicating; all that is kept is its string.
+static constexpr const char* recentSongsKey = "recentSongs";
+
 MainComponent::MainComponent (te::Engine& engineToUse)
     : engine (engineToUse)
 {
@@ -19,6 +24,12 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onSaveAs = [this] { saveSongAs(); };
     transportBar->onOpen = [this] { openSong(); };
     transportBar->onOpenDemo = [this] { openDemoSong(); };
+    transportBar->getRecentSongs = [this] { return recentSongNames(); };
+    transportBar->onOpenRecent = [this] (int index) { openRecentSong (index); };
+
+    recentSongs.setMaxNumberOfItems (10);
+    recentSongs.restoreFromString (engine.getPropertyStorage().getPropertiesFile()
+                                       .getValue (recentSongsKey));
 
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
@@ -646,6 +657,44 @@ void MainComponent::rememberSongDirectory (const juce::File& songFile)
         .setValue (lastSongDirectoryKey, songFile.getParentDirectory().getFullPathName());
 }
 
+//==============================================================================
+void MainComponent::rememberRecentSong (const juce::File& songFile)
+{
+    recentSongs.addFile (songFile);
+    engine.getPropertyStorage().getPropertiesFile().setValue (recentSongsKey, recentSongs.toString());
+}
+
+juce::StringArray MainComponent::recentSongNames()
+{
+    // A song that has been moved or deleted since would open onto an error
+    // box, so it leaves the list here rather than sitting in the menu.
+    recentSongs.removeNonExistentFiles();
+
+    juce::StringArray names;
+
+    for (int i = 0; i < recentSongs.getNumFiles(); ++i)
+        names.add (recentSongs.getFile (i).getFileName());
+
+    return names;
+}
+
+void MainComponent::openRecentSong (int index)
+{
+    // Between the menu being built and an item being picked the file could
+    // have gone away, and removeNonExistentFiles above may have shifted the
+    // list; both come out as an index with no file behind it.
+    const auto file = recentSongs.getFile (index);
+
+    if (! file.existsAsFile())
+        return;
+
+    confirmDiscardChanges ([safe = juce::Component::SafePointer (this), file] (bool goAhead)
+    {
+        if (safe != nullptr && goAhead)
+            safe->openSongFile (file);
+    });
+}
+
 void MainComponent::saveSong (std::function<void (bool)> onDone)
 {
     if (currentFile != juce::File())
@@ -707,6 +756,7 @@ bool MainComponent::writeSongTo (const juce::File& file)
 
     currentFile = file;
     rememberSongDirectory (file);
+    rememberRecentSong (file);
     hasUnsavedChanges = false;   // captureLivePluginState above will have set it
     updateDocumentDisplay();
     return true;
@@ -805,6 +855,7 @@ void MainComponent::openSongFile (const juce::File& file)
     if (auto loaded = model::Song::loadFromFile (file))
     {
         rememberSongDirectory (file);
+        rememberRecentSong (file);
         loadSong (*loaded, file);
         return;
     }

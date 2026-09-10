@@ -124,6 +124,12 @@ public:
     std::function<void()> onNew, onOpen, onOpenDemo, onSave, onSaveAs, onExport,
                           onOpenMixer, onToggleBrowser;
 
+    // Open Recent, in the logo menu. The names are asked for as the menu is
+    // built rather than pushed in when they change, so the submenu can never
+    // be stale; the index picked is an index into that same list.
+    std::function<juce::StringArray()> getRecentSongs;
+    std::function<void (int index)> onOpenRecent;
+
     // The Browser button is a lit toggle showing whether the panel is up;
     // MainComponent owns the panel and tells the bar, so a cmd-B and a click
     // both land the same way.

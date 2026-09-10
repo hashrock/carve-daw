@@ -11,7 +11,8 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 
 ## 画面
 
-- **メイン**: 左上のロゴがファイルメニュー。ツールバーは Orion 流に BPM /
+- **メイン**: 左上のロゴがファイルメニュー (Open Recent に直近 10 曲)。
+  ツールバーは Orion 流に BPM /
   Pattern・Song / トランスポート / BAR / LOOP (Start・Length) / マスター。
   **Pattern** は各 Generator で最後に選んだパターンを全部同時にループ再生
   (いちばん長いパターンの長さでループし、短いものは繰り返す)、**Song** は

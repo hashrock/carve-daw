@@ -50,6 +50,14 @@ public:
     void perform (Action);
     bool isBrowserShown() const  { return browser.isVisible(); }
 
+    // The songs opened or saved most recently, newest first, for the File
+    // menus to list; file names rather than paths, because the paths make the
+    // menu as wide as the deepest folder anyone keeps songs in. Files that
+    // have since gone away are dropped, so an index into what this returns is
+    // what openRecentSong takes.
+    juce::StringArray recentSongNames();
+    void openRecentSong (int index);
+
 private:
     void timerCallback() override;
 
@@ -86,6 +94,10 @@ private:
     // Open / Save along with it.
     juce::File songBrowseDirectory() const;
     void rememberSongDirectory (const juce::File& songFile);
+
+    // Every song that reaches or comes off disk goes on the recent list, which
+    // lives in the same properties file as the folder above.
+    void rememberRecentSong (const juce::File& songFile);
     void openDemoSong();
     void openPluginManager();
     void openPatternEditor();
@@ -143,6 +155,10 @@ private:
     // been saved once.
     juce::File currentFile;
     bool hasUnsavedChanges = false;
+
+    // Restored from the properties file on construction and written back on
+    // every change, so the File menu's Open Recent survives a restart.
+    juce::RecentlyOpenedFilesList recentSongs;
 
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<GeneratorController> generatorController;

@@ -106,6 +106,20 @@ private:
             {
                 add (Action::newSong, "New");
                 add (Action::openSong, "Open...");
+
+                // Same list the logo menu shows, asked for as the menu opens.
+                juce::PopupMenu recentMenu;
+
+                if (const auto main = owner.getMainComponent())
+                {
+                    const auto recent = main->recentSongNames();
+
+                    for (int i = 0; i < recent.size(); ++i)
+                        recentMenu.addItem (firstRecentItemID + i, recent[i]);
+
+                    m.addSubMenu ("Open Recent", recentMenu, ! recent.isEmpty());
+                }
+
                 add (Action::openDemoSong, "Open Demo Song");
                 m.addSeparator();
                 add (Action::save, "Save", "Cmd+S");
@@ -134,12 +148,21 @@ private:
         void menuItemSelected (int itemID, int) override
         {
             if (auto main = owner.getMainComponent())
-                main->perform (static_cast<MainComponent::Action> (itemID - 1));
+            {
+                if (itemID >= firstRecentItemID)
+                    main->openRecentSong (itemID - firstRecentItemID);
+                else
+                    main->perform (static_cast<MainComponent::Action> (itemID - 1));
+            }
         }
 
     private:
         // Menu ids must be non-zero, hence the offset.
         static int id (MainComponent::Action action)  { return static_cast<int> (action) + 1; }
+
+        // Above every id() an Action can take, so Open Recent's items and the
+        // fixed ones share the one callback.
+        static constexpr int firstRecentItemID = 100;
 
         Application& owner;
     };
