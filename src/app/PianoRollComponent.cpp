@@ -103,6 +103,40 @@ model::TimeSignature PianoRollComponent::getGridTimeSig() const
     return song ? song->getTimeSigAt (0.0) : model::TimeSignature();
 }
 
+void PianoRollComponent::setDrumMap (std::map<int, DrumRow> newMap)
+{
+    if (drumMap == newMap)
+        return;
+
+    const auto widthBefore = getKeyboardWidth();
+    drumMap = std::move (newMap);
+
+    // The column's width is part of the roll's own width, so a map arriving
+    // resizes it -- and the ruler, which measures from the same number.
+    if (getKeyboardWidth() != widthBefore)
+        updateSize();
+
+    repaint();
+}
+
+int PianoRollComponent::getKeyboardWidth() const
+{
+    return drumMap.empty() ? noteKeyboardWidth : drumKeyboardWidth;
+}
+
+int PianoRollComponent::pitchToViewY (int pitch) const
+{
+    return (int) pitchToY (juce::jlimit (lowestPitch, highestPitch, pitch));
+}
+
+std::optional<juce::Range<int>> PianoRollComponent::getDrumPitchRange() const
+{
+    if (drumMap.empty())
+        return std::nullopt;
+
+    return juce::Range<int> (drumMap.begin()->first, drumMap.rbegin()->first);
+}
+
 void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
 {
     // The same pattern again is nothing to do -- and everything below would
@@ -181,7 +215,7 @@ juce::Viewport* PianoRollComponent::getViewport() const
 
 void PianoRollComponent::updateSize()
 {
-    auto width = keyboardWidth + juce::roundToInt (getLengthBeats() * pixelsPerBeat);
+    auto width = getKeyboardWidth() + juce::roundToInt (getLengthBeats() * pixelsPerBeat);
 
     // Zoomed far enough out a short pattern is narrower than the viewport;
     // stay at least as wide as it so the roll's own background, and not the
@@ -202,8 +236,8 @@ std::vector<model::Note> PianoRollComponent::getNotes() const
     return pattern ? pattern->getNotes() : std::vector<model::Note>();
 }
 
-double PianoRollComponent::xToBeat (float x) const     { return (x - (float) keyboardWidth) / pixelsPerBeat; }
-float PianoRollComponent::beatToX (double beat) const  { return (float) (keyboardWidth + beat * pixelsPerBeat); }
+double PianoRollComponent::xToBeat (float x) const     { return (x - (float) getKeyboardWidth()) / pixelsPerBeat; }
+float PianoRollComponent::beatToX (double beat) const  { return (float) (getKeyboardWidth() + beat * pixelsPerBeat); }
 
 void PianoRollComponent::setPlayheadBeat (std::optional<double> beat)
 {
@@ -773,7 +807,7 @@ double PianoRollComponent::getPasteTargetBeat (double originBeat) const
 
     const auto position = getMouseXYRelative().toFloat();
 
-    if (position.x < (float) keyboardWidth)
+    if (position.x < (float) getKeyboardWidth())
         return originBeat;
 
     // The modifiers as they are now: a paste comes from the keyboard, so there
@@ -855,15 +889,30 @@ void PianoRollComponent::paint (juce::Graphics& g)
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
         const auto y = pitchToY (pitch);
-        if (isBlackKey (pitch))
+
+        if (! drumMap.empty())
+        {
+            // With a drum map the black keys mean nothing -- the rows are
+            // sounds, not a scale -- so what is shaded instead is every lane
+            // that has nothing on it. What is left lit is what can be played.
+            const auto row = drumMap.find (pitch);
+            const auto playable = row != drumMap.end() && row->second.assigned;
+
+            if (! playable)
+            {
+                g.setColour (juce::Colour (0xff18181c));
+                g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) rowHeight);
+            }
+        }
+        else if (isBlackKey (pitch))
         {
             g.setColour (juce::Colour (0xff1c1c20));
-            g.fillRect ((float) keyboardWidth, y, gridRight - keyboardWidth, (float) rowHeight);
+            g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) rowHeight);
         }
         if (pitch % 12 == 0)   // octave line above each C row
         {
             g.setColour (juce::Colour (0xff3a3a40));
-            g.drawHorizontalLine ((int) y + rowHeight, (float) keyboardWidth, gridRight);
+            g.drawHorizontalLine ((int) y + rowHeight, (float) getKeyboardWidth(), gridRight);
         }
     }
 
@@ -945,19 +994,38 @@ void PianoRollComponent::paint (juce::Graphics& g)
         g.drawVerticalLine ((int) beatToX (*playheadBeat), 0.0f, (float) getHeight());
     }
 
-    // keyboard column
+    // keyboard column -- or, for a drum generator, the names of its sounds
     for (int pitch = lowestPitch; pitch <= highestPitch; ++pitch)
     {
         const auto y = pitchToY (pitch);
-        g.setColour (isBlackKey (pitch) ? juce::Colour (0xff2a2a2e) : juce::Colour (0xffd8d8dc));
-        g.fillRect (0.0f, y, (float) keyboardWidth - 2.0f, (float) rowHeight - 0.5f);
+        const auto row = drumMap.find (pitch);
+        const auto named = row != drumMap.end();
 
-        if (pitch % 12 == 0)
+        if (named)
+        {
+            // Lit for a sound that is there, dark for a pad waiting to be
+            // filled: the same distinction the shading in the grid makes, so
+            // the eye can start at either end.
+            g.setColour (row->second.assigned ? juce::Colour (0xffd8d8dc) : juce::Colour (0xff34343a));
+            g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) rowHeight - 0.5f);
+
+            g.setColour (row->second.assigned ? juce::Colour (0xff2a2a2e) : juce::Colour (0xff6a6a74));
+            g.drawFittedText (row->second.name, 3, (int) y, getKeyboardWidth() - 6, rowHeight,
+                              juce::Justification::centredLeft, 1, 0.7f);
+            continue;
+        }
+
+        g.setColour (drumMap.empty() ? (isBlackKey (pitch) ? juce::Colour (0xff2a2a2e)
+                                                           : juce::Colour (0xffd8d8dc))
+                                     : juce::Colour (0xff232327));   // outside the kit
+        g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) rowHeight - 0.5f);
+
+        if (drumMap.empty() && pitch % 12 == 0)
         {
             g.setColour (juce::Colour (0xff707078));
             g.setFont (10.0f);
             g.drawText ("C" + juce::String (pitch / 12 - 1),
-                        2, (int) y, keyboardWidth - 8, rowHeight, juce::Justification::centredRight);
+                        2, (int) y, getKeyboardWidth() - 8, rowHeight, juce::Justification::centredRight);
         }
     }
 }
@@ -966,7 +1034,7 @@ juce::MouseCursor PianoRollComponent::cursorFor (juce::Point<float> position,
                                                  const juce::ModifierKeys& mods) const
 {
     // the keyboard column is not editable, and neither is an empty editor
-    if (! pattern || position.x < (float) keyboardWidth)
+    if (! pattern || position.x < (float) getKeyboardWidth())
         return juce::MouseCursor::NormalCursor;
 
     if (isEraseGesture (mods))
@@ -1053,7 +1121,7 @@ void PianoRollComponent::eraseAlong (juce::Point<float> from, juce::Point<float>
 
 void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 {
-    if (! pattern || e.position.x < (float) keyboardWidth)
+    if (! pattern || e.position.x < (float) getKeyboardWidth())
         return;
 
     grabKeyboardFocus();   // the tool keys and Backspace are ours once the roll is clicked

@@ -752,6 +752,46 @@ public:
     {
         content.header.patterns.setFromGenerator (generator, selectedPatternId);
         instrumentView.refresh (generator, selectedPatternId);
+        rollContent.setDrumMap (buildDrumMap (generator));
+    }
+
+    // Which rows of the roll are sounds, for the two generators whose notes
+    // are not pitches. Rebuilt on every refresh, so a sample dropped on a pad
+    // names its lane straight away.
+    static std::map<int, PianoRollComponent::DrumRow>
+        buildDrumMap (const std::optional<model::Generator>& generator)
+    {
+        std::map<int, PianoRollComponent::DrumRow> map;
+
+        if (! generator)
+            return map;
+
+        if (generator->isDrumSynth())
+        {
+            // Fixed circuits at fixed notes, all of them always there.
+            using Drum = plugins::DrumSynthPlugin::Drum;
+
+            for (int i = 0; i < plugins::DrumSynthPlugin::numDrums; ++i)
+            {
+                const auto drum = (Drum) i;
+                map[plugins::DrumSynthPlugin::getNoteForDrum (drum)] =
+                    { plugins::DrumSynthPlugin::getDrumName (drum), true };
+            }
+        }
+        else if (generator->isDrumKit())
+        {
+            // Sixteen pads, some of them empty: a lane with no sample in it is
+            // still worth naming, because it is where a sample would go.
+            for (int pad = 0; pad < drumkit::numPads; ++pad)
+            {
+                const auto sound = drumkit::findSoundForPad (*generator, pad);
+                map[drumkit::getNoteForPad (pad)] =
+                    { sound ? sound->getName() : juce::String ("Pad " + juce::String (pad + 1)),
+                      sound.has_value() };
+            }
+        }
+
+        return map;
     }
 
     // The whole retarget in one call: the picker's list, the Inst view's

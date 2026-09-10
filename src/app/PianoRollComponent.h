@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -51,13 +52,44 @@ public:
 
     // Horizontal geometry. Public because the ruler above the roll has to line
     // up with the grid to the pixel, and the only way to guarantee that is to
-    // have both of them do the same arithmetic.
-    static constexpr int keyboardWidth = 48;
+    // have both of them do the same arithmetic -- which is also why this is a
+    // question rather than a constant now: the column is wider when its rows
+    // are named sounds, since "Pad 12" and a sample's name do not fit in the
+    // three characters a note name needs.
+    int getKeyboardWidth() const;
+
+    static constexpr int noteKeyboardWidth = 48;
+    static constexpr int drumKeyboardWidth = 108;
 
     explicit PianoRollComponent (juce::UndoManager& um);
     ~PianoRollComponent() override;
 
     void setPattern (std::optional<model::Pattern> newPattern);
+
+    // What a row is, for the generators whose notes are named things rather
+    // than pitches: a drum machine's circuits, a kit's pads. Without this the
+    // roll for a drum kit is a keyboard with fifteen silent lanes and one that
+    // happens to be a snare, and the only way to find out which is to draw a
+    // note and listen.
+    struct DrumRow
+    {
+        juce::String name;
+        bool assigned = true;   // a pad with no sample in it is still a row
+
+        bool operator== (const DrumRow&) const = default;
+    };
+
+    // Keyed by MIDI note. Empty means an ordinary keyboard, which is what a
+    // synth gets.
+    void setDrumMap (std::map<int, DrumRow> newMap);
+
+    // The rows worth looking at: the span of the drum map, or nothing at all
+    // when there is no map and one row is as good as another.
+    std::optional<juce::Range<int>> getDrumPitchRange() const;
+
+    // Where a pitch sits in the roll's own coordinates, for a container that
+    // has to scroll to it.
+    int pitchToViewY (int pitch) const;
 
     // The notes of the pattern on screen, empty when there is none. The
     // velocity lane draws one bar per note and needs them all.
@@ -346,6 +378,8 @@ private:
     // asked in.
     inline static double lastNoteLength = 0.5;
     inline static int lastNoteVelocity = defaultNoteVelocity;
+
+    std::map<int, DrumRow> drumMap;
 
     double quantiseStrength = 1.0;
     double quantiseSwing = 0.5;   // straight: see gestures::QuantiseSettings

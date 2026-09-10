@@ -296,6 +296,20 @@ public:
         refreshFromPattern();
     }
 
+    // The rows' names, for a drum generator; empty for everything else.
+    void setDrumMap (std::map<int, PianoRollComponent::DrumRow> map)
+    {
+        const auto before = pianoRoll.getDrumPitchRange();
+        pianoRoll.setDrumMap (std::move (map));
+
+        // The window scrolls itself when it opens, which is before it has been
+        // told what it is showing; a map arriving is the first moment there is
+        // anything to aim at. The range only moves when the generator does, so
+        // this does not fight the user's own scrolling afterwards.
+        if (const auto after = pianoRoll.getDrumPitchRange(); after && after != before)
+            scrollToMiddleOfPitchRange();
+    }
+
     void setPattern (std::optional<model::Pattern> newPattern)
     {
         // Retargeted to the pattern already on screen -- which the host does
@@ -320,6 +334,19 @@ public:
     // are. Only meaningful once the viewport has a size.
     void scrollToMiddleOfPitchRange()
     {
+        // A drum generator's rows are its sounds, and they sit in one band an
+        // octave or two wide: open on that rather than in the middle of a
+        // keyboard whose interesting part is somewhere off the bottom.
+        if (const auto drums = pianoRoll.getDrumPitchRange())
+        {
+            const auto top = pianoRoll.pitchToViewY (drums->getEnd());
+            const auto bottom = pianoRoll.pitchToViewY (drums->getStart());
+            const auto centre = (top + bottom) / 2;
+
+            viewport.setViewPosition (0, juce::jmax (0, centre - viewport.getMaximumVisibleHeight() / 2));
+            return;
+        }
+
         viewport.setViewPosition (0, juce::jmax (0, pianoRoll.getHeight() / 2 - 200));
     }
 
