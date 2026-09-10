@@ -10,6 +10,7 @@
 
 #include "ParameterRows.h"
 #include "PresetManager.h"
+#include "../plugins/GainReduction.h"
 #include "../plugins/MeteredCompressorPlugin.h"
 
 namespace te = tracktion;
@@ -98,7 +99,8 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectParameterPanel)
 };
 
-// The compressor's gain-reduction meter: a bar growing leftwards from 0dB,
+// The gain-reduction meter, for the effects that pull a level down and say by
+// how much (the compressor and the limiter): a bar growing leftwards from 0dB,
 // laid out like a parameter row so it reads as part of the same list.
 //
 // Polled on its own timer rather than through the panel's refresh: a meter
@@ -110,8 +112,11 @@ class GainReductionMeter : public juce::Component,
                            private juce::Timer
 {
 public:
-    explicit GainReductionMeter (plugins::MeteredCompressorPlugin& compressorToWatch)
-        : compressor (compressorToWatch)
+    // Two references to the same object: one to know whether it is still
+    // alive and enabled, one to read from. The interface is not a Selectable,
+    // so it cannot answer the first question itself.
+    GainReductionMeter (te::Plugin& pluginToWatch, plugins::GainReductionSource& sourceToRead)
+        : plugin (pluginToWatch), source (&sourceToRead)
     {
         setInterceptsMouseClicks (false, false);
         startTimerHz (30);
@@ -162,15 +167,16 @@ private:
     {
         // EditSync can delete the plugin under an open window; a bypassed one
         // is not called at all, so its last reading would otherwise stick.
-        const auto live = compressor != nullptr && compressor->isEnabled()
-                            ? -compressor->getGainReductionDb()
+        const auto live = plugin != nullptr && plugin->isEnabled()
+                            ? -source->getGainReductionDb()
                             : 0.0f;
 
         shownDb = juce::jmax (live, shownDb - decayDb);
         repaint();
     }
 
-    te::SafeSelectable<plugins::MeteredCompressorPlugin> compressor;
+    te::SafeSelectable<te::Plugin> plugin;
+    plugins::GainReductionSource* source = nullptr;
     float shownDb = 0.0f;   // magnitude, so the maths above reads as a level
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GainReductionMeter)
@@ -264,9 +270,9 @@ private:
                 addAndMakeVisible (*sidechainBox);
             }
 
-            if (auto* compressor = dynamic_cast<plugins::MeteredCompressorPlugin*> (&plugin))
+            if (auto* reduction = dynamic_cast<plugins::GainReductionSource*> (&plugin))
             {
-                meter = std::make_unique<GainReductionMeter> (*compressor);
+                meter = std::make_unique<GainReductionMeter> (plugin, *reduction);
                 addAndMakeVisible (*meter);
             }
 

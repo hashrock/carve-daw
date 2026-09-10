@@ -4,6 +4,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "GainReduction.h"
+
 namespace te = tracktion;
 
 namespace carve::plugins
@@ -22,7 +24,8 @@ namespace carve::plugins
 // EditSync builds one of these wherever the model says "compressor", so the
 // .carve keeps tracktion's name and the sidechain machinery, which works on
 // the base class, is untouched.
-class MeteredCompressorPlugin : public te::CompressorPlugin
+class MeteredCompressorPlugin : public te::CompressorPlugin,
+                                public GainReductionSource
 {
 public:
     explicit MeteredCompressorPlugin (te::PluginCreationInfo);
@@ -35,7 +38,7 @@ public:
     void applyToBuffer (const te::PluginRenderContext&) override;
 
     // Negative or zero, in dB; zero while there is nothing to compress.
-    float getGainReductionDb() const noexcept  { return gainReductionDb.load (std::memory_order_relaxed); }
+    float getGainReductionDb() const noexcept override  { return gainReductionDb.load (std::memory_order_relaxed); }
 
 private:
     std::atomic<float> gainReductionDb { 0.0f };

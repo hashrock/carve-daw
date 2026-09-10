@@ -1,6 +1,7 @@
 #include "EffectSlotList.h"
 
 #include "../plugins/DelayPlugin.h"
+#include "../plugins/LimiterPlugin.h"
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
 
@@ -25,7 +26,8 @@ namespace
 
     const InternalEffect internalEffects[] =
     {
-        { "compressor",   "Compressor / Limiter", "Comp" },
+        { "compressor",   "Compressor",           "Comp" },
+        { plugins::LimiterPlugin::xmlTypeName, "Limiter", "Limit" },
         { "4bandEq",      "4-Band EQ",            "EQ" },
         { "lowpass",      "Low / High Pass",      "Filter" },
         { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },

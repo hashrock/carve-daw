@@ -7,6 +7,7 @@
 #include "plugins/DelayPlugin.h"
 #include "plugins/DistortionPlugin.h"
 #include "plugins/DrumSynthPlugin.h"
+#include "plugins/LimiterPlugin.h"
 #include "plugins/MeteredCompressorPlugin.h"
 #include "plugins/NoteMonitorPlugin.h"
 #include "plugins/SaturationPlugin.h"
@@ -139,6 +140,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::DelayPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::SaturationPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::MeteredCompressorPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::LimiterPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::DrumSynthPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::NoteMonitorPlugin>();
 

@@ -48,6 +48,9 @@ set(CARVE_CORE_SOURCES
     src/plugins/MeteredCompressorPlugin.cpp
     src/plugins/DelayPlugin.h
     src/plugins/DelayPlugin.cpp
+    src/plugins/GainReduction.h
+    src/plugins/LimiterPlugin.h
+    src/plugins/LimiterPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp
     src/plugins/NoteMonitorPlugin.h

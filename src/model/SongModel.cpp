@@ -13,6 +13,12 @@ namespace carve::model
 // layer doesn't have to include the engine just for one identifier.
 static const juce::Identifier te_pluginStateType ("PLUGIN");
 
+// Our limiter's xmlTypeName. Spelled out rather than included, so the model
+// stays clear of the plugins: this file already knows effect types as strings
+// (that is what the .carve stores), and src/model deliberately does not
+// depend on src/plugins.
+static const char* limiterEffectType = "carveLimiter";
+
 namespace
 {
     juce::String newId()  { return juce::Uuid().toString(); }
@@ -596,7 +602,19 @@ Song Song::create (const juce::String& name)
     tree.setProperty (ids::tempo, 120.0, nullptr);
     tree.appendChild (juce::ValueTree (ids::GENERATORS), nullptr);
     tree.appendChild (juce::ValueTree (ids::PLAYLIST), nullptr);
-    return Song (tree);
+
+    Song song (tree);
+
+    // A limiter on the master, because the alternative is finding out that a
+    // mix clipped by hearing the crackle in the render and going looking for
+    // it in the parts. It is an ordinary insert -- visible in the mixer's
+    // master strip, adjustable, removable -- rather than something welded to
+    // the output, and at its defaults it does nothing at all to a mix that
+    // never reaches the ceiling. Only new songs get one: adding it to a song
+    // that was mixed without it would change how that song sounds.
+    song.getMasterBus().addEffect (limiterEffectType, nullptr, nullptr);
+
+    return song;
 }
 
 std::optional<Song> Song::fromXml (const juce::String& xml)
