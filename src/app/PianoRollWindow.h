@@ -183,7 +183,7 @@ public:
         selectToolButton.setTooltip ("Select (E): rubber-band notes, then move or delete them");
         zoomOutButton.setTooltip ("Zoom out (- key, or cmd-scroll)");
         zoomInButton.setTooltip ("Zoom in (= key, or cmd-scroll)");
-        quantiseButton.setTooltip ("Quantise (Q): pull note starts onto the grid, with swing");
+        quantiseButton.setTooltip ("Quantise (Q): pull the whole pattern's note starts onto the grid, with swing");
 
         quantiseButton.setWantsKeyboardFocus (false);
         quantiseButton.onClick = [this] { showQuantisePanel(); };
@@ -608,7 +608,7 @@ private:
             entries.push_back ({ "Cmd+C/X", "copy / cut" });
         }
 
-        entries.push_back ({ "Q", hasSelection ? "quantise selection" : "quantise pattern" });
+        entries.push_back ({ "Q", "quantise pattern" });
 
         // Listed whether or not there is anything to paste: this bar is
         // rebuilt on every selection change, so a rubber-band drag would be

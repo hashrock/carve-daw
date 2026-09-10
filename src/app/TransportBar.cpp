@@ -94,10 +94,51 @@ void NumberDisplay::mouseDown (const juce::MouseEvent& e)
     if (! onStep)
         return;
 
-    if (upArrow.contains (e.getPosition()))
-        onStep (1);
-    else if (downArrow.contains (e.getPosition()))
-        onStep (-1);
+    heldDirection = upArrow.contains (e.getPosition()) ? 1
+                  : downArrow.contains (e.getPosition()) ? -1
+                                                         : 0;
+
+    if (heldDirection == 0)
+        return;
+
+    // The click lands now; the repeat only starts if the button is still down
+    // when the delay is up.
+    onStep (heldDirection);
+    repeatCount = 0;
+    startTimer (holdDelayMs);
+}
+
+void NumberDisplay::mouseUp (const juce::MouseEvent&)
+{
+    heldDirection = 0;
+    stopTimer();
+}
+
+void NumberDisplay::mouseDrag (const juce::MouseEvent& e)
+{
+    // Sliding off the arrow stops the repeat, the way a button cancels when
+    // the pointer leaves it.
+    if (heldDirection != 0 && ! getLocalBounds().contains (e.getPosition()))
+    {
+        heldDirection = 0;
+        stopTimer();
+    }
+}
+
+void NumberDisplay::timerCallback()
+{
+    if (heldDirection == 0 || ! onStep)
+    {
+        stopTimer();
+        return;
+    }
+
+    onStep (heldDirection);
+
+    // Accelerating, so a long hold covers a useful range without the first
+    // few steps being uncatchable.
+    const auto progress = juce::jmin (1.0f, (float) ++repeatCount / (float) repeatsToFullSpeed);
+    startTimer (juce::roundToInt (firstRepeatMs + (fastestRepeatMs - firstRepeatMs) * progress));
 }
 
 //==============================================================================

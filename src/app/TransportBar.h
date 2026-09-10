@@ -63,7 +63,8 @@ private:
 // A number in a recessed display with a pair of step arrows beside it -- the
 // BPM, the bar counter, the loop's start and length. Orion's blue LCDs, in
 // this app's colours. Double-click the number to type one.
-class NumberDisplay : public juce::Component
+class NumberDisplay : public juce::Component,
+                      private juce::Timer
 {
 public:
     explicit NumberDisplay (int digits = 3);
@@ -80,11 +81,28 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
 
     // The arrows' column, so callers can size the whole thing from a digit count.
     static constexpr int arrowsWidth = 12;
 
 private:
+    // Held down, an arrow repeats: a pause to prove it was a hold rather than
+    // a click, then steps, and faster the longer it is held. Getting from 120
+    // to 174 is otherwise fifty-four clicks.
+    void timerCallback() override;
+
+    static constexpr int holdDelayMs = 400;
+    static constexpr int firstRepeatMs = 120;
+    static constexpr int fastestRepeatMs = 30;
+
+    // How many repeats before the interval has wound all the way down.
+    static constexpr int repeatsToFullSpeed = 12;
+
+    int heldDirection = 0;
+    int repeatCount = 0;
+
     juce::Rectangle<int> upArrow, downArrow;
     juce::Label value;
 

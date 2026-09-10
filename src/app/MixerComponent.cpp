@@ -560,6 +560,7 @@ public:
 
     juce::String getReturnId() const  { return ret.getId(); }
     EffectSlotList& getEffectSlots()  { return effectSlots; }
+    void refreshEffects()  { effectSlots.refreshFromChain(); }
 
     std::function<void()> onRemove;
 
@@ -746,10 +747,19 @@ void MixerComponent::effectListChanged (const juce::ValueTree& parent)
 
     // Updated in place, not rebuilt: the slot list paints its rows instead of
     // owning components, so it can be re-read from inside this callback.
-    const juce::String generatorId = parent.getParent()[model::ids::id];
+    //
+    // Whoever owns the chain: this walked the generator strips alone, so an
+    // effect added to a return bus was audible immediately and invisible until
+    // something else rebuilt the mixer. (The master strip listens to its own
+    // corner of the tree, which is why it was never caught by this.)
+    const juce::String ownerId = parent.getParent()[model::ids::id];
 
     for (auto& strip : strips)
-        if (strip->getGeneratorId() == generatorId)
+        if (strip->getGeneratorId() == ownerId)
+            strip->refreshEffects();
+
+    for (auto& strip : returnStrips)
+        if (strip->getReturnId() == ownerId)
             strip->refreshEffects();
 }
 

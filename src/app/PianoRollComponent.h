@@ -180,7 +180,10 @@ public:
     double getQuantiseStrength() const  { return quantiseStrength; }
     double getQuantiseSwing() const     { return quantiseSwing; }
 
-    // Quantises the selection, or the whole pattern when nothing is selected.
+    // Quantises the whole pattern, selection or no selection. Fixing the
+    // timing is something you do to a part rather than to the handful of notes
+    // that happen to be picked out, and a quantise that did only those left
+    // the rest of the pattern behind -- which is the one result nobody wants.
     void quantiseNotes();
 
     //==============================================================================

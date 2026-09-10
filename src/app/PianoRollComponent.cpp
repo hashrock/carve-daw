@@ -692,18 +692,13 @@ void PianoRollComponent::quantiseNotes()
     if (! pattern)
         return;
 
-    // The selection when there is one, the whole pattern when there is not:
-    // asking to fix the timing with nothing picked out means the pattern.
+    // The whole pattern, whatever is selected: quantising is something done to
+    // a part, and one that moved only the notes that happened to be picked out
+    // would leave the rest sitting where they were.
     //
-    // Copied out either way, because every write calls our own listener back
+    // Copied out, because every write calls our own listener back
     // synchronously and that rewrites the selection underneath us.
-    std::vector<model::Note> notes;
-
-    if (! selectedNotes.empty())
-        for (const auto& state : selectedNotes)
-            notes.emplace_back (state);
-    else
-        notes = pattern->getNotes();
+    auto notes = pattern->getNotes();
 
     if (notes.empty())
         return;

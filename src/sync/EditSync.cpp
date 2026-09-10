@@ -118,11 +118,31 @@ namespace
         // Oscillator::Waves: 0 off, 1 sine, 2 square.
         synth.state.setProperty (juce::Identifier ("waveShape1"), 2, nullptr);
 
-        // The bottom of ampAttack's range (0.001s), not zero: zero is outside
-        // it, and the parameter would clamp it back up.
-        if (synth.ampAttack != nullptr)
-            synth.state.setProperty (te::IDs::ampAttack,
-                                     synth.ampAttack->getValueRange().getStart(), nullptr);
+        // The bottom of the range (0.001s), not zero: zero is outside it and
+        // the parameter would clamp it back up. Both ends of the envelope: a
+        // note should stop when it stops, so that what is heard is what was
+        // drawn rather than a tail the roll knows nothing about.
+        auto setToRangeStart = [&synth] (const juce::Identifier& property,
+                                         const te::AutomatableParameter::Ptr& parameter)
+        {
+            if (parameter != nullptr)
+                synth.state.setProperty (property, parameter->getValueRange().getStart(), nullptr);
+        };
+
+        setToRangeStart (te::IDs::ampAttack, synth.ampAttack);
+        setToRangeStart (te::IDs::ampRelease, synth.ampRelease);
+
+        // A low pass wide open. The filter does nothing here until it is
+        // turned down, which is the point: it is switched on and out of the
+        // way, so reaching for Cutoff does something rather than nothing (the
+        // engine's own default is Off, where the cutoff knob is inert).
+        // filterFreq is a note number over the audible range, so the top of it
+        // is just under 20kHz.
+        synth.state.setProperty (te::IDs::filterType, 1, nullptr);
+
+        if (synth.filterFreq != nullptr)
+            synth.state.setProperty (te::IDs::filterFreq,
+                                     synth.filterFreq->getValueRange().getEnd(), nullptr);
     }
 
     // The 4OSC and the drum synth. Both are internal plugins whose settings are

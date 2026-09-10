@@ -64,6 +64,13 @@ function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(${target} PRIVATE
+        # The Pitch Shifter is a wrapper round tracktion's TimeStretcher, and
+        # with no stretching backend compiled in that wrapper is a very
+        # convincing piece of dead weight: it passes audio through untouched
+        # whatever the semitones knob says. SoundTouch ships inside the engine
+        # (3rd_party/soundtouch, LGPL) and is the one that needs no extra
+        # dependency, so it is the one that gets switched on.
+        TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_PLUGINHOST_VST3=1
