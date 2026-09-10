@@ -1987,10 +1987,20 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
     const auto patterns = generator->getPatterns();
     const auto currentId = clip.getPatternId();
 
+    // New and Clone are ids of their own above the patterns', so one callback
+    // can tell "the third pattern" from them.
+    enum { newPatternId = 1000, clonePatternId };
+
     juce::PopupMenu menu;
     for (int i = 0; i < (int) patterns.size(); ++i)
         menu.addItem (i + 1, patterns[(size_t) i].getName(), true,
                       patterns[(size_t) i].getId() == currentId);
+
+    // Making a pattern from here, rather than only picking one that exists:
+    // the timeline is where you can see the gap a new pattern should fill.
+    menu.addSeparator();
+    menu.addItem (newPatternId, "New");
+    menu.addItem (clonePatternId, "Clone");
 
     const auto options = juce::PopupMenu::Options()
                              .withTargetComponent (this)
@@ -2003,7 +2013,16 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
 
     menu.showMenuAsync (options, [safeThis, clipState, patterns] (int result)
     {
-        if (safeThis == nullptr || result <= 0 || result > (int) patterns.size())
+        if (safeThis == nullptr || result <= 0)
+            return;
+
+        if (result == newPatternId || result == clonePatternId)
+        {
+            safeThis->makePatternForClip (clipState, result == clonePatternId);
+            return;
+        }
+
+        if (result > (int) patterns.size())
             return;
 
         model::PlaylistClip target (clipState);
@@ -2030,6 +2049,42 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
         safeThis->undoManager.beginNewTransaction();
         target.setPatternId (chosen->getId(), &safeThis->undoManager);
     });
+}
+
+void PlaylistComponent::makePatternForClip (juce::ValueTree clipState, bool clone)
+{
+    // Asynchronous menu: the clip may have been deleted or the song replaced
+    // since it was built.
+    if (! clipState.isAChildOf (song.getPlaylist().state))
+        return;
+
+    model::PlaylistClip target (clipState);
+    auto owner = song.findGenerator (target.getGeneratorId());
+
+    if (! owner)
+        return;
+
+    const auto current = owner->findPattern (target.getPatternId());
+
+    if (! current)
+        return;   // nothing to clone, and nothing to take a length from
+
+    undoManager.beginNewTransaction();
+
+    // A new pattern opens at the length of the one the clip plays now rather
+    // than at a bar: the clip then keeps exactly the footprint it has, so this
+    // can never be refused for overlapping its neighbour the way picking a
+    // longer pattern from the list above can. A clone has that length already.
+    auto made = clone ? owner->duplicatePattern (*current, &undoManager)
+                      : owner->createPattern (&undoManager, current->getLengthBeats());
+
+    target.setPatternId (made.getId(), &undoManager);
+
+    // An empty pattern with no way to see it is a dead end, so open the roll on
+    // it -- the same window a double click on the clip opens. Cloning is the
+    // middle of "make one, clone it, vary it", which wants it just as much.
+    if (onEditPattern)
+        onEditPattern (owner->getId(), made.getId());
 }
 
 void PlaylistComponent::dragLoopTo (double beat)

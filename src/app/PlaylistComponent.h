@@ -424,6 +424,11 @@ private:
 
     void showPatternMenu (const model::PlaylistClip&, juce::Rectangle<float> buttonBounds);
 
+    // The New and Clone items of that menu: a fresh pattern (empty, or a copy
+    // of the one the clip plays now) on the clip's own generator, which the
+    // clip then plays. One undo step covers making it and switching to it.
+    void makePatternForClip (juce::ValueTree clipState, bool clone);
+
     void dragLoopTo (double beat);
     void updateRubberBand (juce::Point<float> position);
 
