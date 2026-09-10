@@ -2048,6 +2048,12 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
 
         safeThis->undoManager.beginNewTransaction();
         target.setPatternId (chosen->getId(), &safeThis->undoManager);
+
+        // Remember it: the next clip painted on this row is the row's selected
+        // pattern, and having just said which one this clip plays is as clear
+        // a statement of that as picking it in the generator's own picker.
+        if (safeThis->onSelectPattern)
+            safeThis->onSelectPattern (owner->getId(), chosen->getId());
     });
 }
 

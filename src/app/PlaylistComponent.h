@@ -91,6 +91,13 @@ public:
     // host should open in the pattern editor.
     std::function<void (const juce::String&, const juce::String&)> onEditPattern;
 
+    // A clip's dropdown picked a different pattern. The same selection a
+    // double click makes, without opening a window: what the paint tool lays
+    // down next on that row is the row's selected pattern, so choosing one
+    // here is also choosing what comes next.
+    std::function<void (const juce::String& generatorId,
+                        const juce::String& patternId)> onSelectPattern;
+
     // Fired whenever the set of selected clips changes, with the pattern
     // placements and the audio placements apart -- they are different node
     // types with different properties, and the host's panel shows one kind
