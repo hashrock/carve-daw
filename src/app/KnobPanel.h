@@ -6,6 +6,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "Fonts.h"
 #include "ParameterRows.h"
 
 namespace te = tracktion;
@@ -114,7 +115,7 @@ public:
         : name (knobName), size (knobSize)
     {
         label.setText (name, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (labelFontHeight));
+        label.setFont (uiFont (labelFontHeight));
         label.setJustificationType (juce::Justification::centred);
         label.setColour (juce::Label::textColourId, juce::Colour (nameColour));
         label.setInterceptsMouseClicks (false, false);
@@ -152,7 +153,7 @@ public:
     int getPreferredWidth() const
     {
         const auto textWidth = juce::GlyphArrangement::getStringWidthInt (
-                                   juce::Font (juce::FontOptions (labelFontHeight)), name) + 6;
+                                   juce::Font (uiFont (labelFontHeight)), name) + 6;
         return juce::jmax (getDiameter (size) + 14, textWidth);
     }
 
@@ -178,7 +179,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override   { hovering = false; updateLabel(); }
 
 protected:
-    static constexpr float labelFontHeight = 12.0f;
+    static constexpr float labelFontHeight = fonts::small;
     static constexpr int labelHeight = 15;
 
     // What to show in place of the name while the mouse is over the knob.
@@ -375,7 +376,7 @@ public:
         // Wide enough for the longest entry beside the arrow.
         for (const auto& name : choiceNames)
             width = juce::jmax (width, juce::GlyphArrangement::getStringWidthInt (
-                                           juce::Font (juce::FontOptions (EditorRow::rowFontHeight)), name) + 46);
+                                           juce::Font (uiFont (EditorRow::rowFontHeight)), name) + 46);
 
         onChange = [this]
         {
@@ -448,7 +449,7 @@ public:
     {
         setWantsKeyboardFocus (false);
         width = juce::GlyphArrangement::getStringWidthInt (
-                    juce::Font (juce::FontOptions (EditorRow::rowFontHeight)), text) + 30;
+                    juce::Font (uiFont (EditorRow::rowFontHeight)), text) + 30;
 
         onClick = [this]
         {
@@ -649,7 +650,7 @@ private:
 
     static juce::Font getTitleFont()
     {
-        return juce::Font (juce::FontOptions (EditorRow::rowFontHeight, juce::Font::bold));
+        return juce::Font (uiFont (EditorRow::rowFontHeight, juce::Font::bold));
     }
 
     int getTitleWidth() const

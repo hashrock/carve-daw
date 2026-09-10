@@ -1,4 +1,5 @@
 #include "EffectSlotList.h"
+#include "Fonts.h"
 
 #include "../plugins/DelayPlugin.h"
 #include "../plugins/LimiterPlugin.h"
@@ -253,7 +254,7 @@ void EffectSlotList::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff212125));
 
-    const auto font = juce::FontOptions (12.0f);
+    const auto font = uiFont (fonts::small);
 
     for (size_t i = 0; i < slots.size(); ++i)
     {

@@ -1,4 +1,5 @@
 #include "SampleBrowser.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -185,7 +186,7 @@ void BrowserList::paint (juce::Graphics& g)
     if (entries.empty())
     {
         g.setColour (dimColour);
-        g.setFont (12.0f);
+        g.setFont (uiFont (fonts::small));
         g.drawFittedText (emptyText, getLocalBounds().reduced (10, 4),
                           juce::Justification::centred, 3);
         return;
@@ -226,7 +227,7 @@ void BrowserList::paint (juce::Graphics& g)
 
         area.removeFromLeft (6);
         g.setColour (selected ? juce::Colours::white : textColour);
-        g.setFont (12.0f);
+        g.setFont (uiFont (fonts::small));
         g.drawText (entry.file.getFileName(), area, juce::Justification::centredLeft, true);
     }
 }
@@ -396,7 +397,7 @@ SampleBrowser::SampleBrowser (te::Engine& engineToUse)
 {
     favouritesTitle.setText ("Favorites", juce::dontSendNotification);
     favouritesTitle.setColour (juce::Label::textColourId, dimColour);
-    favouritesTitle.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    favouritesTitle.setFont (uiFont (fonts::small, juce::Font::bold));
     addAndMakeVisible (favouritesTitle);
 
     // Preview is a lit toggle like the transport's loop: on by default,
@@ -426,7 +427,7 @@ SampleBrowser::SampleBrowser (te::Engine& engineToUse)
     addAndMakeVisible (upButton);
 
     folderLabel.setColour (juce::Label::textColourId, textColour);
-    folderLabel.setFont (juce::FontOptions (12.0f));
+    folderLabel.setFont (uiFont (fonts::small));
     folderLabel.setMinimumHorizontalScale (1.0f);   // ellipsis, not squashed text
     addAndMakeVisible (folderLabel);
 

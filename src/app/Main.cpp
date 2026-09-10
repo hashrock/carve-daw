@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "EngineSetup.h"
+#include "Fonts.h"
 #include "MainComponent.h"
 
 namespace carve::app
@@ -25,6 +26,10 @@ public:
             juce::Process::setDockIconVisible (false);
             return;
         }
+
+        // Before any window exists: it decides how every label, menu and
+        // button in them is drawn (see Fonts.h).
+        juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
 
         engine = carve::createEngine (nullptr, true);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
@@ -52,6 +57,8 @@ public:
 
         mainWindow.reset();   // destroys the Edit before the Engine
         engine.reset();
+
+        juce::Desktop::getInstance().setDefaultLookAndFeel (nullptr);
     }
 
     // Cmd-Q, the Quit menu item and the window's close button all arrive here.
@@ -233,6 +240,9 @@ private:
             juce::JUCEApplication::getInstance()->systemRequestedQuit();
         }
     };
+
+    // First, so it outlives the windows that are drawn with it.
+    CarveLookAndFeel lookAndFeel;
 
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<MainWindow> mainWindow;

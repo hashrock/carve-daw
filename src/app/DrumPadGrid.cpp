@@ -1,6 +1,7 @@
 #include <limits>
 
 #include "DrumPadGrid.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -220,14 +221,14 @@ void DrumPadGrid::paint (juce::Graphics& g)
 
         auto text = bounds.reduced (4, 2);
 
-        g.setFont (11.0f);
+        g.setFont (uiFont (fonts::small));
         g.setColour (juce::Colour (0xff8a8a94));
         g.drawText (drumkit::getNoteName (drumkit::getNoteForPad (pad)),
-                    text.removeFromTop (13), juce::Justification::centredLeft);
+                    text.removeFromTop (14), juce::Justification::centredLeft);
 
         // An empty pad says what to do with it rather than showing nothing,
         // because a grid of blank squares doesn't look clickable.
-        g.setFont (12.0f);
+        g.setFont (uiFont (fonts::small));
         g.setColour (state.lit ? juce::Colour (0xff1b1b1f)
                    : isFilled  ? juce::Colour (0xffd8d8de) : juce::Colour (0xff5e5e68));
         g.drawFittedText (isFilled ? state.info.sampleName : juce::String ("+"),

@@ -4,6 +4,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "Fonts.h"
+
 namespace carve::app
 {
 
@@ -45,8 +47,8 @@ public:
         g.drawHorizontalLine (0, 0.0f, (float) getWidth());
 
         auto area = getLocalBounds().reduced (8, 0);
-        const auto capFont = juce::FontOptions (11.0f);
-        const auto textFont = juce::FontOptions (12.0f);
+        const auto capFont = uiFont (fonts::small);
+        const auto textFont = uiFont (fonts::small);
 
         for (const auto& entry : entries)
         {

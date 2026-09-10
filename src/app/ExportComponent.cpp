@@ -1,4 +1,5 @@
 #include "ExportComponent.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -24,7 +25,7 @@ namespace
 
     void styleLabel (juce::Label& label, juce::Colour colour, float height)
     {
-        label.setFont (juce::FontOptions (height));
+        label.setFont (uiFont (height));
         label.setColour (juce::Label::textColourId, colour);
     }
 } // namespace
@@ -73,11 +74,11 @@ private:
 ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRender)
     : edit (editToRender), song (std::move (songToRender))
 {
-    styleLabel (headingLabel, textColour, 15.0f);
+    styleLabel (headingLabel, textColour, fonts::title);
     headingLabel.setText ("Export Audio", juce::dontSendNotification);
 
     for (auto* label : { &rangeLabel, &sampleRateLabel, &bitDepthLabel })
-        styleLabel (*label, dimTextColour, 12.0f);
+        styleLabel (*label, dimTextColour, fonts::small);
 
     rangeLabel.setText ("Range", juce::dontSendNotification);
     sampleRateLabel.setText ("Sample rate", juce::dontSendNotification);
@@ -122,8 +123,8 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     tailButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
     tailButton.onClick = [this] { updateRangeSummary(); };
 
-    styleLabel (summaryLabel, dimTextColour, 12.0f);
-    styleLabel (statusLabel, dimTextColour, 12.0f);
+    styleLabel (summaryLabel, dimTextColour, fonts::small);
+    styleLabel (statusLabel, dimTextColour, fonts::small);
 
     progressBar.setVisible (false);
 

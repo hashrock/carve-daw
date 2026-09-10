@@ -6,6 +6,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "Fonts.h"
+
 namespace te = tracktion;
 
 namespace carve::app
@@ -28,7 +30,7 @@ public:
     explicit EditorRow (const juce::String& rowName)
     {
         nameLabel.setText (rowName, juce::dontSendNotification);
-        nameLabel.setFont (juce::FontOptions (rowFontHeight));
+        nameLabel.setFont (uiFont (rowFontHeight));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
         addAndMakeVisible (nameLabel);
     }
@@ -38,7 +40,7 @@ public:
     // Every label in a generated editor is this size. It was 11px, which is
     // small enough to have to lean in for -- and a plugin editor is a wall of
     // these, so the whole panel read as fine print.
-    static constexpr float rowFontHeight = 13.0f;
+    static constexpr float rowFontHeight = fonts::normal;
 
     // Pulls the control back into line with whatever it edits.
     virtual void refresh() = 0;
@@ -81,7 +83,7 @@ public:
           parameter (&parameterToEdit),
           isAlive (std::move (isAliveCheck))
     {
-        valueLabel.setFont (juce::FontOptions (rowFontHeight));
+        valueLabel.setFont (uiFont (rowFontHeight));
         valueLabel.setJustificationType (juce::Justification::centredRight);
         valueLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
 

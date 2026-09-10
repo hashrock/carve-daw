@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "PianoRollComponent.h"
+#include "Fonts.h"
 
 #include "NoteGestures.h"
 #include "TimelineView.h"
@@ -1010,6 +1011,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
             g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) rowHeight - 0.5f);
 
             g.setColour (row->second.assigned ? juce::Colour (0xff2a2a2e) : juce::Colour (0xff6a6a74));
+            g.setFont (uiFont (fonts::small));   // a lane is one row tall; drawFittedText shrinks what will not fit
             g.drawFittedText (row->second.name, 3, (int) y, getKeyboardWidth() - 6, rowHeight,
                               juce::Justification::centredLeft, 1, 0.7f);
             continue;
@@ -1023,7 +1025,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
         if (drumMap.empty() && pitch % 12 == 0)
         {
             g.setColour (juce::Colour (0xff707078));
-            g.setFont (10.0f);
+            g.setFont (uiFont (fonts::small));
             g.drawText ("C" + juce::String (pitch / 12 - 1),
                         2, (int) y, getKeyboardWidth() - 8, rowHeight, juce::Justification::centredRight);
         }
@@ -1509,7 +1511,7 @@ void PianoRollRuler::paint (juce::Graphics& g)
     const auto lastVisibleBeat = juce::jmin (lengthBeats,
                                              (double) roll.xToBeat ((float) scrollOffset + width));
 
-    g.setFont (12.0f);
+    g.setFont (uiFont (fonts::small));
 
     if (drawBeatTicks)
     {
@@ -1657,7 +1659,7 @@ void PianoRollVelocityLane::paint (juce::Graphics& g)
         g.fillRect (0.0f, 1.0f, gutter, height - 1.0f);
 
         g.setColour (juce::Colour (0xff707078));
-        g.setFont (10.0f);
+        g.setFont (uiFont (fonts::small));
         g.drawText ("Vel", juce::Rectangle<float> (2.0f, 0.0f, gutter - 6.0f, height),
                     juce::Justification::centredRight, false);
     }

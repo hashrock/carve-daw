@@ -1,4 +1,5 @@
 #include "TransportBar.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -177,7 +178,7 @@ void PlayModeSwitch::paint (juce::Graphics& g)
         g.fillEllipse (lamp);
 
         g.setColour (lit ? juce::Colour (0xffe6e6ea) : captionColour);
-        g.setFont (juce::FontOptions (12.0f, lit ? juce::Font::bold : juce::Font::plain));
+        g.setFont (uiFont (fonts::small, lit ? juce::Font::bold : juce::Font::plain));
         g.drawText (text, row.withTrimmedLeft (2), juce::Justification::centredLeft);
     };
 
@@ -549,7 +550,7 @@ void TransportBar::paint (juce::Graphics& g)
         g.drawRoundedRectangle (panel.toFloat().reduced (0.5f), 5.0f, 1.0f);
     }
 
-    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    g.setFont (uiFont (fonts::small, juce::Font::bold));
     for (const auto& [area, text] : captions)
     {
         g.setColour (captionColour);
@@ -579,6 +580,11 @@ void TransportBar::resized()
     auto area = getLocalBounds().reduced (6, 5);
     const int h = area.getHeight();
 
+    // Wide enough for the caption at the app's minimum font size: these cells
+    // used to be cut to whatever 10.5pt bold needed.
+    constexpr int captionWidth = 34;        // "BPM", "BAR"
+    constexpr int wideCaptionWidth = 50;    // "Start", "Length"
+
     auto take = [&area] (int width, int gap = 0)
     {
         auto r = area.removeFromLeft (width);
@@ -605,8 +611,8 @@ void TransportBar::resized()
 
     // BPM
     {
-        auto p = panel (6 + 28 + bpmDisplay.getWidth() + 6);
-        captions.emplace_back (p.removeFromLeft (28), "BPM");
+        auto p = panel (6 + captionWidth + bpmDisplay.getWidth() + 6);
+        captions.emplace_back (p.removeFromLeft (captionWidth), "BPM");
         bpmDisplay.setBounds (p.withSizeKeepingCentre (bpmDisplay.getWidth(), 22));
     }
     divider();
@@ -624,8 +630,8 @@ void TransportBar::resized()
 
     // Bar
     {
-        auto p = panel (6 + 28 + barDisplay.getWidth() + 6);
-        captions.emplace_back (p.removeFromLeft (28), "BAR");
+        auto p = panel (6 + captionWidth + barDisplay.getWidth() + 6);
+        captions.emplace_back (p.removeFromLeft (captionWidth), "BAR");
         barDisplay.setBounds (p.withSizeKeepingCentre (barDisplay.getWidth(), 22));
     }
     divider();
@@ -633,15 +639,15 @@ void TransportBar::resized()
     // Loop: the checkbox, then start over length in two rows
     {
         const int fieldWidth = loopStartDisplay.getWidth();
-        auto p = panel (6 + 60 + 4 + 44 + fieldWidth + 6);
+        auto p = panel (6 + 60 + 4 + wideCaptionWidth + fieldWidth + 6);
         loopCheck.setBounds (p.removeFromLeft (60));
         p.removeFromLeft (4);
 
         const int rowHeight = (h - 2) / 2;
         auto top = p.removeFromTop (rowHeight);
         auto bottom = p.removeFromBottom (rowHeight);
-        captions.emplace_back (top.removeFromLeft (44), "Start");
-        captions.emplace_back (bottom.removeFromLeft (44), "Length");
+        captions.emplace_back (top.removeFromLeft (wideCaptionWidth), "Start");
+        captions.emplace_back (bottom.removeFromLeft (wideCaptionWidth), "Length");
         loopStartDisplay.setBounds (top.withSizeKeepingCentre (fieldWidth, 17));
         loopLengthDisplay.setBounds (bottom.withSizeKeepingCentre (fieldWidth, 17));
     }

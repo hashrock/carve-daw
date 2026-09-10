@@ -1,4 +1,5 @@
 #include "MissingMediaWindow.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -14,7 +15,7 @@ MissingMediaComponent::Row::Row (MissingMediaComponent& owner, juce::ValueTree n
     : node (std::move (n))
 {
     nameLabel.setText (model::FileRef::getFileName (node), juce::dontSendNotification);
-    nameLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    nameLabel.setFont (uiFont (fonts::normal, juce::Font::bold));
     nameLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 
     // Where the song last saw it: the folder is the clue to where it went.
@@ -22,7 +23,7 @@ MissingMediaComponent::Row::Row (MissingMediaComponent& owner, juce::ValueTree n
     pathLabel.setText (file != juce::File() ? file.getParentDirectory().getFullPathName()
                                             : node[model::ids::relPath].toString(),
                        juce::dontSendNotification);
-    pathLabel.setFont (juce::FontOptions (11.0f));
+    pathLabel.setFont (uiFont (fonts::small));
     pathLabel.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     pathLabel.setMinimumHorizontalScale (0.5f);
 
@@ -52,13 +53,13 @@ void MissingMediaComponent::Row::resized()
 MissingMediaComponent::MissingMediaComponent (model::Song s, std::function<void()> done)
     : song (std::move (s)), onDone (std::move (done))
 {
-    header.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    header.setFont (uiFont (fonts::title, juce::Font::bold));
     header.setColour (juce::Label::textColourId, juce::Colours::white);
 
     note.setText ("Locate each file, or search a folder for all of them by name. "
                   "The song plays without them until they are found.",
                   juce::dontSendNotification);
-    note.setFont (juce::FontOptions (12.0f));
+    note.setFont (uiFont (fonts::small));
     note.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
     viewport.setViewedComponent (&rowHolder, false);

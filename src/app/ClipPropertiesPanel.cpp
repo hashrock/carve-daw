@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "ClipPropertiesPanel.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -10,14 +11,14 @@ namespace
     void styleHeader (juce::Label& label, const juce::String& text)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (12.0f));
+        label.setFont (uiFont (fonts::small));
         label.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     }
 
     void styleField (juce::Label& label, const juce::String& text)
     {
         label.setText (text, juce::dontSendNotification);
-        label.setFont (juce::FontOptions (13.0f));
+        label.setFont (uiFont (fonts::normal));
         label.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
     }
 
@@ -48,16 +49,16 @@ ClipPropertiesPanel::ClipPropertiesPanel (juce::UndoManager& um)
     styleField (startLabel, "Start");
     styleField (audioLengthLabel, "Length");
 
-    titleLabel.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    titleLabel.setFont (uiFont (fonts::title, juce::Font::bold));
     titleLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 
     for (auto* l : { &loopLabel, &patternLengthNote, &audioLengthNote })
     {
-        l->setFont (juce::FontOptions (12.0f));
+        l->setFont (uiFont (fonts::small));
         l->setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     }
 
-    missingLabel.setFont (juce::FontOptions (12.0f));
+    missingLabel.setFont (uiFont (fonts::small));
     missingLabel.setColour (juce::Label::textColourId, warningColour);
 
     // Bars, because the playlist grid and its snapping are bar-based. A quarter

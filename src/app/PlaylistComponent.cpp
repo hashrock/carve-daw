@@ -1,5 +1,5 @@
 #include "PlaylistComponent.h"
-
+#include "Fonts.h"
 #include "TimelineView.h"
 
 #include <algorithm>
@@ -129,9 +129,17 @@ namespace
         { 4, 4 }, { 3, 4 }, { 2, 4 }, { 5, 4 }, { 6, 4 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 }
     };
 
+    // The timeline's text is a size up from the app's smallest. It is read
+    // while something else has the attention -- a clip is dragged, a knob is
+    // being turned in another window -- and the arrangement should be legible
+    // at a glance rather than examined, which is what the smaller sizes are
+    // for. The row's name is a size up again: it is what the eye scans down.
+    constexpr float timelineTextHeight = fonts::normal;
+    constexpr float rowLabelTextHeight = 14.0f;
+
     // Built where it is used rather than kept: a Font at namespace scope would
     // be constructed before the graphics side of JUCE is ready for it.
-    juce::Font markerFont()  { return juce::Font (juce::FontOptions (11.0f)); }
+    juce::Font markerFont()  { return juce::Font (uiFont (fonts::small)); }
 } // namespace
 
 PlaylistComponent::PlaylistComponent (juce::UndoManager& um)
@@ -908,7 +916,7 @@ void PlaylistComponent::paintAudioClip (juce::Graphics& g, const model::AudioCli
     }
 
     g.setColour (juce::Colours::black.withAlpha (0.75f));
-    g.setFont (12.0f);
+    g.setFont (uiFont (timelineTextHeight));
     g.drawText (clip.getName(),
                 r.withTrimmedRight (trimHandleWidth).reduced (4.0f, 0.0f).toNearestInt(),
                 juce::Justification::centredLeft);
@@ -952,7 +960,7 @@ void PlaylistComponent::paintAutomationLane (juce::Graphics& g, int row,
         g.drawHorizontalLine ((int) y, curveArea.getX(), curveArea.getRight());
 
         g.setColour (juce::Colours::white.withAlpha (0.25f));
-        g.setFont (11.0f);
+        g.setFont (uiFont (fonts::small));
         g.drawText ("click to add a point", curveArea.toNearestInt().reduced (8, 0),
                     juce::Justification::centredLeft);
         return;
@@ -1005,7 +1013,7 @@ void PlaylistComponent::paintRowLabels (juce::Graphics& g)
         g.setColour (isSelectedRow ? juce::Colour (0xff35353d) : juce::Colour (0xff2b2b30));
         g.fillRect (left, y + 1.0f, (float) labelWidth - 2.0f, (float) rowHeight - 1.0f);
         g.setColour (isSelectedRow ? juce::Colours::white : juce::Colour (0xffb8b8c0));
-        g.setFont (13.0f);
+        g.setFont (uiFont (rowLabelTextHeight));
         // Trimmed on the right so a long name never runs under the disclosure.
         g.drawText (generator.getName(), (int) left + 8, (int) y, labelWidth - 30, rowHeight,
                     juce::Justification::centredLeft);
@@ -1050,7 +1058,7 @@ void PlaylistComponent::paintRowLabels (juce::Graphics& g)
         g.setColour (juce::Colour (0xff35353d));
         g.fillRoundedRectangle (selector, 3.0f);
         g.setColour (juce::Colour (0xffb8b8c0));
-        g.setFont (12.0f);
+        g.setFont (uiFont (timelineTextHeight));
         g.drawText (info.label, selector.reduced (6.0f, 0.0f).withTrimmedRight (10.0f).toNearestInt(),
                     juce::Justification::centredLeft);
 
@@ -1114,7 +1122,7 @@ void PlaylistComponent::paintMarkerLane (juce::Graphics& g)
 
     // The label cell says what the lane is: nothing else here names it, and an
     // empty strip would otherwise read as padding.
-    g.setFont (11.0f);
+    g.setFont (uiFont (fonts::small));
     g.setColour (juce::Colour (0xff6a6a74));
     g.drawText ("TEMPO / SIG", (int) labelBandLeft() + 8, (int) lane.getY(),
                 labelWidth - 12, (int) lane.getHeight(),
@@ -1180,7 +1188,7 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
     while ((double) labelStep * narrowestBarWidth < 46.0)
         labelStep *= 2;
 
-    g.setFont (12.0f);
+    g.setFont (uiFont (timelineTextHeight));
 
     forEachBar (getContentLengthBeats(), [&] (int bar, double startBeat, double lengthBeats)
     {
@@ -1321,7 +1329,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
             const auto menuRect = patternMenuBounds (r);
 
             g.setColour (juce::Colours::black.withAlpha (0.7f));
-            g.setFont (12.0f);
+            g.setFont (uiFont (timelineTextHeight));
             g.drawText (pattern->getName(),
                         r.withTrimmedRight (menuRect.isEmpty() ? 0.0f : r.getRight() - menuRect.getX())
                          .reduced (4.0f, 0.0f).toNearestInt(),
@@ -1380,7 +1388,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
         if (fileDropTarget->row < 0)
         {
-            g.setFont (12.0f);
+            g.setFont (uiFont (timelineTextHeight));
             g.drawText ("New audio track", r.reduced (4.0f, 0.0f).toNearestInt(),
                         juce::Justification::centredLeft);
         }
@@ -1414,9 +1422,9 @@ void PlaylistComponent::paint (juce::Graphics& g)
             const auto y = valueToLaneY (point.getValue(), dragAutoInfo, curveArea);
             const auto text = dragAutoInfo.label + ": " + formatAutoValue (point.getValue());
             const auto textWidth = juce::GlyphArrangement::getStringWidth (
-                                       juce::Font (juce::FontOptions (12.0f)), text) + 10.0f;
+                                       juce::Font (uiFont (fonts::small)), text) + 10.0f;
 
-            auto box = juce::Rectangle<float> (x + 8.0f, y - 22.0f, textWidth, 15.0f);
+            auto box = juce::Rectangle<float> (x + 8.0f, y - 24.0f, textWidth, 17.0f);
 
             // Keep it readable when the point sits at the very top or right.
             if (box.getRight() > (float) getWidth())
@@ -1427,7 +1435,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
             g.setColour (juce::Colours::black.withAlpha (0.8f));
             g.fillRoundedRectangle (box, 3.0f);
             g.setColour (juce::Colours::white);
-            g.setFont (12.0f);
+            g.setFont (uiFont (fonts::small));
             g.drawText (text, box.toNearestInt(), juce::Justification::centred);
         }
     }
@@ -1448,7 +1456,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
     const auto statusX = zoomInButton.getRight() + 16;
     const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
                                                   juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
-    g.setFont (12.0f);
+    g.setFont (uiFont (timelineTextHeight));
 
     // what the paint tool is currently holding
     if (auto generator = song.findGenerator (selectedGeneratorId))

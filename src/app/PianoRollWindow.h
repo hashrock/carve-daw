@@ -8,6 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "Fonts.h"
 #include "IconButton.h"
 #include "PianoRollComponent.h"
 #include "ShortcutHelpBar.h"
@@ -31,7 +32,7 @@ public:
 
         for (auto* header : { &strengthHeader, &swingHeader })
         {
-            header->setFont (juce::FontOptions (12.0f));
+            header->setFont (uiFont (fonts::small));
             header->setJustificationType (juce::Justification::centredRight);
         }
 
@@ -56,7 +57,7 @@ public:
         // setting of its own: the grid is already what the user has been
         // drawing against, and two units to keep in step would be one too many.
         unitLabel.setText ("to the " + gridName + " grid", juce::dontSendNotification);
-        unitLabel.setFont (juce::FontOptions (12.0f));
+        unitLabel.setFont (uiFont (fonts::small));
         unitLabel.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
         applyButton.onClick = [this]
@@ -154,7 +155,7 @@ public:
         // spinner so that the unit reads before the number.
         lengthHeader.setJustificationType (juce::Justification::centredRight);
 
-        lengthNote.setFont (juce::FontOptions (11.0f));
+        lengthNote.setFont (uiFont (fonts::small));
         lengthNote.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
 
         gridHeader.setText ("Grid", juce::dontSendNotification);

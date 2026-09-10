@@ -1,4 +1,5 @@
 #include "EffectGraphs.h"
+#include "Fonts.h"
 
 namespace carve::app
 {
@@ -12,7 +13,9 @@ namespace
     constexpr float maxHz = 20000.0f;
     constexpr float gainRangeDb = te::EqualiserPlugin::maxGain;
 
-    constexpr float handleRadius = 6.0f;
+    // Big enough that the band's number inside it is readable at the app's
+    // minimum font size, which is what sets the size of the handle.
+    constexpr float handleRadius = 8.0f;
     constexpr float grabRadius = 14.0f;
 
     const juce::Colour background { 0xff1c1c20 };
@@ -48,7 +51,7 @@ std::array<EqualiserGraph::Band, 4> EqualiserGraph::bands()
 juce::Rectangle<float> EqualiserGraph::plotArea() const
 {
     // Room at the bottom for the frequency labels.
-    return getLocalBounds().toFloat().reduced (8.0f, 6.0f).withTrimmedBottom (12.0f);
+    return getLocalBounds().toFloat().reduced (8.0f, 6.0f).withTrimmedBottom (15.0f);
 }
 
 float EqualiserGraph::frequencyToX (float hz) const
@@ -115,7 +118,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
     const auto area = plotArea();
 
     // The decades, plus the thirds inside them: the lines an ear looks for.
-    g.setFont (juce::FontOptions (10.0f));
+    g.setFont (uiFont (fonts::small));
 
     for (float hz : { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f,
                       5000.0f, 10000.0f, 20000.0f })
@@ -130,7 +133,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
         {
             g.setColour (text);
             g.drawText (hz < 1000.0f ? juce::String ((int) hz) : juce::String ((int) (hz / 1000.0f)) + "k",
-                        juce::Rectangle<float> (x - 20.0f, area.getBottom(), 40.0f, 12.0f),
+                        juce::Rectangle<float> (x - 20.0f, area.getBottom(), 40.0f, 15.0f),
                         juce::Justification::centred);
         }
     }
@@ -195,7 +198,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
         g.fillEllipse (juce::Rectangle<float> (handleRadius * 2.0f, handleRadius * 2.0f).withCentre (handle));
 
         g.setColour (background);
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (uiFont (fonts::small, juce::Font::bold));
         g.drawText (juce::String (i + 1),
                     juce::Rectangle<float> (handleRadius * 2.0f, handleRadius * 2.0f).withCentre (handle),
                     juce::Justification::centred);
@@ -218,7 +221,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
                  + "   Q " + juce::String (band.q->getCurrentValue(), 2);
 
             g.setColour (bandColours[shown]);
-            g.setFont (juce::FontOptions (11.0f));
+            g.setFont (uiFont (fonts::small));
             g.drawText (description, area.reduced (4.0f, 2.0f), juce::Justification::topLeft);
         }
     }
@@ -348,8 +351,8 @@ juce::Rectangle<float> OvertopGraph::plotArea() const
     // Room down the right for the dB scale, and along the bottom for the band
     // names.
     return getLocalBounds().toFloat().reduced (8.0f, 6.0f)
-                                     .withTrimmedRight (30.0f)
-                                     .withTrimmedBottom (12.0f);
+                                     .withTrimmedRight (34.0f)
+                                     .withTrimmedBottom (15.0f);
 }
 
 juce::Rectangle<float> OvertopGraph::columnFor (int band) const
@@ -380,7 +383,7 @@ void OvertopGraph::paint (juce::Graphics& g)
 
     const auto area = plotArea();
 
-    g.setFont (juce::FontOptions (9.0f));
+    g.setFont (uiFont (fonts::small));
 
     for (float db : { 0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f })
     {
@@ -390,7 +393,7 @@ void OvertopGraph::paint (juce::Graphics& g)
 
         g.setColour (text);
         g.drawText (juce::String ((int) db),
-                    juce::Rectangle<float> (area.getRight() + 2.0f, y - 6.0f, 28.0f, 12.0f),
+                    juce::Rectangle<float> (area.getRight() + 2.0f, y - 7.5f, 32.0f, 15.0f),
                     juce::Justification::centredLeft);
     }
 
@@ -427,16 +430,16 @@ void OvertopGraph::paint (juce::Graphics& g)
             g.setColour (juce::Colours::white.withAlpha (0.75f));
             g.drawHorizontalLine ((int) gainY, column.getX(), column.getRight());
 
-            g.setFont (juce::FontOptions (9.0f));
+            g.setFont (uiFont (fonts::small));
             g.drawText ((shownGainDb[(size_t) band] > 0.0f ? "+" : "")
                          + juce::String (shownGainDb[(size_t) band], 1),
-                        column.withY (gainY - 11.0f).withHeight (10.0f),
+                        column.withY (gainY - 16.0f).withHeight (15.0f),
                         juce::Justification::centred);
         }
 
         g.setColour (text);
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-        g.drawText (bandNames[band], column.withY (area.getBottom()).withHeight (12.0f),
+        g.setFont (uiFont (fonts::small, juce::Font::bold));
+        g.drawText (bandNames[band], column.withY (area.getBottom()).withHeight (15.0f),
                     juce::Justification::centred);
     }
 
@@ -444,9 +447,9 @@ void OvertopGraph::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xffd8d8dc));
     g.drawHorizontalLine ((int) thresholdY, area.getX() - 2.0f, area.getRight() + 2.0f);
 
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (uiFont (fonts::small, juce::Font::bold));
     g.drawText (juce::String (thresholdDb, 1) + " dB",
-                juce::Rectangle<float> (area.getX(), thresholdY - 12.0f, 70.0f, 11.0f),
+                juce::Rectangle<float> (area.getX(), thresholdY - 16.0f, 70.0f, 15.0f),
                 juce::Justification::centredLeft);
 
     // A grip, so it looks like the draggable thing it is.

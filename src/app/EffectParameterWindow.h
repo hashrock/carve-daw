@@ -8,6 +8,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "Fonts.h"
 #include "EffectGraphs.h"
 #include "ParameterRows.h"
 #include "PresetManager.h"
@@ -64,7 +65,7 @@ public:
         if (rows.empty())
         {
             g.setColour (juce::Colour (0xff9a9aa4));
-            g.setFont (juce::FontOptions (13.0f));
+            g.setFont (uiFont (fonts::normal));
             g.drawText ("This effect has no editable parameters.",
                         getLocalBounds(), juce::Justification::centred);
         }
@@ -130,7 +131,7 @@ public:
         auto area = getLocalBounds().reduced (6, 2);
 
         g.setColour (juce::Colour (0xffd8d8dc));
-        g.setFont (juce::FontOptions (EditorRow::rowFontHeight));
+        g.setFont (uiFont (EditorRow::rowFontHeight));
         g.drawText ("Reduction", area.removeFromLeft (nameWidth), juce::Justification::centredLeft);
 
         auto valueArea = area.removeFromRight (valueWidth);

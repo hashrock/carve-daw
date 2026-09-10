@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "Fonts.h"
 
 #include "sync/EngineIds.h"
 
@@ -354,7 +355,7 @@ PresetBar::PresetBar (te::Plugin& plugin)
     menuButton.onClick = [this] { showMenu(); };
     addAndMakeVisible (menuButton);
 
-    nameLabel.setFont (juce::FontOptions (12.0f));
+    nameLabel.setFont (uiFont (fonts::small));
     nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
     addAndMakeVisible (nameLabel);
 
