@@ -900,6 +900,21 @@ te::Plugin* MixerComponent::findReturnEffectPlugin (const juce::String& returnId
     return nullptr;
 }
 
+// The plugin behind one slot, whoever owns the chain it sits in: a generator,
+// the master, or a return bus. Both the editor and the staleness check below
+// go through here. When they each had their own idea of where to look, a
+// return's editor opened and the very next timer tick decided the plugin it
+// was showing had gone and closed it again -- which looked exactly like the
+// slot ignoring the click.
+te::Plugin* MixerComponent::findEffectPluginForOwner (const juce::String& ownerId,
+                                                      const juce::String& effectId)
+{
+    if (auto* plugin = findEffectPlugin (ownerId, effectId))
+        return plugin;
+
+    return findReturnEffectPlugin (ownerId, effectId);
+}
+
 void MixerComponent::openEffectEditor (const juce::String& generatorId, const juce::String& effectId)
 {
     if (auto existing = effectWindows.find (effectId); existing != effectWindows.end())
@@ -909,10 +924,7 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const ju
     }
 
     // "generatorId" may name a return bus instead; both resolve to a track.
-    auto* plugin = findEffectPlugin (generatorId, effectId);
-
-    if (plugin == nullptr)
-        plugin = findReturnEffectPlugin (generatorId, effectId);
+    auto* plugin = findEffectPluginForOwner (generatorId, effectId);
 
     if (plugin == nullptr)
         return;   // EditSync has not built this one yet
@@ -997,7 +1009,7 @@ void MixerComponent::closeStaleEffectWindows()
     juce::StringArray stale;
 
     for (const auto& [effectId, open] : effectWindows)
-        if (findEffectPlugin (open.generatorId, effectId) != open.plugin.get())
+        if (findEffectPluginForOwner (open.generatorId, effectId) != open.plugin.get())
             stale.add (effectId);
 
     // Erasing inside the loop above would invalidate it.

@@ -104,6 +104,11 @@ private:
     te::Plugin* findEffectPlugin (const juce::String& generatorId,
                                   const juce::String& effectId) const;
 
+    // The plugin behind a slot, wherever its chain lives. Everything that has
+    // to match a slot to a live plugin goes through this rather than picking
+    // one of the two lookups below and getting returns wrong.
+    te::Plugin* findEffectPluginForOwner (const juce::String& ownerId, const juce::String& effectId);
+
     void openEffectEditor (const juce::String& generatorId, const juce::String& effectId);
     te::Plugin* findReturnEffectPlugin (const juce::String& returnId, const juce::String& effectId);
     void closeEffectWindow (const juce::String& effectId);
