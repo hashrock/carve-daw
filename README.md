@@ -191,8 +191,25 @@ AU / VST3 を読み込むための `disable-library-validation` だけを
 入力を開くように戻す場合は、`getAvailableBufferSizes()` から要求サイズを選ぶか、
 JUCE 側にパッチを当てること。
 
-## ライセンス注意
+## ライセンス
 
-tracktion_engine は GPLv3 / 商用デュアルライセンス。クローズドソース配布には
-商用ライセンスが必要。同梱の AirWindows (189 種、`TRACKTION_AIR_WINDOWS` で
-有効化可) は同梱コピーにライセンス文が無いため未使用のまま。
+**AGPL-3.0-or-later**。全文は [LICENSE](LICENSE)、経緯と依存関係の一覧は
+[NOTICE.md](NOTICE.md) にある。
+
+選んだというより、土台から決まる: tracktion_engine 3.2.0 が GPL3 / 商用の
+デュアル、その中の JUCE 8.0.6 が AGPL3 / 商用のデュアルで、商用ライセンスを
+買っていないのでコピーレフト側になる。いちばん強い AGPL に揃う。
+
+AGPL のネットワーク条項 (13条) はネットワーク越しに使わせるソフトの話で、本アプリは
+何処とも通信しないデスクトップアプリなので、実際の義務は普通の GPL と同じ
+「受け取った人がソースを手に入れられること」= このリポジトリ。
+
+配布は **GitHub Releases の公証済み .dmg** (`scripts/release.sh` が署名・公証・
+staple まで行う)。**Mac App Store には出せない**: App Store の規約が課す DRM・
+台数制限・再配布禁止は、GPL/AGPL が禁じている「追加の制限」にあたる。無償でも
+ソース公開でも解消しない (VLC が 2011 年に同じ理由で削除されている)。
+App Store に出すなら tracktion_engine と JUCE の商用ライセンスを買った上で、
+ライセンスとは別にサンドボックスの制約から VST3 ホスティングを諦めることになる。
+
+同梱の AirWindows (189 種、`TRACKTION_AIR_WINDOWS` で有効化可) は同梱コピーに
+ライセンス文が無いため未使用のまま。

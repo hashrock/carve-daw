@@ -10,7 +10,9 @@ class Application : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override     { return "Carve DAW"; }
-    const juce::String getApplicationVersion() override  { return "0.1.0"; }
+    // From the build rather than typed here, where it went stale: this said
+    // 0.1.0 while the project was at 0.11.0.
+    const juce::String getApplicationVersion() override  { return JUCE_APPLICATION_VERSION_STRING; }
 
     void initialise (const juce::String& commandLine) override
     {
@@ -29,7 +31,15 @@ public:
 
        #if JUCE_MAC
         menu = std::make_unique<Menu> (*this);
-        juce::MenuBarModel::setMacMainMenu (menu.get());
+
+        // About, in the Apple menu where macOS puts it. Not decoration: the
+        // AGPL asks an interactive program to offer somewhere prominent that
+        // says who holds the copyright, that there is no warranty, that it may
+        // be redistributed under that licence, and where to read it.
+        juce::PopupMenu appleMenu;
+        appleMenu.addItem (Menu::aboutItemID, "About " + getApplicationName());
+
+        juce::MenuBarModel::setMacMainMenu (menu.get(), &appleMenu);
        #endif
     }
 
@@ -68,6 +78,32 @@ public:
     }
 
 private:
+    // What the AGPL calls the Appropriate Legal Notices: the copyright, the
+    // absence of a warranty, the freedom to pass it on under the same terms,
+    // and where the licence itself is. See NOTICE.md for why this app is
+    // under that licence and not a shorter one.
+    void showAbout()
+    {
+        const juce::String text =
+            getApplicationName() + " " + getApplicationVersion() + "\n"
+            "Copyright (C) 2026 hashrock\n"
+            "\n"
+            "This program comes with ABSOLUTELY NO WARRANTY.\n"
+            "\n"
+            "It is free software: you may redistribute it under the terms of the "
+            "GNU Affero General Public License, version 3 or later. The full text is "
+            "in the LICENSE file beside the source, and at "
+            "https://www.gnu.org/licenses/agpl-3.0.html\n"
+            "\n"
+            "Source: https://github.com/hashrock/carve-daw\n"
+            "\n"
+            "Built on tracktion_engine (GPL-3.0-or-later) and JUCE (AGPL-3.0), "
+            "with the rest of the third-party licences listed in NOTICE.md.";
+
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon,
+                                                     getApplicationName(), text);
+    }
+
     MainComponent* getMainComponent() const
     {
         return mainWindow != nullptr ? dynamic_cast<MainComponent*> (mainWindow->getContentComponent())
@@ -145,8 +181,17 @@ private:
             return m;
         }
 
+        // The Apple menu's own item, which arrives here like any other.
+        static constexpr int aboutItemID = 9000;
+
         void menuItemSelected (int itemID, int) override
         {
+            if (itemID == aboutItemID)
+            {
+                owner.showAbout();
+                return;
+            }
+
             if (auto main = owner.getMainComponent())
             {
                 if (itemID >= firstRecentItemID)

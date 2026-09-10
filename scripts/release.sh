@@ -137,6 +137,12 @@ staging=$(mktemp -d)
 ditto "$app" "$staging/Carve DAW.app"
 ln -s /Applications "$staging/Applications"
 
+# The licence travels with the binary: the AGPL asks that every recipient of
+# the program gets a copy of it, and a link in an About box is not that. The
+# source it was built from is the repository the notice points at.
+cp LICENSE "$staging/LICENSE.txt"
+cp NOTICE.md "$staging/NOTICE.txt"
+
 rm -f "$dmg"
 hdiutil create -volname "Carve DAW" -srcfolder "$staging" -ov -format UDZO -quiet "$dmg"
 rm -rf "$staging"
