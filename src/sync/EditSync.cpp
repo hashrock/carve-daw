@@ -1567,7 +1567,19 @@ void flushSamplerLoads (te::Edit& edit)
 
 void EditSync::captureLivePluginState()
 {
-    // Return busses first: their reverbs have knobs too.
+    // The master's own chain. It was left out of here until a new song started
+    // arriving with a limiter on it, at which point "my settings come back at
+    // their defaults" stopped being something only the handful of people who
+    // put an effect on the master ever saw.
+    {
+        auto master = song.getMasterBus();
+
+        for (auto effect : master.getEffects())
+            if (auto plugin = findEffectPlugin (edit.getMasterPluginList(), effect.getId()))
+                captureEffectState (effect, *plugin);
+    }
+
+    // Return busses next: their reverbs have knobs too.
     for (auto track : te::getAudioTracks (edit))
     {
         const auto returnTrackId = sync::getReturnTrackId (*track);
