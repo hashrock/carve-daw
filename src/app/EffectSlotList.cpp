@@ -1,5 +1,6 @@
 #include "EffectSlotList.h"
 
+#include "../plugins/DelayPlugin.h"
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
 
@@ -30,7 +31,7 @@ namespace
         { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },
         { plugins::SaturationPlugin::xmlTypeName, "Saturation", "Sat" },
         { "reverb",       "Reverb",               "Reverb" },
-        { "delay",        "Delay",                "Delay" },
+        { plugins::DelayPlugin::xmlTypeName, "Delay", "Delay" },
         { "chorus",       "Chorus",               "Chorus" },
         { "phaser",       "Phaser",               "Phaser" },
         { "pitchShifter", "Pitch Shifter",        "Pitch" },

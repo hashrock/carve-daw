@@ -55,7 +55,9 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 - **ミキサー**: ストリップ名のダブルクリックで Generator ウィンドウ。
   センド / リターンバス。コンプは別 Generator を**サイドチェイン**元に
   できる。コンプのウィンドウにはリダクション量のメーターが出る。エフェクトは
-  tracktion 内蔵 + 自前の Distortion / Saturation + VST3 / AU
+  tracktion 内蔵 + 自前の Distortion / Saturation / **Delay** (テンポ同期の音価、
+  量で効くピンポン、L に対する R のオフセット、フィードバック内の低域/高域カット、
+  ディレイタイムの LFO、幅) + VST3 / AU
 - **オートメーション**: パラメータカーブと LFO モディファイア。どちらも拍基準で
   テンポ変更に追従
 
