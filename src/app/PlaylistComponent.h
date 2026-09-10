@@ -193,8 +193,8 @@ private:
     // is already a drag target for the loop range, and a marker sitting in it
     // would mean every ruler press had to decide which of the two it meant.
     static constexpr int toolbarHeight = 26;
-    static constexpr int markerLaneHeight = 18;
-    static constexpr int rulerHeight = 18;
+    static constexpr int markerLaneHeight = 20;
+    static constexpr int rulerHeight = 20;
     static constexpr int headerHeight = toolbarHeight + markerLaneHeight + rulerHeight;
 
     // Zoom limits, in pixels per beat. The bottom of the range is where a

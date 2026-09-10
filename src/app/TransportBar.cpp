@@ -582,8 +582,8 @@ void TransportBar::resized()
 
     // Wide enough for the caption at the app's minimum font size: these cells
     // used to be cut to whatever 10.5pt bold needed.
-    constexpr int captionWidth = 34;        // "BPM", "BAR"
-    constexpr int wideCaptionWidth = 50;    // "Start", "Length"
+    constexpr int captionWidth = 36;        // "BPM", "BAR"
+    constexpr int wideCaptionWidth = 54;    // "Start", "Length"
 
     auto take = [&area] (int width, int gap = 0)
     {

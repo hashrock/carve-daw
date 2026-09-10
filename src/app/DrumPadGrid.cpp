@@ -224,7 +224,7 @@ void DrumPadGrid::paint (juce::Graphics& g)
         g.setFont (uiFont (fonts::small));
         g.setColour (juce::Colour (0xff8a8a94));
         g.drawText (drumkit::getNoteName (drumkit::getNoteForPad (pad)),
-                    text.removeFromTop (14), juce::Justification::centredLeft);
+                    text.removeFromTop (15), juce::Justification::centredLeft);
 
         // An empty pad says what to do with it rather than showing nothing,
         // because a grid of blank squares doesn't look clickable.

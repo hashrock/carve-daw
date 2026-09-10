@@ -110,11 +110,14 @@ void PianoRollComponent::setDrumMap (std::map<int, DrumRow> newMap)
         return;
 
     const auto widthBefore = getKeyboardWidth();
+    const auto rowHeightBefore = getRowHeight();
     drumMap = std::move (newMap);
 
     // The column's width is part of the roll's own width, so a map arriving
-    // resizes it -- and the ruler, which measures from the same number.
-    if (getKeyboardWidth() != widthBefore)
+    // resizes it -- and the ruler, which measures from the same number. A map
+    // arriving or leaving also changes how tall a row is, which is the roll's
+    // height.
+    if (getKeyboardWidth() != widthBefore || getRowHeight() != rowHeightBefore)
         updateSize();
 
     repaint();
@@ -224,7 +227,7 @@ void PianoRollComponent::updateSize()
     if (auto* viewport = getViewport())
         width = juce::jmax (width, viewport->getMaximumVisibleWidth());
 
-    setSize (width, (highestPitch - lowestPitch + 1) * rowHeight);
+    setSize (width, (highestPitch - lowestPitch + 1) * getRowHeight());
 }
 
 double PianoRollComponent::getLengthBeats() const
@@ -251,8 +254,8 @@ void PianoRollComponent::setPlayheadBeat (std::optional<double> beat)
         repaint();
     }
 }
-int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / rowHeight); }
-float PianoRollComponent::pitchToY (int pitch) const   { return (float) ((highestPitch - pitch) * rowHeight); }
+int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / getRowHeight()); }
+float PianoRollComponent::pitchToY (int pitch) const   { return (float) ((highestPitch - pitch) * getRowHeight()); }
 
 void PianoRollComponent::setPixelsPerBeat (double newPixelsPerBeat, float anchorX)
 {
@@ -326,7 +329,7 @@ double PianoRollComponent::minLengthBeats (const juce::ModifierKeys& mods) const
 juce::Rectangle<float> PianoRollComponent::noteBounds (const model::Note& note) const
 {
     return { beatToX (note.getStart()), pitchToY (note.getPitch()),
-             (float) (note.getLength() * pixelsPerBeat), (float) rowHeight };
+             (float) (note.getLength() * pixelsPerBeat), (float) getRowHeight() };
 }
 
 std::optional<model::Note> PianoRollComponent::noteAt (juce::Point<float> position) const
@@ -902,18 +905,18 @@ void PianoRollComponent::paint (juce::Graphics& g)
             if (! playable)
             {
                 g.setColour (juce::Colour (0xff18181c));
-                g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) rowHeight);
+                g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) getRowHeight());
             }
         }
         else if (isBlackKey (pitch))
         {
             g.setColour (juce::Colour (0xff1c1c20));
-            g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) rowHeight);
+            g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) getRowHeight());
         }
         if (pitch % 12 == 0)   // octave line above each C row
         {
             g.setColour (juce::Colour (0xff3a3a40));
-            g.drawHorizontalLine ((int) y + rowHeight, (float) getKeyboardWidth(), gridRight);
+            g.drawHorizontalLine ((int) y + getRowHeight(), (float) getKeyboardWidth(), gridRight);
         }
     }
 
@@ -1008,11 +1011,11 @@ void PianoRollComponent::paint (juce::Graphics& g)
             // filled: the same distinction the shading in the grid makes, so
             // the eye can start at either end.
             g.setColour (row->second.assigned ? juce::Colour (0xffd8d8dc) : juce::Colour (0xff34343a));
-            g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) rowHeight - 0.5f);
+            g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) getRowHeight() - 0.5f);
 
             g.setColour (row->second.assigned ? juce::Colour (0xff2a2a2e) : juce::Colour (0xff6a6a74));
             g.setFont (uiFont (fonts::small));   // a lane is one row tall; drawFittedText shrinks what will not fit
-            g.drawFittedText (row->second.name, 3, (int) y, getKeyboardWidth() - 6, rowHeight,
+            g.drawFittedText (row->second.name, 3, (int) y, getKeyboardWidth() - 6, getRowHeight(),
                               juce::Justification::centredLeft, 1, 0.7f);
             continue;
         }
@@ -1020,14 +1023,14 @@ void PianoRollComponent::paint (juce::Graphics& g)
         g.setColour (drumMap.empty() ? (isBlackKey (pitch) ? juce::Colour (0xff2a2a2e)
                                                            : juce::Colour (0xffd8d8dc))
                                      : juce::Colour (0xff232327));   // outside the kit
-        g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) rowHeight - 0.5f);
+        g.fillRect (0.0f, y, (float) getKeyboardWidth() - 2.0f, (float) getRowHeight() - 0.5f);
 
         if (drumMap.empty() && pitch % 12 == 0)
         {
             g.setColour (juce::Colour (0xff707078));
             g.setFont (uiFont (fonts::small));
             g.drawText ("C" + juce::String (pitch / 12 - 1),
-                        2, (int) y, getKeyboardWidth() - 8, rowHeight, juce::Justification::centredRight);
+                        2, (int) y, getKeyboardWidth() - 8, getRowHeight(), juce::Justification::centredRight);
         }
     }
 }
@@ -1329,7 +1332,7 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
         // note grabbed near the top of its row jumped to the next one after a
         // pixel of movement; this way it takes half a row either way.
         const auto rowsMoved = (int) std::lround ((dragStartPosition.y - e.position.y)
-                                                      / (float) rowHeight);
+                                                      / (float) getRowHeight());
 
         dragSelectionTo (snapNearest (xToBeat (e.position.x) - grabOffsetBeats, e.mods),
                          dragAnchorOriginPitch + rowsMoved);

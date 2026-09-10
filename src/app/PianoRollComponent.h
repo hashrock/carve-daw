@@ -245,15 +245,22 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
-    static constexpr int rowHeight = 12;
+    // A note row is as short as a note needs to be. A drum lane is not: it
+    // carries the sound's name, and a name the app has to shrink to fit is
+    // exactly the text the minimum font size exists to stop (see Fonts.h).
+    static constexpr int noteRowHeight = 12;
+    static constexpr int drumRowHeight = 16;
+
+    int getRowHeight() const  { return drumMap.empty() ? noteRowHeight : drumRowHeight; }
+
     static constexpr int lowestPitch = 24;    // C1
     static constexpr int highestPitch = 96;   // C7
     static constexpr float resizeZoneWidth = 6.0f;
 
     // How far outside a selected note's bounds a right click still counts as
     // on it: the width of the selection outline, and a little more, since the
-    // rows are only 12px tall and a secondary click on a trackpad lands a
-    // pixel or two from where the pointer was.
+    // rows are short and a secondary click on a trackpad lands a pixel or two
+    // from where the pointer was.
     static constexpr float selectedNoteHitSlack = 3.0f;
     static constexpr double defaultLengthBeats = 16.0;   // grid shown with no pattern loaded
     static constexpr int defaultNoteVelocity = 100;

@@ -17,13 +17,18 @@ namespace carve::app
 // give.
 namespace fonts
 {
-    constexpr float minimumHeight = 12.0f;
+    // 13, not 12. Most of the app was already drawing at 12, so a floor there
+    // would have raised a handful of axis labels by a pixel and left every
+    // name, value and readout exactly as it was -- a change that measures but
+    // does not show. The floor has to sit above where the app already was, or
+    // it is not raising anything.
+    constexpr float minimumHeight = 13.0f;
 
     // What the app actually distinguishes. Anything else is a component with a
     // reason, and it still gets the floor.
-    constexpr float small = 12.0f;     // secondary text: units, hints, axis labels
-    constexpr float normal = 13.0f;    // most text: names, values, readouts
-    constexpr float title = 15.0f;     // the heading of a panel or a window
+    constexpr float small = 13.0f;     // secondary text: units, hints, axis labels
+    constexpr float normal = 14.0f;    // most text: names, values, readouts
+    constexpr float title = 16.0f;     // the heading of a panel or a window
 } // namespace fonts
 
 // A font at this height or the minimum, whichever is larger.

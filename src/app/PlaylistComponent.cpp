@@ -135,7 +135,7 @@ namespace
     // at a glance rather than examined, which is what the smaller sizes are
     // for. The row's name is a size up again: it is what the eye scans down.
     constexpr float timelineTextHeight = fonts::normal;
-    constexpr float rowLabelTextHeight = 14.0f;
+    constexpr float rowLabelTextHeight = 15.0f;
 
     // Built where it is used rather than kept: a Font at namespace scope would
     // be constructed before the graphics side of JUCE is ready for it.
