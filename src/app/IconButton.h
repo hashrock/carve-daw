@@ -417,4 +417,26 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IconButton)
 };
 
+//==============================================================================
+// The strip of tools above a view that shows time running left to right. The
+// playlist has one and the piano roll has one, and to anyone using them they
+// are the same strip: the same pencil, the same rubber band, the same pair of
+// zoom buttons.
+//
+// They were laid out separately, each with its own hand-written pixel widths,
+// and came out 18px tall in the playlist against 24px in the piano roll --
+// which IconButton then turned into two different icon sizes and two different
+// font sizes, since it takes both from the button's height. Nobody chose that;
+// it is what two sets of numbers do when they are written a month apart. So
+// the numbers live here, once.
+namespace toolStrip
+{
+    constexpr int height = 34;         // the strip itself
+    constexpr int verticalPadding = 5; // above and below the buttons
+    constexpr int buttonHeight = height - verticalPadding * 2;
+
+    constexpr int toolWidth = 70;      // "Paint" / "Draw", "Select"
+    constexpr int zoomWidth = 24;      // the two magnifiers, which carry no word
+} // namespace toolStrip
+
 } // namespace carve::app

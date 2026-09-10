@@ -393,11 +393,12 @@ void PlaylistComponent::moved()
 void PlaylistComponent::layOutToolStrip()
 {
     const auto origin = visibleOrigin();
-    const auto h = toolbarHeight - 8;
-    paintToolButton.setBounds (origin.x + 6, origin.y + 4, 68, h);
-    selectToolButton.setBounds (paintToolButton.getRight(), origin.y + 4, 70, h);
-    zoomOutButton.setBounds (selectToolButton.getRight() + 12, origin.y + 4, 24, h);
-    zoomInButton.setBounds (zoomOutButton.getRight(), origin.y + 4, 24, h);
+    const auto y = origin.y + toolStrip::verticalPadding;
+    const auto h = toolStrip::buttonHeight;
+    paintToolButton.setBounds (origin.x + 6, y, toolStrip::toolWidth, h);
+    selectToolButton.setBounds (paintToolButton.getRight(), y, toolStrip::toolWidth, h);
+    zoomOutButton.setBounds (selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
+    zoomInButton.setBounds (zoomOutButton.getRight(), y, toolStrip::zoomWidth, h);
 
     // "+ Generator" sits under the last row rather than in the toolbar: the row
     // labels down the left *are* the generator list, and the way to add to a

@@ -368,7 +368,7 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 5);
+        auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, toolStrip::verticalPadding);
         shortcutBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
 
         // The ruler and the lane are placed by updateStrips(), which has to
@@ -386,10 +386,10 @@ public:
         };
 
         place (nameLabel, 180, 18);
-        place (drawToolButton, 66, 0);
-        place (selectToolButton, 70, 12);
-        place (zoomOutButton, 24, 0);
-        place (zoomInButton, 24, 18);
+        place (drawToolButton, toolStrip::toolWidth, 0);
+        place (selectToolButton, toolStrip::toolWidth, 12);
+        place (zoomOutButton, toolStrip::zoomWidth, 0);
+        place (zoomInButton, toolStrip::zoomWidth, 18);
         place (lengthHeader, 74, 4);
         place (lengthSlider, 64, 6);
         place (lengthNote, 130, 18);
@@ -400,7 +400,7 @@ public:
     }
 
 private:
-    static constexpr int toolbarHeight = 34;
+    static constexpr int toolbarHeight = toolStrip::height;
     static constexpr const char* snapKey = "snap";
 
     // Its own file rather than a second handle on the mixer's or the browser's:
