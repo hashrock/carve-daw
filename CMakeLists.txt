@@ -135,6 +135,9 @@ target_sources(carve PRIVATE
     src/app/PresetManager.h
     src/app/PresetManager.cpp
     src/app/SelectionModifiers.h
+    src/app/SettingsComponent.h
+    src/app/SettingsComponent.cpp
+    src/app/SettingsWindow.h
     src/app/SampleBrowser.h
     src/app/SampleBrowser.cpp
     src/app/PlaylistComponent.h

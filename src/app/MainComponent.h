@@ -9,6 +9,7 @@
 #include "MissingMediaWindow.h"
 #include "ExportWindow.h"
 #include "MidiInputController.h"
+#include "SettingsWindow.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
@@ -45,7 +46,7 @@ public:
     {
         newSong, openSong, openDemoSong, save, saveAs, exportWav,
         undo, redo,
-        toggleBrowser, openMixer, openPatternEditor, pluginManager
+        toggleBrowser, openMixer, openPatternEditor, pluginManager, settings
     };
 
     void perform (Action);
@@ -106,6 +107,7 @@ private:
     void rememberRecentSong (const juce::File& songFile);
     void openDemoSong();
     void openPluginManager();
+    void openSettings();
     void openPatternEditor();
 
     // One window per selection, the tab picking which half is in front. The
@@ -189,6 +191,7 @@ private:
     std::unique_ptr<GeneratorWindow> generatorWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
+    std::unique_ptr<SettingsWindow> settingsWindow;
 
     // Live MIDI in, and recording it into whatever is playing. Declared after
     // the Edit it plays into and before the windows that can outlive a song.

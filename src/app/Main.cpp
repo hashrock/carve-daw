@@ -44,6 +44,14 @@ public:
         // be redistributed under that licence, and where to read it.
         juce::PopupMenu appleMenu;
         appleMenu.addItem (Menu::aboutItemID, "About " + getApplicationName());
+        appleMenu.addSeparator();
+
+        // Where macOS users look for it, shortcut and all. It is in the View
+        // menu too, because that is where everything else the app opens is.
+        juce::PopupMenu::Item settingsItem ("Settings...");
+        settingsItem.itemID = Menu::settingsItemID;
+        settingsItem.shortcutKeyDescription = "Cmd+,";
+        appleMenu.addItem (std::move (settingsItem));
 
         juce::MenuBarModel::setMacMainMenu (menu.get(), &appleMenu);
        #endif
@@ -193,19 +201,29 @@ private:
                 add (Action::openPatternEditor, "Pattern Editor");
                 m.addSeparator();
                 add (Action::pluginManager, "Plugins...");
+                add (Action::settings, "Settings...", "Cmd+,");
             }
 
             return m;
         }
 
-        // The Apple menu's own item, which arrives here like any other.
+        // The Apple menu's own items, which arrive here like any other.
         static constexpr int aboutItemID = 9000;
+        static constexpr int settingsItemID = 9001;
 
         void menuItemSelected (int itemID, int) override
         {
             if (itemID == aboutItemID)
             {
                 owner.showAbout();
+                return;
+            }
+
+            if (itemID == settingsItemID)
+            {
+                if (auto main = owner.getMainComponent())
+                    main->perform (MainComponent::Action::settings);
+
                 return;
             }
 

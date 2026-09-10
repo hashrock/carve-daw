@@ -11,6 +11,12 @@ namespace
     // model puts under a drawn one.
     constexpr double minNoteLengthBeats = model::Note::minLengthBeats;
 
+    // The physical MIDI inputs this app has already offered to switch on,
+    // kept beside the rest of the app's settings (see EngineSetup.h). It is
+    // what tells "a keyboard nobody has ever seen" from "a keyboard somebody
+    // switched off".
+    constexpr const char* seenMidiInputsKey = "midiInputsSeen";
+
     int toVelocity (float normalised)
     {
         return juce::jlimit (1, 127, juce::roundToInt (normalised * 127.0f));
@@ -102,30 +108,45 @@ void MidiInputController::refreshDevices()
                 || device->getDeviceType() != te::InputDevice::physicalMidiDevice;
     });
 
-    for (auto& device : listeningTo)
-    {
-        const bool stillThere = std::find (wanted.begin(), wanted.end(), device) != wanted.end();
-
-        if (! stillThere)
-            device->keyboardState.removeListener (this);
-    }
+    // A device the app has never seen is switched on, once. Opening a MIDI
+    // input is not the audio input this app deliberately leaves shut (see
+    // EngineSetup.h) -- a different driver and a different bug -- and a
+    // keyboard just plugged in should play without a trip to the settings.
+    // After that the setting is the user's: Settings > MIDI input turns them
+    // off and on, and this follows.
+    auto& properties = engine.getPropertyStorage().getPropertiesFile();
+    auto seen = juce::StringArray::fromTokens (properties.getValue (seenMidiInputsKey), "\n", "");
+    bool seenChanged = false;
 
     for (auto& device : wanted)
     {
-        const bool already = std::find (listeningTo.begin(), listeningTo.end(), device) != listeningTo.end();
-
-        if (already)
+        if (seen.contains (device->getDeviceID()))
             continue;
 
-        // Opening a MIDI input is not the audio input this app deliberately
-        // leaves shut (see EngineSetup.h) -- it is a different driver and a
-        // different bug. A keyboard is no use to anybody switched off, and
-        // the app has nowhere to switch it on, so it is on.
-        if (! device->isEnabled())
-            device->setEnabled (true);
+        seen.add (device->getDeviceID());
+        seenChanged = true;
 
-        device->keyboardState.addListener (this);
+        if (! device->isEnabled())
+            device->setEnabled (true);   // asks the engine for a rescan, asynchronously
     }
+
+    if (seenChanged)
+        properties.setValue (seenMidiInputsKey, seen.joinIntoString ("\n"));
+
+    // Only the ones that are on: a device switched off in the settings is one
+    // this must not be holding a listener on.
+    std::erase_if (wanted, [] (const std::shared_ptr<te::MidiInputDevice>& device)
+    {
+        return ! device->isEnabled();
+    });
+
+    for (auto& device : listeningTo)
+        if (std::find (wanted.begin(), wanted.end(), device) == wanted.end())
+            device->keyboardState.removeListener (this);
+
+    for (auto& device : wanted)
+        if (std::find (listeningTo.begin(), listeningTo.end(), device) == listeningTo.end())
+            device->keyboardState.addListener (this);
 
     listeningTo = std::move (wanted);
 }

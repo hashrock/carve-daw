@@ -602,6 +602,26 @@ void MainComponent::openExport()
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
 }
 
+void MainComponent::openSettings()
+{
+    if (settingsWindow != nullptr)
+    {
+        settingsWindow->toFront (true);
+        return;
+    }
+
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->settingsWindow.reset();
+        });
+    };
+
+    settingsWindow = std::make_unique<SettingsWindow> (engine, std::move (onClose));
+}
+
 void MainComponent::openMixer()
 {
     if (mixerWindow != nullptr)
@@ -939,6 +959,7 @@ void MainComponent::perform (Action action)
         case Action::openMixer:         openMixer(); break;
         case Action::openPatternEditor: openPatternEditor(); break;
         case Action::pluginManager:     openPluginManager(); break;
+        case Action::settings:          openSettings(); break;
     }
 }
 
@@ -962,6 +983,11 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
     if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
     {
         transportBar->toggleRecord();
+        return true;
+    }
+    if (key == juce::KeyPress (',', juce::ModifierKeys::commandModifier, 0))
+    {
+        openSettings();
         return true;
     }
 
