@@ -232,6 +232,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     rewindButton.onClick = [this] { stepBar (-1); };
     forwardButton.onClick = [this] { stepBar (1); };
     playButton.onClick = [this] { togglePlay(); };
+    recordButton.onClick = [this] { toggleRecord(); };
     stopButton.onClick = [this]
     {
         auto& transport = edit.getTransport();
@@ -246,13 +247,19 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     rewindButton.setTooltip ("Back a bar");
     forwardButton.setTooltip ("Forward a bar");
     playButton.setTooltip ("Play / pause (Space)");
+    recordButton.setTooltip ("Record MIDI into the playing pattern (Cmd+R)");
     stopButton.setTooltip ("Stop and return to the start");
 
-    for (auto* b : { &rewindButton, &playButton, &stopButton, &forwardButton, &undoButton, &redoButton })
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton,
+                     &undoButton, &redoButton })
         b->setFlat (true);
 
     // Play is lit while the song runs, the way the pattern lamp is.
     playButton.setColour (juce::TextButton::textColourOnId, accent);
+
+    // Red rather than the app's accent: the one control whose colour is a
+    // convention older than any of this.
+    recordButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xffe0503c));
 
     // --- bar
     barDisplay.onStep = [this] (int direction) { stepBar (direction); };
@@ -303,7 +310,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &logoButton, &bpmDisplay, &playMode,
-             &rewindButton, &playButton, &stopButton, &forwardButton,
+             &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton,
              &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
              &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter, &documentLabel })
         addAndMakeVisible (c);
@@ -495,6 +502,33 @@ void TransportBar::togglePlay()
     transport.play (false);
 }
 
+void TransportBar::toggleRecord()
+{
+    if (! recordButton.isEnabled())
+        return;
+
+    const bool wanted = ! recording;
+
+    // Recording needs the transport moving, so pressing record starts it --
+    // the way it does on anything with a record button on it.
+    if (wanted && ! edit.getTransport().isPlaying())
+        togglePlay();
+
+    if (onRecordToggled != nullptr)
+        onRecordToggled (wanted);
+}
+
+void TransportBar::setRecording (bool isRecording)
+{
+    recording = isRecording;
+    recordButton.setToggleState (recording, juce::dontSendNotification);
+}
+
+void TransportBar::setRecordAvailable (bool available)
+{
+    recordButton.setEnabled (available);
+}
+
 te::BeatRange TransportBar::patternLoopRange() const
 {
     // Never shorter than a beat: a song with nothing to audition still needs
@@ -627,8 +661,8 @@ void TransportBar::resized()
 
     // Transport
     {
-        auto p = panel (6 + 4 * 32 + 6);
-        for (auto* b : { &rewindButton, &playButton, &stopButton, &forwardButton })
+        auto p = panel (6 + 5 * 32 + 6);
+        for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton })
             b->setBounds (p.removeFromLeft (32).withSizeKeepingCentre (32, 28));
     }
     gap();

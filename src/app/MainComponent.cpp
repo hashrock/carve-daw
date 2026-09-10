@@ -33,6 +33,19 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     recentSongs.restoreFromString (engine.getPropertyStorage().getPropertiesFile()
                                        .getValue (recentSongsKey));
 
+    // Live MIDI in. Built before the controller below so that the selection
+    // callbacks, which fire from it, always have somewhere to point.
+    midiInput = std::make_unique<MidiInputController> (engine, *edit, song, undoManager);
+    midiInput->onRecordingChanged = [this] (bool isRecording)
+    {
+        transportBar->setRecording (isRecording);
+    };
+    transportBar->onRecordToggled = [this] (bool shouldRecord)
+    {
+        midiInput->setRecording (shouldRecord);
+    };
+    transportBar->setRecordAvailable (midiInput->hasMidiInput());
+
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
                                              const juce::String& patternId)
@@ -62,6 +75,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onPlayModeChanged = [this] (bool on)
     {
         patternMode = on;
+        midiInput->setPatternMode (on);
         updateAudition();
     };
     transportBar->getAuditionLengthBeats = [this] { return auditionLengthBeats(); };
@@ -238,6 +252,10 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     song = std::move (newSong);
     song.state.addListener (this);
 
+    // Before the sync: a recording still running would otherwise write its
+    // last note into a pattern that has just been replaced.
+    midiInput->setSong (song);
+
     editSync = std::make_unique<sync::EditSync> (song, *edit);
 
     // A generator added or retyped gets its instrument from the sync, which
@@ -343,6 +361,7 @@ void MainComponent::selectionChanged (const juce::String& generatorId, const juc
     selectedGeneratorId = generatorId;
     selectedPatternId = patternId;
     playlist.setSelection (generatorId, patternId);
+    midiInput->setTarget (generatorId, patternId);
 
     if (generatorWindow != nullptr)
         retargetGeneratorWindow();   // retarget the open editor to the new selection
@@ -940,6 +959,11 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
         toggleBrowser();
         return true;
     }
+    if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
+    {
+        transportBar->toggleRecord();
+        return true;
+    }
 
     if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0))
     {
@@ -1042,6 +1066,10 @@ void MainComponent::timerCallback()
     const auto songBeat = edit->tempoSequence.toBeats (position).inBeats();
 
     playlist.setPlayheadBeats (songBeat);
+
+    // A keyboard plugged in while the app is running: the device list is
+    // watched, but the button that greys itself out on it is here.
+    transportBar->setRecordAvailable (midiInput->hasMidiInput());
 
     if (generatorWindow != nullptr)
         generatorWindow->setPlayheadPatternBeat (patternBeatOfPlayhead (songBeat));

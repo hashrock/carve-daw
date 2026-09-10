@@ -8,6 +8,7 @@
 #include "ClipPropertiesPanel.h"
 #include "MissingMediaWindow.h"
 #include "ExportWindow.h"
+#include "MidiInputController.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
@@ -188,6 +189,10 @@ private:
     std::unique_ptr<GeneratorWindow> generatorWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
+
+    // Live MIDI in, and recording it into whatever is playing. Declared after
+    // the Edit it plays into and before the windows that can outlive a song.
+    std::unique_ptr<MidiInputController> midiInput;
     std::unique_ptr<MissingMediaWindow> missingMediaWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

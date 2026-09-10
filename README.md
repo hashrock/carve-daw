@@ -73,6 +73,11 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
   ディレイタイムの LFO、幅) + VST3 / AU
 - **オートメーション**: パラメータカーブと LFO モディファイア。どちらも拍基準で
   テンポ変更に追従
+- **MIDI 入力と録音**: 接続された MIDI キーボードは選択中の Generator を鳴らす。
+  録音ボタン (⌘R) を押すと再生が始まり、弾いた音がそのとき鳴っているパターンに
+  重ね書きされる — Pattern モードなら選択中のパターンにループで、Song モードなら
+  プレイリストで再生ヘッドの下にあるクリップのパターンに (クリップの transpose は
+  差し引かれる)。録音した 1 パスは undo 1 回で消える
 - **付属コンテンツ**: サンプル曲 3 曲 (File > Open Sample Song / ロゴメニュー) と
   ファクトリードラムキット 9 音。曲は内蔵音源だけで組んであるので外部ファイルを
   参照しない。キットは `content/Drums` に実ファイルとして入り (アプリバンドルの
@@ -156,6 +161,7 @@ $BIN --rate 48000 song.carve out.wav  # レートを指定 (既定 44100)
 | キー | 動作 |
 |---|---|
 | ⌘E | WAV 書き出し |
+| ⌘R | MIDI 録音の開始 / 停止 (停まっていれば再生も始まる) |
 | ⌘B | ブラウザの表示 / 非表示 |
 | ⌘D | 複製 (プレイリストではクリップ、Generator ウィンドウではパターン) |
 | B / E | ペイント / 選択ツール (プレイリスト)。Shift 押下中は一時的に選択ツールで、ペイント中はクリップの上からでも矩形選択できる |
@@ -189,11 +195,15 @@ AU / VST3 を読み込むための `disable-library-validation` だけを
 - オーディオクリップは `start` が拍 (音楽的)、`length`/`offset` が秒 (物理的)。
   テンポ変更で位置は動くが、音は伸び縮みしない
 
-### 録音に着手するときの注意
+### オーディオ入力を開かない理由 (MIDI 入力は開く)
 
-本アプリは録音しないので、`src/EngineSetup.h` でオーディオ入力を開かない
-(`shouldOpenAudioInputByDefault() == false`)。これは JUCE 8.0.6 の CoreAudio
-バックエンドにある境界外書き込みの回避も兼ねている:
+MIDI 録音はするが、オーディオは録音しない。`src/EngineSetup.h` はオーディオ入力を
+開かないままにしてある (`shouldOpenAudioInputByDefault() == false`)。MIDI 入力は
+別のドライバなのでこの話とは無関係で、`MidiInputController` が物理 MIDI 入力を
+すべて開く。
+
+オーディオ入力を開かないのは、JUCE 8.0.6 の CoreAudio バックエンドにある
+境界外書き込みを避けるためでもある:
 
 `CoreAudioInternal::reopen()` はデインターリーブ用 temp バッファをデバイスの
 実ブロックサイズで確保した後、`bufferSize` を要求値に上書きするが再確保しない。
@@ -201,8 +211,8 @@ AU / VST3 を読み込むための `disable-library-validation` だけを
 入力に 512 を要求) があると、コールバックがバッファを溢れてヒープを壊す。
 既定の入出力が別デバイスだと JUCE が AudioIODeviceCombiner を作るため踏みやすい。
 
-入力を開くように戻す場合は、`getAvailableBufferSizes()` から要求サイズを選ぶか、
-JUCE 側にパッチを当てること。
+オーディオ入力を開くように変える場合は、`getAvailableBufferSizes()` から要求サイズを
+選ぶか、JUCE 側にパッチを当てること。
 
 ## ライセンス
 

@@ -153,6 +153,23 @@ public:
     // the choice has to be handed back.
     std::function<void (int index)> onOpenSampleSong;
 
+    // Record was pressed. The bar has already started the transport if it
+    // needed starting -- recording into a transport that is not moving would
+    // be recording into one moment -- so all that is left is to say whether
+    // the recorder should be on. The recorder answers with setRecording,
+    // because it also turns itself off (see MidiInputController).
+    std::function<void (bool shouldRecord)> onRecordToggled;
+
+    // The record button, pressed from anywhere (the button itself, Cmd+R).
+    void toggleRecord();
+
+    // What the recorder is actually doing, which is what the button shows.
+    void setRecording (bool);
+
+    // Greys the button out when there is no MIDI input to record from, so
+    // "nothing happens" is visible before it is pressed rather than after.
+    void setRecordAvailable (bool);
+
     // The Browser button is a lit toggle showing whether the panel is up;
     // MainComponent owns the panel and tells the bar, so a cmd-B and a click
     // both land the same way.
@@ -217,12 +234,16 @@ private:
     model::Song song;
     juce::UndoManager& undoManager;
 
+    // What the recorder says it is doing, not what this bar asked for.
+    bool recording = false;
+
     LogoButton logoButton;
     NumberDisplay bpmDisplay { 5 };
     PlayModeSwitch playMode;
     IconButton rewindButton { "", Icon::rewind },
                playButton   { "", Icon::play },
                stopButton   { "", Icon::stop },
+               recordButton { "", Icon::record },
                forwardButton { "", Icon::fastForward };
     NumberDisplay barDisplay { 3 };
     juce::ToggleButton loopCheck { "LOOP" };
