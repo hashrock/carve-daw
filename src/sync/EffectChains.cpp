@@ -35,6 +35,19 @@ EffectChainSite generatorChainSite (const model::Generator& generator, te::Audio
     return site;
 }
 
+EffectChainSite groupChainSite (const model::Group& group, te::AudioTrack& track)
+{
+    // At the head: a group track has no instrument and no aux return in front
+    // of its chain, only the fader behind it.
+    EffectChainSite site;
+    site.ownerId = group.getId();
+    site.effects = group.getEffects();
+    site.plugins = &track.pluginList;
+    site.ownerState = track.state;
+    site.insertAt = 0;
+    return site;
+}
+
 EffectChainSite returnChainSite (const model::Return& bus, te::AudioTrack& track)
 {
     // After the aux return, which is what the sends arrive through.
@@ -66,13 +79,20 @@ std::vector<EffectChainSite> getEffectChainSites (const model::Song& song, te::E
     const auto generators = song.getGenerators();
     const auto tracks = te::getAudioTracks (edit);
 
-    // Generator order == track order, and return tracks are appended after
-    // them: the same invariant the sync itself runs on.
+    // Generator order == generator-track order, and the bus tracks (groups,
+    // then returns) are appended after them: the same invariant the sync
+    // itself runs on.
+    juce::Array<te::AudioTrack*> generatorTracks;
+
+    for (auto track : tracks)
+        if (! isBusTrack (*track))
+            generatorTracks.add (track);
+
     for (int i = 0; i < (int) generators.size(); ++i)
     {
-        if (i < tracks.size())
+        if (i < generatorTracks.size())
         {
-            sites.push_back (generatorChainSite (generators[(size_t) i], *tracks[i]));
+            sites.push_back (generatorChainSite (generators[(size_t) i], *generatorTracks[i]));
         }
         else
         {
@@ -82,6 +102,27 @@ std::vector<EffectChainSite> getEffectChainSites (const model::Song& song, te::E
             EffectChainSite site;
             site.ownerId = generators[(size_t) i].getId();
             site.effects = generators[(size_t) i].getEffects();
+            sites.push_back (std::move (site));
+        }
+    }
+
+    for (const auto& group : song.getGroups())
+    {
+        te::AudioTrack* groupTrack = nullptr;
+
+        for (auto track : tracks)
+            if (getGroupTrackId (*track) == group.getId())
+                groupTrack = track;
+
+        if (groupTrack != nullptr)
+        {
+            sites.push_back (groupChainSite (group, *groupTrack));
+        }
+        else
+        {
+            EffectChainSite site;
+            site.ownerId = group.getId();
+            site.effects = group.getEffects();
             sites.push_back (std::move (site));
         }
     }
@@ -177,9 +218,18 @@ std::vector<juce::String> findSyncProblems (const model::Song& song, te::Edit& e
             continue;
         }
 
-        if (getReturnTrackId (*tracks[i]).isNotEmpty())
-            problems.push_back ("track " + juce::String (i) + " belongs to a return bus, but generator "
+        if (isBusTrack (*tracks[i]))
+            problems.push_back ("track " + juce::String (i) + " belongs to a bus, but generator "
                                  + generators[(size_t) i].getName() + " expects to be there");
+    }
+
+    for (const auto& group : song.getGroups())
+    {
+        const auto found = std::any_of (tracks.begin(), tracks.end(),
+                                        [&group] (te::AudioTrack* t) { return getGroupTrackId (*t) == group.getId(); });
+
+        if (! found)
+            problems.push_back ("group bus " + group.getName() + " has no track");
     }
 
     for (const auto& bus : song.getReturns())
@@ -189,6 +239,41 @@ std::vector<juce::String> findSyncProblems (const model::Song& song, te::Edit& e
 
         if (! found)
             problems.push_back ("return bus " + bus.getName() + " has no track");
+    }
+
+    // Routing: a generator in a group must be feeding that group's track, and
+    // one in no group must be feeding the master. This is the half of a group
+    // that is not a chain, and nothing else checks it.
+    for (const auto& generator : generators)
+    {
+        const auto groupId = generator.getGroupId();
+
+        if (groupId.isEmpty())
+            continue;
+
+        te::AudioTrack* generatorTrack = nullptr;
+        te::AudioTrack* groupTrack = nullptr;
+        int index = 0;
+
+        for (auto track : tracks)
+        {
+            if (getGroupTrackId (*track) == groupId)
+                groupTrack = track;
+
+            if (! isBusTrack (*track))
+            {
+                if (index < (int) generators.size() && generators[(size_t) index].getId() == generator.getId())
+                    generatorTrack = track;
+
+                ++index;
+            }
+        }
+
+        if (generatorTrack == nullptr || groupTrack == nullptr)
+            continue;   // already reported above
+
+        if (generatorTrack->getOutput().getDestinationTrack() != groupTrack)
+            problems.push_back ("generator " + generator.getName() + " is in a group but does not feed it");
     }
 
     return problems;

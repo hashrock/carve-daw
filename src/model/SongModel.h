@@ -431,6 +431,19 @@ public:
     void setMuted (bool m, juce::UndoManager* um)       { state.setProperty (ids::mute, m, um); }
     void setSoloed (bool s, juce::UndoManager* um)      { state.setProperty (ids::solo, s, um); }
 
+    // The group bus this generator feeds, or empty for straight to the master.
+    // Not a mixer property: it moves audio from one bus to another, which is a
+    // different graph rather than a different fader position.
+    juce::String getGroupId() const  { return state[ids::groupId]; }
+
+    void setGroupId (const juce::String& id, juce::UndoManager* um)
+    {
+        if (id.isEmpty())
+            state.removeProperty (ids::groupId, um);
+        else
+            state.setProperty (ids::groupId, id, um);
+    }
+
     // True for the properties above. Lets listeners treat mixer moves (which
     // arrive continuously while a fader is dragged) differently from
     // structural edits.
@@ -836,6 +849,51 @@ public:
     juce::ValueTree state;
 };
 
+// A sub-mix bus. Everything whose groupId names it plays through its fader and
+// its effects on the way to the master, so a group is one compressor over four
+// drum tracks rather than four of them.
+//
+// Not a Return with the sends filled in: a send is a copy of the signal beside
+// the dry one, and this replaces where the dry one goes. That is the whole
+// difference between the two, and it is why they are two things.
+class Group
+{
+public:
+    explicit Group (juce::ValueTree v) : state (std::move (v)) {}
+
+    juce::String getId() const    { return state[ids::id]; }
+    juce::String getName() const  { return state[ids::name]; }
+
+    // Unity, not the generator's -6: a bus that changes the mix the moment it
+    // is made is a bus nobody trusts.
+    float getVolumeDb() const  { return state.getProperty (ids::volumeDb, 0.0f); }
+    float getPan() const       { return state.getProperty (ids::pan, 0.0f); }
+    bool isMuted() const       { return state.getProperty (ids::mute, false); }
+    bool isSoloed() const      { return state.getProperty (ids::solo, false); }
+
+    void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
+    void setVolumeDb (float db, juce::UndoManager* um)  { state.setProperty (ids::volumeDb, db, um); }
+    void setPan (float p, juce::UndoManager* um)        { state.setProperty (ids::pan, juce::jlimit (-1.0f, 1.0f, p), um); }
+    void setMuted (bool m, juce::UndoManager* um)       { state.setProperty (ids::mute, m, um); }
+    void setSoloed (bool s, juce::UndoManager* um)      { state.setProperty (ids::solo, s, um); }
+
+    // The same set a generator calls its mixer properties, so a fader drag on
+    // a group takes the same cheap path a fader drag on a track does.
+    static bool isMixerProperty (const juce::Identifier& property)
+    {
+        return property == ids::volumeDb || property == ids::pan
+                || property == ids::mute || property == ids::solo;
+    }
+
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
+
+    juce::ValueTree state;
+};
+
 // The mix bus. It carries the same EFFECT nodes a generator does, so one
 // effect implementation and one EditSync reconciliation cover both -- the only
 // difference is which plugin list they end up in.
@@ -986,6 +1044,20 @@ public:
     // Materialised on first use, like the playlist, so songs written before the
     // master bus existed gain nothing until something touches it.
     MasterBus getMasterBus() const;
+
+    // The group busses, in the order they were made -- which is the order the
+    // mixer shows them in and the order their tracks sit in the Edit.
+    std::vector<Group> getGroups() const;
+    std::optional<Group> findGroup (const juce::String& groupId) const;
+    Group addGroup (const juce::String& name, juce::UndoManager*);
+
+    // Takes the group and empties it: every generator it held goes back to
+    // feeding the master, in the same transaction, so undo brings the group
+    // back with its members still in it.
+    void removeGroup (const Group&, juce::UndoManager*);
+
+    // The generators feeding one group, in generator order.
+    std::vector<Generator> getGeneratorsInGroup (const juce::String& groupId) const;
 
     std::vector<Return> getReturns() const;
     std::optional<Return> findReturn (const juce::String& returnId) const;

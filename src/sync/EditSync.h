@@ -168,7 +168,11 @@ private:
             return;
         }
 
-        if (tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
+        // A group's fader is the same kind of continuous move a generator's
+        // is; everything else about a group -- its name, what is in it --
+        // changes the graph and takes the full resync below.
+        if ((tree.hasType (model::ids::GENERATOR) && model::Generator::isMixerProperty (property))
+             || (tree.hasType (model::ids::GROUP) && model::Group::isMixerProperty (property)))
             applyMixerStateOnly();
         else
             triggerAsyncUpdate();

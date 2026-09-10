@@ -11,6 +11,10 @@
 //   * the mixer's staleness check knew generators and the master and not
 //     returns, so a return bus's effect editor closed the moment it opened
 //
+// Group busses are a fourth kind of owner, and the routing that goes with
+// them -- a generator in a group feeds the group's track, one in none feeds
+// the master -- is checked here too.
+//
 // Both were the same shape: three kinds of owner, enumerated by hand in one
 // place and enumerated differently in another. So the sequence here is made of
 // the edits that add and remove owners and the things they own, and after
@@ -61,7 +65,8 @@ enum class Op
 {
     addSynth, addDrumSynth, addSampler, addAudioGenerator, removeGenerator,
     addReturn, removeReturn,
-    addGeneratorEffect, addReturnEffect, addMasterEffect,
+    addGroup, removeGroup, setGroup,
+    addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect,
     removeEffect, moveEffect, toggleEffect,
     addPattern, addClip,
     setSend,
@@ -111,6 +116,7 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
     auto generators = song.getGenerators();
     auto returns = song.getReturns();
+    auto groups = song.getGroups();
 
     auto pickGenerator = [&] () -> std::optional<Generator>
     {
@@ -126,6 +132,14 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
             return std::nullopt;
 
         return returns[(size_t) wrapIndex (a, (int) returns.size())];
+    };
+
+    auto pickGroup = [&] () -> std::optional<Group>
+    {
+        if (groups.empty())
+            return std::nullopt;
+
+        return groups[(size_t) wrapIndex (b, (int) groups.size())];
     };
 
     switch (op)
@@ -160,6 +174,33 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
                 song.removeReturn (*bus, &um);
             break;
 
+        case Op::addGroup:
+            song.addGroup ("Group", &um);
+            break;
+
+        case Op::removeGroup:
+            if (auto group = pickGroup())
+                song.removeGroup (*group, &um);
+            break;
+
+        case Op::setGroup:
+            // Into a group, or out of whatever it is in: both are the same
+            // edit, and a generator dropped out of a group has to leave the
+            // Edit's routing behind it.
+            if (auto generator = pickGenerator())
+            {
+                if (auto group = pickGroup(); group && (a % 3) != 0)
+                    generator->setGroupId (group->getId(), &um);
+                else
+                    generator->setGroupId ({}, &um);
+            }
+            break;
+
+        case Op::addGroupEffect:
+            if (auto group = pickGroup())
+                group->addEffect (effectTypeFor (b), nullptr, &um);
+            break;
+
         case Op::addGeneratorEffect:
             if (auto generator = pickGenerator())
                 generator->addEffect (effectTypeFor (b), nullptr, &um);
@@ -177,8 +218,10 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
         case Op::removeEffect:
         {
             // Whichever chain the first number lands in, counting the
-            // generators, then the returns, then the master as one more.
-            const auto chains = (int) generators.size() + (int) returns.size() + 1;
+            // generators, then the groups, then the returns, then the master
+            // as one more.
+            const auto chains = (int) generators.size() + (int) groups.size()
+                                 + (int) returns.size() + 1;
             const auto which = wrapIndex (a, chains);
 
             if (which < (int) generators.size())
@@ -188,9 +231,16 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
                 if (const auto effects = owner.getEffects(); ! effects.empty())
                     owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
             }
-            else if (which < (int) generators.size() + (int) returns.size())
+            else if (which < (int) (generators.size() + groups.size()))
             {
-                auto owner = returns[(size_t) (which - generators.size())];
+                auto owner = groups[(size_t) (which - (int) generators.size())];
+
+                if (const auto effects = owner.getEffects(); ! effects.empty())
+                    owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
+            }
+            else if (which < (int) (generators.size() + groups.size() + returns.size()))
+            {
+                auto owner = returns[(size_t) (which - (int) generators.size() - (int) groups.size())];
 
                 if (const auto effects = owner.getEffects(); ! effects.empty())
                     owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
@@ -297,7 +347,13 @@ TEST_CASE ("Undoing a sequence leaves an edit that still agrees", "[sync][undo]"
         while (um.undo())
         {
             sync::syncSongToEdit (song, *edit);
-            RC_ASSERT (sync::findSyncProblems (song, *edit).empty());
+
+            const auto problems = sync::findSyncProblems (song, *edit);
+
+            if (! problems.empty())
+                RC_LOG() << describe (problems).toStdString();
+
+            RC_ASSERT (problems.empty());
         }
     }));
 }

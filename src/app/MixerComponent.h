@@ -59,6 +59,7 @@ private:
     class ChannelStrip;
     class MasterStrip;
     class ReturnStrip;
+    class GroupStrip;
 
     // Wider than a bare fader strip needs to be: the insert slots have to
     // show enough of an effect's name to tell two of them apart.
@@ -95,6 +96,13 @@ private:
     // being dragged: only generator list changes come through here, never
     // mixer property changes.
     void rebuildStrips();
+
+    // The menu a strip's group button opens: none, the groups there are, or a
+    // new one. Making a group is what putting a track in one does -- there is
+    // no other way to make an empty one, because an empty one does nothing.
+    void showGroupMenu (const juce::String& generatorId, juce::Rectangle<int> screenArea);
+    void assignToGroup (const juce::String& generatorId, const juce::String& groupId);
+
     void generatorListChanged (const juce::ValueTree& parent);
     void effectListChanged (const juce::ValueTree& parent);
 
@@ -115,6 +123,7 @@ private:
     std::vector<std::unique_ptr<ChannelStrip>> strips;
     std::unique_ptr<MasterStrip> masterStrip;
     std::vector<std::unique_ptr<ReturnStrip>> returnStrips;
+    std::vector<std::unique_ptr<GroupStrip>> groupStrips;
     juce::TextButton addReturnButton { "+ Return" };
     std::map<juce::String, OpenEffectWindow> effectWindows;
 

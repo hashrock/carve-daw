@@ -61,4 +61,21 @@ inline juce::String getReturnTrackId (const te::Track& track)
 
 inline bool isReturnTrack (const te::Track& track)  { return getReturnTrackId (track).isNotEmpty(); }
 
+// Stamped onto a group bus's track, for the same reason a return's is: the
+// generator sync walks tracks by position and must never be handed one of
+// these.
+inline const juce::Identifier groupIdProperty ("carveGroupId");
+
+inline juce::String getGroupTrackId (const te::Track& track)
+{
+    return track.state.getProperty (groupIdProperty).toString();
+}
+
+inline bool isGroupTrack (const te::Track& track)  { return getGroupTrackId (track).isNotEmpty(); }
+
+// A track that belongs to a bus rather than to a generator -- a group or a
+// return. Everything that walks generator tracks by position skips these, and
+// everything that renders one track's worth of audio has to keep them.
+inline bool isBusTrack (const te::Track& track)  { return isReturnTrack (track) || isGroupTrack (track); }
+
 } // namespace carve::sync

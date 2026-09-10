@@ -17,6 +17,17 @@ namespace
     // own copy of the name; there is no shared header to put it in yet.
     using sync::effectIdProperty;
 
+    // The name of the group a generator feeds, or nothing. One place, because
+    // three of them want it and a group renamed under a strip must not leave
+    // one of them showing the old name.
+    juce::String groupNameFor (const model::Song& song, const model::Generator& generator)
+    {
+        if (const auto group = song.findGroup (generator.getGroupId()))
+            return group->getName();
+
+        return {};
+    }
+
     juce::String formatDb (float db)
     {
         if (db <= -100.0f)
@@ -169,15 +180,36 @@ public:
         effectViewport.setScrollBarsShown (true, false);
         effectViewport.setScrollBarThickness (6);
 
+        groupButton.setButtonText ("- group -");
+        groupButton.onClick = [this]
+        {
+            if (onChooseGroup != nullptr)
+                onChooseGroup (groupButton.getScreenBounds());
+        };
+        groupButton.setTooltip ("Which group bus this track plays through");
+
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
-                 &muteButton, &soloButton })
+                 &groupButton, &muteButton, &soloButton })
             addAndMakeVisible (c);
 
         refresh();
     }
 
     juce::String getGeneratorId() const  { return generator.getId(); }
+
+    // The group this track feeds, as the button shows it. The strip has the
+    // generator but not the song, so the name comes from the mixer.
+    void setGroupLabel (const juce::String& groupName)
+    {
+        groupButton.setButtonText (groupName.isNotEmpty() ? groupName : juce::String ("- group -"));
+        groupButton.setColour (juce::TextButton::textColourOffId,
+                               groupName.isNotEmpty() ? juce::Colour (0xffc9a76f)
+                                                      : juce::Colour (0xff7a7a84));
+    }
+
+    // Pressed, with the button's place on screen for the menu to drop from.
+    std::function<void (juce::Rectangle<int> screenArea)> onChooseGroup;
 
     EffectSlotList& getEffectSlots()  { return effectSlots; }
 
@@ -241,6 +273,10 @@ public:
         buttons.removeFromLeft (4);
         soloButton.setBounds (buttons);
 
+        area.removeFromBottom (3);
+        groupButton.setBounds (area.removeFromBottom (16));
+        area.removeFromBottom (3);
+
         for (auto it = sendRows.rbegin(); it != sendRows.rend(); ++it)
         {
             auto row = area.removeFromBottom (14);
@@ -290,7 +326,7 @@ private:
     DoubleClickLabel nameLabel;
     juce::Label dbLabel;
     juce::Slider volumeSlider, panSlider;
-    juce::TextButton muteButton { "M" }, soloButton { "S" };
+    juce::TextButton muteButton { "M" }, soloButton { "S" }, groupButton { "- group -" };
 
     static constexpr double sendOffDb = -60.0;
 
@@ -630,6 +666,190 @@ private:
 };
 
 //==============================================================================
+// One group bus's strip.
+//
+// A generator's strip without the parts that belong to a generator: no
+// instrument to open, no sends (a group feeding a reverb is a thing, but a
+// bus of a bus is where this stops), and a name that is editable in place
+// because a group has no other window to be renamed from.
+class MixerComponent::GroupStrip : public juce::Component
+{
+public:
+    GroupStrip (te::Engine& engine, model::Group groupToShow, juce::UndoManager& um)
+        : group (std::move (groupToShow)),
+          undoManager (um),
+          effectSlots (makeGroupEffectChain (group, um), engine)
+    {
+        nameLabel.setJustificationType (juce::Justification::centred);
+        nameLabel.setFont (uiFont (fonts::normal, juce::Font::bold));
+        nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffc9a76f));
+        nameLabel.setEditable (false, true, false);
+        nameLabel.onTextChange = [this]
+        {
+            if (nameLabel.getText().isNotEmpty())
+            {
+                undoManager.beginNewTransaction();
+                group.setName (nameLabel.getText(), &undoManager);
+            }
+        };
+
+        dbLabel.setJustificationType (juce::Justification::centred);
+        dbLabel.setFont (uiFont (fonts::small));
+        dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
+
+        volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        volumeSlider.setRange (0.0, 1.0);
+        volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        volumeSlider.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (0.0f));
+        volumeSlider.onDragStart = [this] { undoManager.beginNewTransaction(); };
+        volumeSlider.onValueChange = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            group.setVolumeDb (te::volumeFaderPositionToDB ((float) volumeSlider.getValue()),
+                               &undoManager);
+        };
+
+        panSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        panSlider.setRange (-1.0, 1.0);
+        panSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        panSlider.setDoubleClickReturnValue (true, 0.0);
+        panSlider.onDragStart = [this] { undoManager.beginNewTransaction(); };
+        panSlider.onValueChange = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            group.setPan ((float) panSlider.getValue(), &undoManager);
+        };
+
+        muteButton.setClickingTogglesState (true);
+        muteButton.onClick = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            undoManager.beginNewTransaction();
+            group.setMuted (muteButton.getToggleState(), &undoManager);
+        };
+
+        soloButton.setClickingTogglesState (true);
+        soloButton.onClick = [this]
+        {
+            if (isRefreshing)
+                return;
+
+            undoManager.beginNewTransaction();
+            group.setSoloed (soloButton.getToggleState(), &undoManager);
+        };
+
+        removeButton.onClick = [this] { if (onRemove) onRemove(); };
+        removeButton.setTooltip ("Ungroup: the tracks go back to the master");
+
+        effectSlots.onPreferredHeightChanged = [this] { resized(); };
+        effectViewport.setViewedComponent (&effectSlots, false);
+        effectViewport.setScrollBarsShown (true, false);
+        effectViewport.setScrollBarThickness (6);
+
+        for (auto* c : std::initializer_list<juce::Component*> {
+                 &nameLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
+                 &muteButton, &soloButton, &removeButton })
+            addAndMakeVisible (c);
+
+        refresh();
+    }
+
+    juce::String getGroupId() const  { return group.getId(); }
+    EffectSlotList& getEffectSlots()  { return effectSlots; }
+    void refreshEffects()  { effectSlots.refreshFromChain(); }
+
+    std::function<void()> onRemove;
+
+    void updateMeter (te::AudioTrack* track)
+    {
+        auto* meterPlugin = track != nullptr ? track->getLevelMeterPlugin() : nullptr;
+        meter.update (meterPlugin != nullptr ? &meterPlugin->measurer : nullptr);
+    }
+
+    void refresh()
+    {
+        const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
+
+        nameLabel.setText (group.getName(), juce::dontSendNotification);
+
+        if (! volumeSlider.isMouseButtonDown())
+            volumeSlider.setValue (te::decibelsToVolumeFaderPosition (group.getVolumeDb()),
+                                   juce::dontSendNotification);
+
+        if (! panSlider.isMouseButtonDown())
+            panSlider.setValue (group.getPan(), juce::dontSendNotification);
+
+        dbLabel.setText (formatDb (group.getVolumeDb()) + " dB", juce::dontSendNotification);
+        muteButton.setToggleState (group.isMuted(), juce::dontSendNotification);
+        soloButton.setToggleState (group.isSoloed(), juce::dontSendNotification);
+        effectSlots.refreshFromChain();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff2a2721));
+        g.setColour (juce::Colour (0xff3a3a40));
+        g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (4, 4);
+
+        nameLabel.setBounds (area.removeFromTop (18));
+        area.removeFromTop (2);
+        panSlider.setBounds (area.removeFromTop (18));
+        area.removeFromTop (4);
+
+        auto buttons = area.removeFromBottom (22);
+        const auto third = buttons.getWidth() / 3;
+        muteButton.setBounds (buttons.removeFromLeft (third - 2));
+        buttons.removeFromLeft (3);
+        soloButton.setBounds (buttons.removeFromLeft (third - 2));
+        buttons.removeFromLeft (3);
+        removeButton.setBounds (buttons);
+
+        dbLabel.setBounds (area.removeFromBottom (16));
+        area.removeFromBottom (4);
+
+        const auto slotHeight = juce::jmin (area.getHeight() - 110,
+                                            effectSlots.getPreferredHeight());
+        if (slotHeight > 0)
+        {
+            auto slotArea = area.removeFromTop (slotHeight);
+            effectViewport.setBounds (slotArea);
+            effectSlots.setSize (slotArea.getWidth() - (effectSlots.getPreferredHeight() > slotHeight ? 6 : 0),
+                                 effectSlots.getPreferredHeight());
+            area.removeFromTop (4);
+        }
+
+        meter.setBounds (area.removeFromLeft (18));
+        area.removeFromLeft (6);
+        volumeSlider.setBounds (area);
+    }
+
+private:
+    model::Group group;
+    juce::UndoManager& undoManager;
+
+    juce::Label nameLabel, dbLabel;
+    juce::Slider volumeSlider, panSlider;
+    juce::TextButton muteButton { "M" }, soloButton { "S" }, removeButton { "X" };
+    juce::Viewport effectViewport;
+    EffectSlotList effectSlots;
+    LevelMeterView meter;
+    bool isRefreshing = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GroupStrip)
+};
+
+//==============================================================================
 MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     : edit (editToShow), undoManager (um)
 {
@@ -700,8 +920,39 @@ void MixerComponent::valueTreePropertyChanged (juce::ValueTree& tree, const juce
         return;
     }
 
+    if (tree.hasType (model::ids::GROUP))
+    {
+        const auto groupId = tree[model::ids::id].toString();
+
+        for (auto& strip : groupStrips)
+            if (strip->getGroupId() == groupId)
+                strip->refresh();
+
+        // A renamed group is named on every strip that feeds it, too.
+        if (property == model::ids::name)
+            for (auto& strip : strips)
+                if (auto generator = song.findGenerator (strip->getGeneratorId()))
+                    strip->setGroupLabel (groupNameFor (song, *generator));
+
+        return;
+    }
+
     if (! tree.hasType (model::ids::GENERATOR))
         return;
+
+    // Joining or leaving a group is not a fader move, but it is not worth a
+    // rebuild either: one button's text changes.
+    if (property == model::ids::groupId)
+    {
+        const auto generatorId = tree[model::ids::id].toString();
+
+        for (auto& strip : strips)
+            if (strip->getGeneratorId() == generatorId)
+                if (auto generator = song.findGenerator (generatorId))
+                    strip->setGroupLabel (groupNameFor (song, *generator));
+
+        return;
+    }
 
     if (! model::Generator::isMixerProperty (property) && property != model::ids::name)
         return;
@@ -737,7 +988,8 @@ void MixerComponent::generatorListChanged (const juce::ValueTree& parent)
     // The listener sees the whole song tree, so ignore the note and clip
     // traffic that pattern editing generates. RETURNS changes rebuild too:
     // every generator strip carries one send row per return.
-    if (parent.hasType (model::ids::GENERATORS) || parent.hasType (model::ids::RETURNS))
+    if (parent.hasType (model::ids::GENERATORS) || parent.hasType (model::ids::RETURNS)
+         || parent.hasType (model::ids::GROUPS))
         triggerAsyncUpdate();
 }
 
@@ -816,8 +1068,45 @@ void MixerComponent::rebuildStrips()
                 onOpenGenerator (generatorId);
         };
 
+        strip->onChooseGroup = [this, generatorId] (juce::Rectangle<int> screenArea)
+        {
+            showGroupMenu (generatorId, screenArea);
+        };
+
+        strip->setGroupLabel (groupNameFor (song, generator));
+
         addAndMakeVisible (*strip);
         strips.push_back (std::move (strip));
+    }
+
+    groupStrips.clear();
+
+    for (const auto& group : song.getGroups())
+    {
+        auto strip = std::make_unique<GroupStrip> (edit.engine, group, undoManager);
+        const auto groupId = group.getId();
+
+        auto& slots = strip->getEffectSlots();
+        slots.onOpenEffectEditor = [this, groupId] (const juce::String& effectId)
+        {
+            openEffectEditor (groupId, effectId);
+        };
+        slots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
+        {
+            closeEffectWindow (effectId);
+        };
+
+        strip->onRemove = [this, groupId]
+        {
+            if (auto found = song.findGroup (groupId))
+            {
+                undoManager.beginNewTransaction();
+                song.removeGroup (*found, &undoManager);
+            }
+        };
+
+        addAndMakeVisible (*strip);
+        groupStrips.push_back (std::move (strip));
     }
 
     returnStrips.clear();
@@ -852,9 +1141,9 @@ void MixerComponent::rebuildStrips()
 
     const auto previousWidth = getWidth();
 
-    // Generator strips, then return strips, then the add button's column,
-    // then the master -- always last.
-    setSize (((int) strips.size() + (int) returnStrips.size()) * stripWidth
+    // Generator strips, then group strips, then return strips, then the add
+    // button's column, then the master -- always last.
+    setSize (((int) strips.size() + (int) groupStrips.size() + (int) returnStrips.size()) * stripWidth
                  + masterGap + stripWidth,
              juce::jmax (minHeight, getHeight()));
     resized();
@@ -864,6 +1153,74 @@ void MixerComponent::rebuildStrips()
 }
 
 
+
+void MixerComponent::showGroupMenu (const juce::String& generatorId, juce::Rectangle<int> screenArea)
+{
+    const auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    const auto groups = song.getGroups();
+    const auto current = generator->getGroupId();
+
+    enum { noneId = 1, newGroupId = 2, firstGroupId = 100 };
+
+    juce::PopupMenu menu;
+    menu.addItem (noneId, "No group (straight to the master)", true, current.isEmpty());
+    menu.addSeparator();
+
+    for (int i = 0; i < (int) groups.size(); ++i)
+        menu.addItem (firstGroupId + i, groups[(size_t) i].getName(), true,
+                      groups[(size_t) i].getId() == current);
+
+    menu.addSeparator();
+    menu.addItem (newGroupId, "New Group...");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
+                        [safe = juce::Component::SafePointer (this), generatorId, groups] (int result)
+    {
+        if (safe == nullptr || result == 0)
+            return;
+
+        if (result == noneId)
+        {
+            safe->assignToGroup (generatorId, {});
+            return;
+        }
+
+        if (result == newGroupId)
+        {
+            safe->undoManager.beginNewTransaction();
+
+            // Made and joined in one transaction: a group is what putting a
+            // track in one produces, so undo has to take both back.
+            auto group = safe->song.addGroup ("Group " + juce::String ((int) safe->song.getGroups().size() + 1),
+                                              &safe->undoManager);
+
+            if (auto generator = safe->song.findGenerator (generatorId))
+                generator->setGroupId (group.getId(), &safe->undoManager);
+
+            return;
+        }
+
+        const auto index = (size_t) (result - firstGroupId);
+
+        if (index < groups.size())
+            safe->assignToGroup (generatorId, groups[index].getId());
+    });
+}
+
+void MixerComponent::assignToGroup (const juce::String& generatorId, const juce::String& groupId)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator || generator->getGroupId() == groupId)
+        return;
+
+    undoManager.beginNewTransaction();
+    generator->setGroupId (groupId, &undoManager);
+}
 
 void MixerComponent::openEffectEditor (const juce::String& generatorId, const juce::String& effectId)
 {
@@ -971,11 +1328,27 @@ void MixerComponent::timerCallback()
 {
     closeStaleEffectWindows();
 
-    // generator order == track order (EditSync invariant)
-    const auto tracks = te::getAudioTracks (edit);
+    // generator order == generator-track order (EditSync invariant); the bus
+    // tracks are appended after them and are found by their stamp.
+    juce::Array<te::AudioTrack*> generatorTracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isBusTrack (*track))
+            generatorTracks.add (track);
 
     for (size_t i = 0; i < strips.size(); ++i)
-        strips[i]->updateMeter (i < (size_t) tracks.size() ? tracks[(int) i] : nullptr);
+        strips[i]->updateMeter (i < (size_t) generatorTracks.size() ? generatorTracks[(int) i] : nullptr);
+
+    for (auto& strip : groupStrips)
+    {
+        te::AudioTrack* groupTrack = nullptr;
+
+        for (auto track : te::getAudioTracks (edit))
+            if (sync::getGroupTrackId (*track) == strip->getGroupId())
+                groupTrack = track;
+
+        strip->updateMeter (groupTrack);
+    }
 
     masterStrip->updateMeter();
     masterStrip->refresh();
@@ -1000,7 +1373,12 @@ void MixerComponent::resized()
     for (size_t i = 0; i < strips.size(); ++i)
         strips[i]->setBounds ((int) i * stripWidth, 0, stripWidth, getHeight());
 
-    const auto returnsLeft = (int) strips.size() * stripWidth;
+    const auto groupsLeft = (int) strips.size() * stripWidth;
+
+    for (size_t i = 0; i < groupStrips.size(); ++i)
+        groupStrips[i]->setBounds (groupsLeft + (int) i * stripWidth, 0, stripWidth, getHeight());
+
+    const auto returnsLeft = groupsLeft + (int) groupStrips.size() * stripWidth;
 
     for (size_t i = 0; i < returnStrips.size(); ++i)
         returnStrips[i]->setBounds (returnsLeft + (int) i * stripWidth, 0, stripWidth, getHeight());

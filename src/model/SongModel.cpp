@@ -1260,6 +1260,101 @@ void Return::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* 
     effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
 }
 
+//==============================================================================
+// Groups. Same effect list again -- see the note above Return's.
+
+std::vector<Effect> Group::getEffects() const
+{
+    return collectChildren<Effect> (state.getChildWithName (ids::EFFECTS), ids::EFFECT);
+}
+
+std::optional<Effect> Group::findEffect (const juce::String& effectId) const
+{
+    auto found = state.getChildWithName (ids::EFFECTS).getChildWithProperty (ids::id, effectId);
+    return found.isValid() ? std::optional<Effect> (Effect (found)) : std::nullopt;
+}
+
+Effect Group::addEffect (const juce::String& type,
+                         const juce::PluginDescription* description,
+                         juce::UndoManager* um)
+{
+    juce::ValueTree effect (ids::EFFECT);
+    effect.setProperty (ids::id, newId(), nullptr);
+    effect.setProperty (ids::type, type, nullptr);
+
+    getOrCreateChild (state, ids::EFFECTS).appendChild (effect, um);
+
+    Effect wrapper (effect);
+    if (description != nullptr)
+        wrapper.setPlugin (*description, um);
+
+    return wrapper;
+}
+
+void Group::removeEffect (const Effect& effect, juce::UndoManager* um)
+{
+    state.getChildWithName (ids::EFFECTS).removeChild (effect.state, um);
+}
+
+void Group::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* um)
+{
+    auto effects = state.getChildWithName (ids::EFFECTS);
+    const auto from = effects.indexOf (effect.state);
+
+    if (from < 0)
+        return;
+
+    effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
+}
+
+std::vector<Group> Song::getGroups() const
+{
+    return collectChildren<Group> (state.getChildWithName (ids::GROUPS), ids::GROUP);
+}
+
+std::optional<Group> Song::findGroup (const juce::String& groupId) const
+{
+    auto found = state.getChildWithName (ids::GROUPS).getChildWithProperty (ids::id, groupId);
+    return found.isValid() ? std::optional<Group> (Group (found)) : std::nullopt;
+}
+
+Group Song::addGroup (const juce::String& name, juce::UndoManager* um)
+{
+    juce::ValueTree group (ids::GROUP);
+    group.setProperty (ids::id, newId(), nullptr);
+    group.setProperty (ids::name, name, nullptr);
+    getOrCreateChild (state, ids::GROUPS).appendChild (group, um);
+    return Group (group);
+}
+
+void Song::removeGroup (const Group& group, juce::UndoManager* um)
+{
+    // Members first and in the same transaction: a generator left naming a
+    // group that is gone would be routed to nothing, and one press of undo
+    // has to bring both halves back together.
+    const auto groupId = group.getId();
+
+    for (auto generator : getGenerators())
+        if (generator.getGroupId() == groupId)
+            generator.setGroupId ({}, um);
+
+    state.getChildWithName (ids::GROUPS).removeChild (group.state, um);
+}
+
+std::vector<Generator> Song::getGeneratorsInGroup (const juce::String& groupId) const
+{
+    std::vector<Generator> members;
+
+    if (groupId.isEmpty())
+        return members;
+
+    for (const auto& generator : getGenerators())
+        if (generator.getGroupId() == groupId)
+            members.push_back (generator);
+
+    return members;
+}
+
 std::vector<Return> Song::getReturns() const
 {
     return collectChildren<Return> (state.getChildWithName (ids::RETURNS), ids::RETURN);

@@ -13,7 +13,7 @@ namespace
 {
     // Volume/pan round-trip through the fader taper, so compare loosely rather
     // than re-setting (and re-notifying) the parameter on every sync.
-    void applyMixerState (const model::Generator& generator, te::AudioTrack& track)
+    void applyMixerState (const model::Song& song, const model::Generator& generator, te::AudioTrack& track)
     {
         if (auto volume = track.getVolumePlugin())
         {
@@ -27,8 +27,16 @@ namespace
         if (track.isMuted (false) != generator.isMuted())
             track.setMute (generator.isMuted());
 
-        if (track.isSolo (false) != generator.isSoloed())
-            track.setSolo (generator.isSoloed());
+        // A soloed group is its members soloed. The engine's solo is "only
+        // soloed tracks play", and a group's own track never carries it: it is
+        // solo-isolated (see syncGroups) so that a soloed member is still
+        // heard through the bus it plays into, and a track that is always
+        // played cannot also be the thing that silences everything else.
+        const auto group = song.findGroup (generator.getGroupId());
+        const bool soloed = generator.isSoloed() || (group && group->isSoloed());
+
+        if (track.isSolo (false) != soloed)
+            track.setSolo (soloed);
     }
 
     using sync::effectIdProperty;
@@ -762,6 +770,104 @@ namespace
 
     // The return tracks' own contents: an AuxReturn at the head, then the
     // bus's shared effects, then the track fader the mixer state drives.
+    // The group busses: a track each, carrying the group's fader, pan and
+    // effects, with everything in the group routed into it.
+    void syncGroups (const model::Song& song, te::Edit& edit)
+    {
+        for (auto track : te::getAudioTracks (edit))
+        {
+            const auto groupTrackId = sync::getGroupTrackId (*track);
+
+            if (groupTrackId.isEmpty())
+                continue;
+
+            auto group = song.findGroup (groupTrackId);
+
+            if (! group)
+                continue;   // deleted; track management removes it next pass
+
+            if (track->getName() != group->getName())
+                track->setName (group->getName());
+
+            syncEffectChain (edit, sync::groupChainSite (*group, *track));
+
+            if (auto volume = track->getVolumePlugin())
+            {
+                if (std::abs (volume->getVolumeDb() - group->getVolumeDb()) > 0.01f)
+                    volume->setVolumeDb (group->getVolumeDb());
+
+                if (std::abs (volume->getPan() - group->getPan()) > 0.001f)
+                    volume->setPan (group->getPan());
+            }
+
+            if (track->isMuted (false) != group->isMuted())
+                track->setMute (group->isMuted());
+
+            // Soloing a track inside a group must not be silenced by the bus
+            // it plays through -- the same thing a return needs, for the same
+            // reason. A group's own solo is applied to its members instead
+            // (see applyMixerState).
+            if (! track->isSoloIsolate (false))
+                track->setSoloIsolate (true);
+
+            // The bus goes to the master. A group inside a group is not a
+            // thing yet, and this is what keeps one from being made by accident.
+            if (track->getOutput().getDestinationTrack() != nullptr)
+                track->getOutput().setOutputToDefaultDevice (false);
+        }
+    }
+
+    // Where a generator's track sends its audio: its group's track, or the
+    // master. Written only when it is wrong, because setting an output
+    // rebuilds the graph.
+    void applyRouting (const model::Song& song, te::Edit& edit,
+                       te::AudioTrack& track, const model::Generator& generator)
+    {
+        te::AudioTrack* groupTrack = nullptr;
+        const auto groupId = generator.getGroupId();
+
+        // A groupId naming nothing -- a hand-edited file, or a group removed
+        // outside removeGroup -- is no group at all rather than a broken one.
+        if (groupId.isNotEmpty() && song.findGroup (groupId))
+            for (auto candidate : te::getAudioTracks (edit))
+                if (sync::getGroupTrackId (*candidate) == groupId)
+                    groupTrack = candidate;
+
+        auto& output = track.getOutput();
+
+        // Two things have to be right, not one. A track output is stored as
+        // the destination's *number* ("track 2"), and:
+        //
+        //  - the number is only turned back into a track when the stored
+        //    string changes, so writing the number it already holds -- which
+        //    is exactly what happens when a group is deleted and another is
+        //    made in its place -- routes the audio nowhere at all;
+        //  - a track left holding the number of a track that has since been
+        //    deleted is not going to the master either. It is going nowhere,
+        //    which is silence rather than the "back to the master" that
+        //    leaving a group is supposed to mean.
+        //
+        // So the check is against what the number resolves to *and* against
+        // what it says, and every write is followed by asking for the
+        // resolution rather than hoping the write triggered one.
+        if (groupTrack != nullptr)
+        {
+            if (output.getDestinationTrack() == groupTrack)
+                return;
+
+            output.setOutputToTrack (groupTrack);
+        }
+        else
+        {
+            if (output.usesDefaultAudioOut() && output.getDestinationTrack() == nullptr)
+                return;
+
+            output.setOutputToDefaultDevice (false);
+        }
+
+        output.updateOutput();
+    }
+
     void syncReturns (const model::Song& song, te::Edit& edit)
     {
         static const juce::Identifier busNumId ("busNum");
@@ -1472,6 +1578,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     syncMasterBus (song, edit);
 
     const auto generators = song.getGenerators();
+    const auto groups = song.getGroups();
     const auto returns = song.getReturns();
 
     // Computed once: every auditioned clip is cut to the same loop, and the
@@ -1479,25 +1586,32 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     const auto auditionLoopBeats = audition != nullptr ? auditionLengthBeats (song, *audition) : 0.0;
 
     // Track layout: generator tracks first, in generator order, then one track
-    // per return bus. Return tracks are told apart by a stamp, never by
-    // position -- an index shift must not point the generator sync at a track
-    // full of shared reverb, which is how the first attempt at this died.
+    // per group bus, then one per return bus. Bus tracks are told apart by a
+    // stamp, never by position -- an index shift must not point the generator
+    // sync at a track full of shared reverb, which is how the first attempt at
+    // this died.
     {
         auto all = te::getAudioTracks (edit);
 
-        // Return tracks whose bus is gone, then surplus generator tracks from
-        // the end (preserving generator order).
+        // Bus tracks whose bus is gone, then surplus generator tracks from the
+        // end (preserving generator order).
         for (int i = all.size(); --i >= 0;)
-            if (sync::isReturnTrack (*all[i])
-                 && ! song.findReturn (sync::getReturnTrackId (*all[i])))
+        {
+            const bool returnIsGone = sync::isReturnTrack (*all[i])
+                                       && ! song.findReturn (sync::getReturnTrackId (*all[i]));
+            const bool groupIsGone = sync::isGroupTrack (*all[i])
+                                      && ! song.findGroup (sync::getGroupTrackId (*all[i]));
+
+            if (returnIsGone || groupIsGone)
                 edit.deleteTrack (all[i]);
+        }
 
         auto generatorTracks = [&edit]
         {
             juce::Array<te::AudioTrack*> result;
 
             for (auto track : te::getAudioTracks (edit))
-                if (! sync::isReturnTrack (*track))
+                if (! sync::isBusTrack (*track))
                     result.add (track);
 
             return result;
@@ -1509,6 +1623,19 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
 
         while (generatorTracks().size() < (int) generators.size())
             edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr);
+
+        for (const auto& group : groups)
+        {
+            bool exists = false;
+
+            for (auto track : te::getAudioTracks (edit))
+                if (sync::getGroupTrackId (*track) == group.getId())
+                    exists = true;
+
+            if (! exists)
+                if (auto track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr))
+                    track->state.setProperty (sync::groupIdProperty, group.getId(), nullptr);
+        }
 
         for (const auto& ret : returns)
         {
@@ -1523,9 +1650,16 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
                     track->state.setProperty (sync::returnIdProperty, ret.getId(), nullptr);
         }
 
-        // Order: a generator added while returns exist appears at the very
-        // end, behind them; move any return track that is not behind every
-        // generator track. Steady state makes no moves and rebuilds nothing.
+        // Order: a generator added while busses exist appears at the very end,
+        // behind them, and a group made after a return sits behind that. Sort
+        // by what kind of track each one is, by moving whichever is out of
+        // order to the end until none is. Steady state makes no moves and
+        // rebuilds nothing.
+        auto rankOf = [] (const te::Track& track)
+        {
+            return sync::isReturnTrack (track) ? 2 : (sync::isGroupTrack (track) ? 1 : 0);
+        };
+
         for (bool moved = true; moved; )
         {
             moved = false;
@@ -1533,7 +1667,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
 
             for (int i = 0; i < all2.size() - 1; ++i)
             {
-                if (sync::isReturnTrack (*all2[i]) && ! sync::isReturnTrack (*all2[i + 1]))
+                if (rankOf (*all2[i]) > rankOf (*all2[i + 1]))
                 {
                     edit.moveTrack (all2[i], te::TrackInsertPoint (nullptr, all2[all2.size() - 1]));
                     moved = true;
@@ -1547,7 +1681,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     juce::Array<te::AudioTrack*> tracks;
 
     for (auto track : te::getAudioTracks (edit))
-        if (! sync::isReturnTrack (*track))
+        if (! sync::isBusTrack (*track))
             tracks.add (track);
 
     for (int i = 0; i < (int) generators.size(); ++i)
@@ -1564,7 +1698,8 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         ensureInstrument (edit, track, generator);
         syncEffects (edit, track, generator);
         syncSends (song, edit, track, generator);
-        applyMixerState (generator, track);
+        applyMixerState (song, generator, track);
+        applyRouting (song, edit, track, generator);
 
         if (generator.isAudio())
             syncAudioClips (song, generator, edit, track);
@@ -1572,6 +1707,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
             rebuildClips (song, generator, edit, track, audition, auditionLoopBeats);
     }
 
+    syncGroups (song, edit);
     syncSidechains (song, edit, tracks);
     syncAutomation (song, edit, tracks);
     syncModifiers (song, edit, tracks);
@@ -1741,7 +1877,7 @@ void EditSync::applySendsAndReturnsOnly()
     juce::Array<te::AudioTrack*> generatorTracks;
 
     for (auto track : te::getAudioTracks (edit))
-        if (! sync::isReturnTrack (*track))
+        if (! sync::isBusTrack (*track))
             generatorTracks.add (track);
 
     for (int i = 0; i < (int) generators.size() && i < generatorTracks.size(); ++i)
@@ -1753,7 +1889,7 @@ void EditSync::applyAutomationOnly()
     juce::Array<te::AudioTrack*> generatorTracks;
 
     for (auto track : te::getAudioTracks (edit))
-        if (! sync::isReturnTrack (*track))
+        if (! sync::isBusTrack (*track))
             generatorTracks.add (track);
 
     syncAutomation (song, edit, generatorTracks);
@@ -1762,10 +1898,37 @@ void EditSync::applyAutomationOnly()
 void EditSync::applyMixerStateOnly()
 {
     const auto generators = song.getGenerators();
-    const auto tracks = te::getAudioTracks (edit);
 
-    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
-        applyMixerState (generators[(size_t) i], *tracks[i]);
+    juce::Array<te::AudioTrack*> generatorTracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isBusTrack (*track))
+            generatorTracks.add (track);
+
+    for (int i = 0; i < (int) generators.size() && i < generatorTracks.size(); ++i)
+        applyMixerState (song, generators[(size_t) i], *generatorTracks[i]);
+
+    // A group's own fader is a mixer move like any other. Its mute and solo
+    // reach its members through the loop above, which reads the group as well.
+    for (auto track : te::getAudioTracks (edit))
+    {
+        const auto group = song.findGroup (sync::getGroupTrackId (*track));
+
+        if (! group)
+            continue;
+
+        if (auto volume = track->getVolumePlugin())
+        {
+            if (std::abs (volume->getVolumeDb() - group->getVolumeDb()) > 0.01f)
+                volume->setVolumeDb (group->getVolumeDb());
+
+            if (std::abs (volume->getPan() - group->getPan()) > 0.001f)
+                volume->setPan (group->getPan());
+        }
+
+        if (track->isMuted (false) != group->isMuted())
+            track->setMute (group->isMuted());
+    }
 }
 
 } // namespace carve::sync

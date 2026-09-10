@@ -242,7 +242,7 @@ ExportComponent::StemPlan ExportComponent::planStems() const
     bool anySolo = false;
 
     for (auto track : te::getAudioTracks (edit))
-        if (! sync::isReturnTrack (*track) && track->isSolo (false))
+        if (! sync::isBusTrack (*track) && track->isSolo (false))
             anySolo = true;
 
     for (auto track : te::getAudioTracks (edit))
@@ -250,18 +250,47 @@ ExportComponent::StemPlan ExportComponent::planStems() const
         if (sync::isReturnTrack (*track))
             continue;
 
-        ++plan.numGenerators;
+        const bool isGroup = sync::isGroupTrack (*track);
 
-        if (anySolo ? ! track->isSolo (false) : track->isMuted (false))
+        // A track inside a group is not a stem of its own. Its audio leaves
+        // through the bus, and the render cannot take one member out of a
+        // group: a bus pulls everything that feeds it, whatever it was asked
+        // for. The group is the stem instead, which is what a group is.
+        if (! isGroup && track->getOutput().getDestinationTrack() != nullptr)
+            continue;
+
+        ++plan.numStems;
+
+        // A group is heard if it is not muted and something in it is being
+        // heard -- which, with a solo somewhere, means a soloed member.
+        const bool audible = [&]
+        {
+            if (track->isMuted (false))
+                return false;
+
+            if (! anySolo)
+                return true;
+
+            if (! isGroup)
+                return track->isSolo (false);
+
+            for (auto member : te::getAudioTracks (edit))
+                if (member->getOutput().getDestinationTrack() == track && member->isSolo (false))
+                    return true;
+
+            return false;
+        }();
+
+        if (! audible)
             continue;
 
         // Numbered by position, so the folder lists in the order the mixer
-        // shows -- and so two generators sharing a name still get two files.
+        // shows -- and so two tracks sharing a name still get two files.
         const auto name = track->getName().trim();
-        const auto fallback = "Track " + juce::String (plan.numGenerators);
+        const auto fallback = (isGroup ? "Group " : "Track ") + juce::String (plan.numStems);
 
         plan.stems.push_back ({ track,
-                                juce::String (plan.numGenerators).paddedLeft ('0', 2) + " "
+                                juce::String (plan.numStems).paddedLeft ('0', 2) + " "
                                     + juce::File::createLegalFileName (name.isNotEmpty() ? name : fallback) });
     }
 
@@ -314,8 +343,8 @@ void ExportComponent::updateRangeSummary()
 
         text += "  -  " + juce::String (count);
 
-        if (count < plan.numGenerators)
-            text += " of " + juce::String (plan.numGenerators);
+        if (count < plan.numStems)
+            text += " of " + juce::String (plan.numStems);
 
         text += count == 1 ? " stem" : " stems";
     }
@@ -412,8 +441,8 @@ void ExportComponent::renderStemsTo (const juce::File& folder)
 
     if (plan.stems.empty())
     {
-        setStatus (plan.numGenerators == 0 ? "There are no generators to export"
-                                           : "Every generator is silenced - nothing to export",
+        setStatus (plan.numStems == 0 ? "There are no tracks to export"
+                                      : "Everything is silenced - nothing to export",
                    errorColour);
         return;
     }
@@ -438,6 +467,12 @@ void ExportComponent::renderStemsTo (const juce::File& folder)
     // an excluded track's send is not in the graph at all, so what comes back
     // is only ever this stem's. The master plugins stay out: they belong to
     // the mix, and would be applied a second time when the stems are summed.
+    //
+    // The group busses are not added the same way, and must not be: a bus
+    // pulls in everything that feeds it whether or not the render asked for
+    // those tracks, so one group in the list would put every track of that
+    // group into every stem. A group is a stem in its own right instead (see
+    // planStems).
     const auto allTracks = te::getAllTracks (edit);
     juce::BigInteger returnTracks;
 

@@ -204,6 +204,11 @@ EffectChain makeReturnEffectChain (model::Return returnToShow, juce::UndoManager
     return makeOwnedEffectChain (std::move (returnToShow), undoManager);
 }
 
+EffectChain makeGroupEffectChain (model::Group groupToShow, juce::UndoManager& undoManager)
+{
+    return makeOwnedEffectChain (std::move (groupToShow), undoManager);
+}
+
 //==============================================================================
 EffectSlotList::EffectSlotList (EffectChain chainToShow, te::Engine& e)
     : chain (std::move (chainToShow)), engine (e)

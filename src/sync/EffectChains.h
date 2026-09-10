@@ -14,9 +14,9 @@ namespace carve::sync
 
 // Where an insert chain can live, and everything anyone needs to work on one.
 //
-// A song has three kinds of chain -- a generator's, a return bus's, and the
-// master's -- and they differ only in which plugin list they are and what they
-// sit after. That difference used to be spelled out separately everywhere the
+// A song has four kinds of chain -- a generator's, a group bus's, a return
+// bus's, and the master's -- and they differ only in which plugin list they
+// are and what they sit after. That difference used to be spelled out separately everywhere the
 // three had to be visited, and the bugs that came of it were all the same bug:
 // somebody enumerated two of the three.
 //
@@ -51,7 +51,7 @@ struct EffectChainSite
 };
 
 // Every chain in the song, in the order the mixer lays them out: the
-// generators, then the return busses, then the master.
+// generators, then the group busses, then the return busses, then the master.
 std::vector<EffectChainSite> getEffectChainSites (const model::Song&, te::Edit&);
 
 // The site one owner id names, or nothing if the song has no such owner.
@@ -76,11 +76,12 @@ te::Plugin* findEffectPlugin (const model::Song&, te::Edit&,
 // machine has never scanned legitimately has no live counterpart.
 std::vector<juce::String> findSyncProblems (const model::Song&, te::Edit&);
 
-// The three builders, for the sync itself: it visits a chain at the moment it
-// has just finished building what the chain sits after, so it cannot use the
+// The builders, for the sync itself: it visits a chain at the moment it has
+// just finished building what the chain sits after, so it cannot use the
 // whole-song enumeration above -- a generator's insert position is only known
 // once its instrument is there.
 EffectChainSite generatorChainSite (const model::Generator&, te::AudioTrack&);
+EffectChainSite groupChainSite (const model::Group&, te::AudioTrack&);
 EffectChainSite returnChainSite (const model::Return&, te::AudioTrack&);
 EffectChainSite masterChainSite (const model::MasterBus&, te::Edit&);
 

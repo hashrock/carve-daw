@@ -92,7 +92,8 @@ private:
         bool requireAudio = true;       // fail rather than write silence
     };
 
-    // A generator track and the file a stem export would give it.
+    // A track that reaches the master on its own, and the file a stem export
+    // would give it.
     struct Stem
     {
         te::AudioTrack* track = nullptr;
@@ -102,14 +103,16 @@ private:
     struct StemPlan
     {
         std::vector<Stem> stems;        // audible ones, in track order
-        int numGenerators = 0;          // including the ones being skipped
+        int numStems = 0;               // including the ones being skipped
     };
 
     bool isStemExport() const;
 
-    // What a stem export would write right now: every generator track the
-    // mixer is not silencing. Mute and solo are left to speak for themselves --
-    // rendering a muted track would only write a silent file.
+    // What a stem export would write right now: one per thing that reaches the
+    // master on its own -- an ungrouped generator, or a group bus, never a
+    // track inside one (a bus pulls in everything that feeds it, so a member
+    // cannot be rendered alone). Mute and solo are left to speak for
+    // themselves: rendering a muted track would only write a silent file.
     StemPlan planStems() const;
 
     void refreshOptions();

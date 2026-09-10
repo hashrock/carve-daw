@@ -9,6 +9,12 @@
 // │  └─ RETURN {id, name, busNumber,        sends into a bus by number; the
 // │             volumeDb, mute}             return track carries the shared
 // │     └─ EFFECTS / EFFECT {...}           effects (reverb etc.)
+// ├─ GROUPS                                 sub-mix busses. A generator names
+// │  └─ GROUP {id, name, volumeDb, pan,     one of these with `groupId` and
+// │            mute, solo}                  its output goes there instead of
+// │     └─ EFFECTS / EFFECT {...}           straight to the master, so the
+// │                                         group's fader and effects apply to
+// │                                         everything in it at once.
 // ├─ MASTER {volumeDb}                      the mix bus: its fader and the
 // │  └─ EFFECTS                            effects across the whole mix. Same
 // │     └─ EFFECT {...}                    EFFECT nodes a generator carries.
@@ -18,7 +24,7 @@
 // ├─ TIMESIGS
 // │  └─ TIMESIG {start, numerator, denominator}   absent = 4/4 throughout
 // ├─ GENERATORS
-// │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo}
+// │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
 // │     │                                | "drum-sampler" | "audio"
 // │     │                                  mixer properties are optional; see
@@ -103,6 +109,8 @@ CARVE_DECLARE_ID (CLIP)
 CARVE_DECLARE_ID (AUDIOCLIP)
 CARVE_DECLARE_ID (RETURNS)
 CARVE_DECLARE_ID (RETURN)
+CARVE_DECLARE_ID (GROUPS)
+CARVE_DECLARE_ID (GROUP)
 CARVE_DECLARE_ID (AUTOCURVE)
 CARVE_DECLARE_ID (PT)
 CARVE_DECLARE_ID (MODIFIERS)
@@ -137,6 +145,7 @@ CARVE_DECLARE_ID (transpose)
 CARVE_DECLARE_ID (enabled)
 CARVE_DECLARE_ID (sidechainSource)
 CARVE_DECLARE_ID (returnId)
+CARVE_DECLARE_ID (groupId)
 CARVE_DECLARE_ID (target)
 CARVE_DECLARE_ID (kind)
 CARVE_DECLARE_ID (rate)
