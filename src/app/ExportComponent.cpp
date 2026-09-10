@@ -1,5 +1,6 @@
 #include "ExportComponent.h"
 #include "Fonts.h"
+#include "sync/EngineIds.h"
 
 namespace carve::app
 {
@@ -27,6 +28,26 @@ namespace
     {
         label.setFont (uiFont (height));
         label.setColour (juce::Label::textColourId, colour);
+    }
+
+    // Sets the bit a render's tracksToDo uses for this track, which is its
+    // index in the edit's track list. Written out rather than reached for
+    // through tracktion's toBitSet, which ignores the array it is handed and
+    // returns every track in the edit -- right for a mixdown, no use for one
+    // stem.
+    void setTrackBit (juce::BigInteger& bits, const juce::Array<te::Track*>& all, te::Track* track)
+    {
+        if (const auto index = all.indexOf (track); index >= 0)
+            bits.setBit (index);
+    }
+
+    // The song's name, made into something a file system will take. The
+    // fallback is what keeps an unnamed song from suggesting a file called
+    // ".wav".
+    juce::String fileStemFor (const model::Song& song)
+    {
+        const auto name = juce::File::createLegalFileName (song.getName()).trim();
+        return name.isNotEmpty() ? name : juce::String ("Song");
     }
 } // namespace
 
@@ -77,12 +98,24 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     styleLabel (headingLabel, textColour, fonts::title);
     headingLabel.setText ("Export Audio", juce::dontSendNotification);
 
-    for (auto* label : { &rangeLabel, &sampleRateLabel, &bitDepthLabel })
+    for (auto* label : { &contentLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel })
         styleLabel (*label, dimTextColour, fonts::small);
 
+    contentLabel.setText ("Content", juce::dontSendNotification);
     rangeLabel.setText ("Range", juce::dontSendNotification);
     sampleRateLabel.setText ("Sample rate", juce::dontSendNotification);
     bitDepthLabel.setText ("Bit depth", juce::dontSendNotification);
+
+    contentBox.addItem ("Mixdown", (int) Content::mixdown);
+    contentBox.addItem ("Stems (one file per generator)", (int) Content::stems);
+    contentBox.setSelectedId ((int) Content::mixdown, juce::dontSendNotification);
+    contentBox.onChange = [this]
+    {
+        // The button says what the chooser is about to ask for: a file for a
+        // mixdown, a folder for a set of stems.
+        exportButton.setButtonText (isStemExport() ? "Export stems..." : "Export...");
+        updateRangeSummary();
+    };
 
     rangeBox.addItem ("Whole song", (int) Range::wholeSong);
     rangeBox.addItem ("Loop range", (int) Range::loopRange);
@@ -143,8 +176,8 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     };
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &headingLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
-             &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
+             &headingLabel, &contentLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
+             &contentBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
              &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton })
         addAndMakeVisible (c);
 
@@ -186,13 +219,53 @@ void ExportComponent::refreshOptions()
     rangeBox.setItemEnabled ((int) Range::loopRange, hasLoop);
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton, &exportButton })
+             &contentBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton, &exportButton })
         c->setEnabled (! rendering);
 
     closeButton.setButtonText (rendering ? "Cancel" : "Close");
     progressBar.setVisible (rendering);
 
     updateRangeSummary();
+}
+
+bool ExportComponent::isStemExport() const
+{
+    return contentBox.getSelectedId() == (int) Content::stems;
+}
+
+ExportComponent::StemPlan ExportComponent::planStems() const
+{
+    StemPlan plan;
+
+    // Solo wins over mute, the way the mixer plays it: with anything soloed,
+    // only the soloed generators are heard, so only those are worth a file.
+    bool anySolo = false;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isReturnTrack (*track) && track->isSolo (false))
+            anySolo = true;
+
+    for (auto track : te::getAudioTracks (edit))
+    {
+        if (sync::isReturnTrack (*track))
+            continue;
+
+        ++plan.numGenerators;
+
+        if (anySolo ? ! track->isSolo (false) : track->isMuted (false))
+            continue;
+
+        // Numbered by position, so the folder lists in the order the mixer
+        // shows -- and so two generators sharing a name still get two files.
+        const auto name = track->getName().trim();
+        const auto fallback = "Track " + juce::String (plan.numGenerators);
+
+        plan.stems.push_back ({ track,
+                                juce::String (plan.numGenerators).paddedLeft ('0', 2) + " "
+                                    + juce::File::createLegalFileName (name.isNotEmpty() ? name : fallback) });
+    }
+
+    return plan;
 }
 
 te::TimeRange ExportComponent::getTimeRange() const
@@ -225,18 +298,63 @@ void ExportComponent::updateRangeSummary()
         return;
     }
 
-    summaryLabel.setText (formatDuration (range.getStart().inSeconds())
-                              + " - " + formatDuration (range.getEnd().inSeconds())
-                              + "  (" + juce::String (seconds, 1) + " s, "
-                              + juce::String (bitDepthBox.getSelectedId()) + " bit / "
-                              + juce::String (sampleRateBox.getSelectedId() / 1000.0, 1) + " kHz)",
-                          juce::dontSendNotification);
+    auto text = formatDuration (range.getStart().inSeconds())
+                    + " - " + formatDuration (range.getEnd().inSeconds())
+                    + "  (" + juce::String (seconds, 1) + " s, "
+                    + juce::String (bitDepthBox.getSelectedId()) + " bit / "
+                    + juce::String (sampleRateBox.getSelectedId() / 1000.0, 1) + " kHz)";
+
+    if (isStemExport())
+    {
+        // How many files that is, and -- when the mixer is silencing some of
+        // them -- out of how many, so a missing stem is answered here rather
+        // than in the folder afterwards.
+        const auto plan = planStems();
+        const auto count = (int) plan.stems.size();
+
+        text += "  -  " + juce::String (count);
+
+        if (count < plan.numGenerators)
+            text += " of " + juce::String (plan.numGenerators);
+
+        text += count == 1 ? " stem" : " stems";
+    }
+
+    summaryLabel.setText (text, juce::dontSendNotification);
 }
 
 void ExportComponent::chooseDestinationAndRender()
 {
     if (isRendering())
         return;
+
+    if (isStemExport())
+    {
+        const auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                                   .getChildFile (fileStemFor (song) + " Stems");
+
+        // A save panel rather than a folder picker, so the user names the
+        // folder and we make it. Naming one that is already there is fine:
+        // same-named stems are replaced, anything else in it is left alone.
+        fileChooser = std::make_shared<juce::FileChooser> ("Export stems", suggested);
+        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                      | juce::FileBrowserComponent::canSelectDirectories,
+                                  [safe = juce::Component::SafePointer (this)]
+                                  (const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr)
+                return;
+
+            const auto folder = chooser.getResult();
+
+            if (folder == juce::File())
+                return;
+
+            safe->renderStemsTo (folder);
+        });
+
+        return;
+    }
 
     auto* format = edit.engine.getAudioFileFormatManager().getDefaultFormat();
     const auto extension = format != nullptr && ! format->getFileExtensions().isEmpty()
@@ -268,18 +386,100 @@ void ExportComponent::chooseDestinationAndRender()
 
 void ExportComponent::renderTo (const juce::File& destination)
 {
-    auto& engine = edit.engine;
-    auto* format = engine.getAudioFileFormatManager().getDefaultFormat();
+    Job job;
+    job.destination = destination;
+    job.label = destination.getFileName();
 
-    if (format == nullptr)
+    // Every track, spelled out. Not the renderToFile overload that takes a
+    // track array: that one wraps the render in a ScopedTrackSoloIsolator,
+    // which unmutes everything it is asked to render, so a generator muted in
+    // the mixer would still be audible in the file.
+    job.tracks = te::toBitSet (te::getAllTracks (edit));
+
+    stemFolder = juce::File();
+
+    std::vector<Job> batch;
+    batch.push_back (std::move (job));
+    startJobs (std::move (batch));
+}
+
+void ExportComponent::renderStemsTo (const juce::File& folder)
+{
+    if (isRendering())
+        return;
+
+    const auto plan = planStems();
+
+    if (plan.stems.empty())
+    {
+        setStatus (plan.numGenerators == 0 ? "There are no generators to export"
+                                           : "Every generator is silenced - nothing to export",
+                   errorColour);
+        return;
+    }
+
+    if (! folder.createDirectory())
+    {
+        setStatus ("Could not create " + folder.getFullPathName(), errorColour);
+        return;
+    }
+
+    auto* format = edit.engine.getAudioFileFormatManager().getDefaultFormat();
+    const auto extension = format != nullptr && ! format->getFileExtensions().isEmpty()
+                               ? format->getFileExtensions()[0]
+                               : juce::String (".wav");
+
+    // Appended rather than set through withFileExtension, which would cut a
+    // generator called "Bass 2.0" back to "Bass 2".
+    const auto suffix = extension.startsWithChar ('.') ? extension : "." + extension;
+
+    // The return busses go into every stem. A track's share of the reverb is
+    // part of that track, and nothing else is in the render to feed them --
+    // an excluded track's send is not in the graph at all, so what comes back
+    // is only ever this stem's. The master plugins stay out: they belong to
+    // the mix, and would be applied a second time when the stems are summed.
+    const auto allTracks = te::getAllTracks (edit);
+    juce::BigInteger returnTracks;
+
+    for (auto track : allTracks)
+        if (sync::isReturnTrack (*track))
+            setTrackBit (returnTracks, allTracks, track);
+
+    std::vector<Job> batch;
+
+    for (const auto& stem : plan.stems)
+    {
+        Job job;
+        job.destination = folder.getChildFile (stem.name + suffix);
+        job.label = stem.name;
+        job.tracks = returnTracks;
+        setTrackBit (job.tracks, allTracks, stem.track);
+        job.includeMasterPlugins = false;
+
+        // A generator with nothing to play writes a silent file rather than
+        // failing the batch: an empty stem is still what that track sounds
+        // like, and one of them must not cost the user the other eleven.
+        job.requireAudio = false;
+
+        batch.push_back (std::move (job));
+    }
+
+    stemFolder = folder;
+    startJobs (std::move (batch));
+}
+
+void ExportComponent::startJobs (std::vector<Job> newJobs)
+{
+    if (isRendering() || newJobs.empty())
+        return;
+
+    if (edit.engine.getAudioFileFormatManager().getDefaultFormat() == nullptr)
     {
         setStatus ("No audio format available to write with", errorColour);
         return;
     }
 
-    const auto range = getTimeRange();
-
-    if (range.getLength().inSeconds() <= 0.0)
+    if (getTimeRange().getLength().inSeconds() <= 0.0)
     {
         setStatus ("Nothing to render", errorColour);
         return;
@@ -290,50 +490,70 @@ void ExportComponent::renderTo (const juce::File& destination)
     // showing the truth.
     edit.getTransport().stop (false, false);
 
-    destinationFile = destination;
-    destinationFile.deleteFile();
+    jobs = std::move (newJobs);
+    currentJob = 0;
+    bytesWritten = 0;
+    progressForBar = 0.0;
 
-    te::Renderer::Parameters params (edit);
-    params.destFile = destinationFile;
-    params.audioFormat = format;
-    params.bitDepth = bitDepthBox.getSelectedId();
-    params.sampleRateForAudio = (double) sampleRateBox.getSelectedId();
-    params.blockSizeForAudio = engine.getDeviceManager().getBlockSize();
-    params.time = range;
-    params.usePlugins = true;
-    params.useMasterPlugins = true;
-
-    // Every track, spelled out. Not the renderToFile overload that takes a
-    // track array: that one wraps the render in a ScopedTrackSoloIsolator,
-    // which unmutes everything it is asked to render, so a generator muted in
-    // the mixer would still be audible in the file.
-    params.tracksToDo = te::toBitSet (te::getAllTracks (edit));
-
-    // Held for as long as the render runs, and destroyed on the message thread
-    // with reallocateOnDestruction set, which is what gives the transport its
-    // playback context back afterwards. (tracktion's own EditRenderer::render
-    // passes false here because it destroys the object on the render thread.)
+    // Held for the whole batch rather than per file -- a stem export would
+    // otherwise hand the transport back and take it again between every one --
+    // and destroyed on the message thread with reallocateOnDestruction set,
+    // which is what gives the transport its playback context back afterwards.
+    // (tracktion's own EditRenderer::render passes false here because it
+    // destroys the object on the render thread.)
     renderStatus = std::make_unique<te::Edit::ScopedRenderStatus> (edit, true);
 
+    if (! startCurrentJob())
+        return;   // it has reported and torn down
+
+    refreshOptions();
+    startTimerHz (20);
+}
+
+bool ExportComponent::startCurrentJob()
+{
+    auto& engine = edit.engine;
+    const auto& job = jobs[currentJob];
+
+    job.destination.deleteFile();
+
+    te::Renderer::Parameters params (edit);
+    params.destFile = job.destination;
+    params.audioFormat = engine.getAudioFileFormatManager().getDefaultFormat();
+    params.bitDepth = bitDepthBox.getSelectedId();
+    params.sampleRateForAudio = (double) sampleRateBox.getSelectedId();
+    // The device's, so a render lands on the same block boundaries playback
+    // did -- but not its zero: a device that never opened would otherwise
+    // leave the render asking for blocks of nothing.
+    const auto deviceBlockSize = engine.getDeviceManager().getBlockSize();
+    params.blockSizeForAudio = deviceBlockSize > 0 ? deviceBlockSize : 512;
+    params.time = getTimeRange();
+    params.usePlugins = true;
+    params.useMasterPlugins = job.includeMasterPlugins;
+    params.checkNodesForAudio = job.requireAudio;
+    params.tracksToDo = job.tracks;
+
     progress = 0.0f;
-    progressForBar = 0.0;
 
     // Builds the playback graph, on this (the message) thread.
     renderTask = te::render_utils::createRenderTask (params, "Export", &progress, nullptr);
 
     if (renderTask == nullptr)
     {
+        setStatus ("Could not build a render graph for " + job.label, errorColour);
         stopRender (true);
-        setStatus ("Could not build a render graph for this song", errorColour);
-        return;
+        return false;
     }
 
     renderThread = std::make_unique<RenderThread> (*renderTask);
     renderThread->startThread (juce::Thread::Priority::normal);
 
-    setStatus ("Rendering " + destinationFile.getFileName() + "...", dimTextColour);
-    refreshOptions();
-    startTimerHz (20);
+    setStatus (jobs.size() > 1
+                   ? "Rendering " + job.label + "  (" + juce::String ((int) currentJob + 1)
+                         + " of " + juce::String ((int) jobs.size()) + ")..."
+                   : "Rendering " + job.label + "...",
+               dimTextColour);
+    return true;
 }
 
 void ExportComponent::stopRender (bool deletePartialFile)
@@ -347,8 +567,10 @@ void ExportComponent::stopRender (bool deletePartialFile)
     renderTask.reset();
     renderStatus.reset();
 
-    if (deletePartialFile && destinationFile != juce::File())
-        destinationFile.deleteFile();
+    // Only the file that was being written: the stems already finished are
+    // whole, and are what they would have been had the batch run to the end.
+    if (deletePartialFile && currentJob < jobs.size())
+        jobs[currentJob].destination.deleteFile();
 
     progressForBar = 0.0;
     refreshOptions();
@@ -356,7 +578,10 @@ void ExportComponent::stopRender (bool deletePartialFile)
 
 void ExportComponent::timerCallback()
 {
-    progressForBar = (double) progress.load();
+    // One bar for the batch: the files already written, plus how far into
+    // this one the render has got.
+    const auto total = (double) juce::jmax ((size_t) 1, jobs.size());
+    progressForBar = ((double) currentJob + (double) progress.load()) / total;
     progressBar.repaint();
 
     if (renderThread != nullptr && renderThread->hasFinished())
@@ -367,25 +592,50 @@ void ExportComponent::renderFinished()
 {
     // Read before stopRender destroys the task.
     const auto error = renderTask != nullptr ? renderTask->errorMessage : juce::String();
-    const auto file = destinationFile;
-
-    stopRender (error.isNotEmpty());
+    const auto file = currentJob < jobs.size() ? jobs[currentJob].destination : juce::File();
+    const auto label = currentJob < jobs.size() ? jobs[currentJob].label : juce::String();
 
     if (error.isNotEmpty())
     {
+        stopRender (true);
         setStatus ("Render failed: " + error, errorColour);
         return;
     }
 
     if (! file.existsAsFile())
     {
-        setStatus ("Render produced no file", errorColour);
+        stopRender (false);
+        setStatus ("Render produced no file for " + label, errorColour);
         return;
     }
 
-    setStatus ("Exported " + file.getFullPathName() + "  ("
-                   + juce::File::descriptionOfSizeInBytes (file.getSize()) + ")",
-               okColour);
+    bytesWritten += file.getSize();
+
+    if (++currentJob < jobs.size())
+    {
+        // Between files the thread and the task go and the render status
+        // stays, so the next stem starts on the graph this one just used.
+        renderThread.reset();
+        renderTask.reset();
+
+        if (! startCurrentJob())
+            return;
+
+        return;
+    }
+
+    const auto count = (int) jobs.size();
+    const auto folder = stemFolder;
+    const auto total = juce::File::descriptionOfSizeInBytes (bytesWritten);
+
+    stopRender (false);
+
+    if (folder != juce::File())
+        setStatus ("Exported " + juce::String (count) + (count == 1 ? " stem to " : " stems to ")
+                       + folder.getFullPathName() + "  (" + total + ")",
+                   okColour);
+    else
+        setStatus ("Exported " + file.getFullPathName() + "  (" + total + ")", okColour);
 }
 
 void ExportComponent::setStatus (const juce::String& text, juce::Colour colour)
@@ -415,6 +665,7 @@ void ExportComponent::resized()
         area.removeFromTop (6);
     };
 
+    layoutRow (contentLabel, contentBox);
     layoutRow (rangeLabel, rangeBox);
     layoutRow (sampleRateLabel, sampleRateBox);
     layoutRow (bitDepthLabel, bitDepthBox);
