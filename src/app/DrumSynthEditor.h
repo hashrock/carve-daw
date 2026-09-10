@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
 
+#include "Fonts.h"
 #include "KnobPanel.h"
 #include "PresetManager.h"
 #include "plugins/DrumSynthPlugin.h"
@@ -106,7 +108,12 @@ public:
         }
 
         setSize (width, PresetBar::height + margin * 2 + columnHeight);
-        startTimerHz (15);
+
+        for (auto& column : columns)
+            for (auto& pad : column->pads)
+                pad->resetActivity (drums.getActivity (pad->getDrum()).hits);
+
+        startTimerHz (refreshHz);
     }
 
     void paint (juce::Graphics& g) override
@@ -149,33 +156,78 @@ private:
     class Pad : public juce::Button
     {
     public:
-        Pad (const juce::String& drumName, int midiNote)
-            : juce::Button (drumName), name (drumName),
+        Pad (Drum drumToPlay, const juce::String& drumName, int midiNote)
+            : juce::Button (drumName), drum (drumToPlay), name (drumName),
               note (juce::MidiMessage::getMidiNoteName (midiNote, true, true, 3))
         {
             setTooltip ("MIDI note " + juce::String (midiNote));
             setWantsKeyboardFocus (false);
         }
 
+        Drum getDrum() const  { return drum; }
+
+        // Lit while the drum sounds, from the synth's own voices -- the same
+        // light a drum kit's pads give, and the same accent colour, so the two
+        // instruments read alike.
+        //
+        // A hit shorter than the poll interval would never be caught by the
+        // voice alone, so a moved hit count lights the pad for a minimum flash
+        // whatever the voice says by the time it is looked at.
+        void showActivity (const plugins::DrumSynthPlugin::DrumActivity& activity, double nowMs)
+        {
+            if (activity.hits != seenHits)
+            {
+                seenHits = activity.hits;
+                lastHitMs = nowMs;
+            }
+
+            const bool flashing = lastHitMs > 0.0 && nowMs - lastHitMs < minimumFlashSeconds * 1000.0;
+            setLit (flashing || activity.sounding);
+        }
+
+        // Starts from a hit count rather than from zero, or every drum played
+        // since the song loaded would flash the moment the window opened.
+        void resetActivity (std::uint32_t hits)
+        {
+            seenHits = hits;
+            lastHitMs = 0.0;
+            setLit (false);
+        }
+
         void paintButton (juce::Graphics& g, bool highlighted, bool down) override
         {
             auto area = getLocalBounds().toFloat();
-            g.setColour (down ? juce::Colour (0xffe0a24f)
-                              : highlighted ? juce::Colour (0xff4a4a54) : juce::Colour (0xff3a3a42));
+            const bool bright = down || lit;
+            g.setColour (bright ? juce::Colour (0xffe0a24f)
+                                : highlighted ? juce::Colour (0xff4a4a54) : juce::Colour (0xff3a3a42));
             g.fillRoundedRectangle (area, 4.0f);
 
-            const auto text = down ? juce::Colour (0xff232327) : juce::Colour (0xffe8e8ec);
+            const auto text = bright ? juce::Colour (0xff232327) : juce::Colour (0xffe8e8ec);
             auto bounds = getLocalBounds();
             g.setColour (text);
-            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            g.setFont (uiFont (fonts::small, juce::Font::bold));
             g.drawText (name, bounds.removeFromTop (bounds.getHeight() / 2 + 2), juce::Justification::centredBottom);
             g.setColour (text.withAlpha (0.7f));
-            g.setFont (juce::FontOptions (11.0f));
+            g.setFont (uiFont (fonts::small));
             g.drawText (note, bounds, juce::Justification::centredTop);
         }
 
     private:
+        void setLit (bool shouldBeLit)
+        {
+            if (lit == shouldBeLit)
+                return;
+
+            lit = shouldBeLit;
+            repaint();
+        }
+
+        Drum drum;
         juce::String name, note;
+
+        std::uint32_t seenHits = 0;
+        double lastHitMs = 0.0;   // 0 = never, on the hi-res clock
+        bool lit = false;
     };
 
     struct Column
@@ -191,6 +243,12 @@ private:
     static constexpr int margin = 6;
     static constexpr int padHeight = 48;
     static constexpr int previewVelocity = 100;
+
+    // How often the pads and the knobs are looked at, and the least a pad
+    // stays lit once hit -- the drum kit's grid uses the same pair, so a hat
+    // roll flickers per hit on both.
+    static constexpr int refreshHz = 30;
+    static constexpr double minimumFlashSeconds = 0.1;
 
     static int getColumnWidth (const Column& column)
     {
@@ -212,7 +270,7 @@ private:
         {
             const int note = plugins::DrumSynthPlugin::getNoteForDrum (drum);
 
-            auto pad = std::make_unique<Pad> (padNames[(int) drum], note);
+            auto pad = std::make_unique<Pad> (drum, padNames[(int) drum], note);
             pad->onClick = [this, note]
             {
                 if (onPreviewNote)
@@ -246,6 +304,15 @@ private:
 
         for (auto& column : columns)
             column->section->refresh();
+
+        if (auto* drums = dynamic_cast<plugins::DrumSynthPlugin*> (plugin.get()))
+        {
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+
+            for (auto& column : columns)
+                for (auto& pad : column->pads)
+                    pad->showActivity (drums->getActivity (pad->getDrum()), now);
+        }
     }
 
     te::SafeSelectable<te::Plugin> plugin;

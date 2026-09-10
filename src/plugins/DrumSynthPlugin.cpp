@@ -110,6 +110,12 @@ const char* DrumSynthPlugin::getDrumName (Drum drum)
 //==============================================================================
 DrumSynthPlugin::DrumSynthPlugin (te::PluginCreationInfo info) : te::Plugin (info)
 {
+    for (int i = 0; i < numDrums; ++i)
+    {
+        hitCounts[(size_t) i].store (0, std::memory_order_relaxed);
+        soundingDrums[(size_t) i].store (false, std::memory_order_relaxed);
+    }
+
     auto um = getUndoManager();
 
     kickTuneValue.referTo (state, kickTuneId, um, 50.0f);
@@ -229,6 +235,30 @@ void DrumSynthPlugin::killAll()
         voice.filterA.reset();
         voice.filterB.reset();
     }
+
+    publishActivity();
+}
+
+DrumSynthPlugin::DrumActivity DrumSynthPlugin::getActivity (Drum drum) const
+{
+    DrumActivity activity;
+    activity.hits = hitCounts[(size_t) drum].load (std::memory_order_relaxed);
+    activity.sounding = soundingDrums[(size_t) drum].load (std::memory_order_relaxed);
+    return activity;
+}
+
+void DrumSynthPlugin::publishActivity()
+{
+    for (int i = 0; i < numDrums; ++i)
+    {
+        const auto drum = (Drum) i;
+
+        // The hats share a circuit, so the voice says which of the two it is
+        // ringing: an open hat sounding leaves the closed hat's pad dark, the
+        // way the machine does.
+        const auto& v = voices[(size_t) (drum == Drum::openHat ? Drum::closedHat : drum)];
+        soundingDrums[(size_t) i].store (v.active && v.drum == drum, std::memory_order_relaxed);
+    }
 }
 
 double DrumSynthPlugin::noise() noexcept
@@ -247,6 +277,8 @@ void DrumSynthPlugin::trigger (Drum drum, float velocity)
     // closed hat chokes the open one.
     const auto slot = (drum == Drum::openHat) ? Drum::closedHat : drum;
     auto& v = voices[(size_t) slot];
+
+    hitCounts[(size_t) drum].fetch_add (1, std::memory_order_relaxed);
 
     v.drum = drum;
     v.active = true;
@@ -576,6 +608,8 @@ void DrumSynthPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     for (int ch = 2; ch < numChannels; ++ch)
         buffer.clear (ch, fc.bufferStartSample, fc.bufferNumSamples);
+
+    publishActivity();
 }
 
 } // namespace carve::plugins

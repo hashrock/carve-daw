@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -64,6 +65,23 @@ public:
 
     static int getNoteForDrum (Drum);
     static const char* getDrumName (Drum);
+
+    // What a drum is doing, for the editor's pads to light from. The synth is
+    // the only thing that knows: its voices are where a hit turns into sound,
+    // whether the note came from a clip or from a pad being clicked.
+    //
+    // A hit count as well as the flag, for the same reason the note monitor in
+    // front of a drum kit keeps one: a closed hat is over between two timer
+    // ticks, and a counter that moved says there was a hit where the flag has
+    // already cleared. Written on the audio thread, read from the message
+    // thread, nothing locked.
+    struct DrumActivity
+    {
+        uint32_t hits = 0;       // triggers so far; wraps, compare for change only
+        bool sounding = false;   // a voice is still ringing this drum
+    };
+
+    DrumActivity getActivity (Drum) const;
 
     // Kick: pitch, length, how far the pitch falls in, how hard it is pushed,
     // and how much click sits on the front of it. Everything else gets a decay
@@ -131,6 +149,9 @@ private:
         SVF filterA, filterB;
     };
 
+    // Copies what the voices are doing into the atomics getActivity reads.
+    void publishActivity();
+
     void trigger (Drum, float velocity);
     void render (float* out, int numSamples);
     float renderVoiceSample (Voice&);
@@ -139,6 +160,8 @@ private:
     double noise() noexcept;
 
     std::array<Voice, numDrums> voices;
+    std::array<std::atomic<uint32_t>, numDrums> hitCounts;
+    std::array<std::atomic<bool>, numDrums> soundingDrums;
     double sampleRate = 44100.0;
     uint32_t noiseState = 0x9e3779b9u;
 
