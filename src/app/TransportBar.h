@@ -149,6 +149,10 @@ public:
     std::function<juce::StringArray()> getRecentSongs;
     std::function<void (int index)> onOpenRecent;
 
+    // Open Sample Song, beside it: the list comes from the model, so only
+    // the choice has to be handed back.
+    std::function<void (int index)> onOpenSampleSong;
+
     // The Browser button is a lit toggle showing whether the panel is up;
     // MainComponent owns the panel and tells the bar, so a cmd-B and a click
     // both land the same way.

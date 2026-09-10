@@ -73,6 +73,12 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
   ディレイタイムの LFO、幅) + VST3 / AU
 - **オートメーション**: パラメータカーブと LFO モディファイア。どちらも拍基準で
   テンポ変更に追従
+- **付属コンテンツ**: サンプル曲 3 曲 (File > Open Sample Song / ロゴメニュー) と
+  ファクトリードラムキット 9 音。曲は内蔵音源だけで組んであるので外部ファイルを
+  参照しない。キットは `content/Drums` に実ファイルとして入り (アプリバンドルの
+  `Resources/Content` にコピーされる)、初回起動時にサンプルブラウザの
+  お気に入りとして開かれる。音は `scripts/generate-drums.py` で合成したもので、
+  ライセンスの要らない自前の素材
 
 すべての編集はモデル (ValueTree) を経由するので、undo・保存・再生中の
 リアルタイム反映が一様に効く。
@@ -128,6 +134,8 @@ RC_PARAMS="max_success=20000 max_size=200 seed=1" ./run.sh --test
 ```sh
 BIN=./build/carve-render_artefacts/Release/carve-render
 $BIN --demo demo.wav              # デモ曲をレンダリング
+$BIN --sample                     # 付属サンプル曲の一覧
+$BIN --sample "Neon Streets" a.wav  # サンプル曲をレンダリング (番号でも可)
 $BIN --write-demo demo.carve      # デモ曲を .carve として書き出し
 $BIN song.carve out.wav           # .carve をレンダリング
 $BIN --scan                       # VST3/AU をスキャン (GUI と設定を共有)

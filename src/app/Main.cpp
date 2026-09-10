@@ -3,6 +3,7 @@
 #include "EngineSetup.h"
 #include "Fonts.h"
 #include "MainComponent.h"
+#include "model/SampleSongs.h"
 
 namespace carve::app
 {
@@ -164,6 +165,15 @@ private:
                 }
 
                 add (Action::openDemoSong, "Open Demo Song");
+
+                // The songs that ship with the app, which the model names.
+                juce::PopupMenu sampleMenu;
+                const auto samples = model::sampleSongNames();
+
+                for (int i = 0; i < samples.size(); ++i)
+                    sampleMenu.addItem (firstSampleSongItemID + i, samples[i]);
+
+                m.addSubMenu ("Open Sample Song", sampleMenu, ! samples.isEmpty());
                 m.addSeparator();
                 add (Action::save, "Save", "Cmd+S");
                 add (Action::saveAs, "Save As...", "Shift+Cmd+S");
@@ -201,7 +211,9 @@ private:
 
             if (auto main = owner.getMainComponent())
             {
-                if (itemID >= firstRecentItemID)
+                if (itemID >= firstSampleSongItemID)
+                    main->openSampleSong (itemID - firstSampleSongItemID);
+                else if (itemID >= firstRecentItemID)
                     main->openRecentSong (itemID - firstRecentItemID);
                 else
                     main->perform (static_cast<MainComponent::Action> (itemID - 1));
@@ -213,8 +225,11 @@ private:
         static int id (MainComponent::Action action)  { return static_cast<int> (action) + 1; }
 
         // Above every id() an Action can take, so Open Recent's items and the
-        // fixed ones share the one callback.
+        // fixed ones share the one callback. The recents are capped at ten,
+        // and the sample songs start far enough above them that neither list
+        // has to know the other's length.
         static constexpr int firstRecentItemID = 100;
+        static constexpr int firstSampleSongItemID = 200;
 
         Application& owner;
     };

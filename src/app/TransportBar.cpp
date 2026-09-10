@@ -1,4 +1,5 @@
 #include "TransportBar.h"
+#include "model/SampleSongs.h"
 #include "Fonts.h"
 
 namespace carve::app
@@ -314,7 +315,8 @@ void TransportBar::showFileMenu()
 {
     // The recent songs get IDs of their own above the fixed items, so one
     // callback can tell "the third recent song" from "Save As".
-    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId, firstRecentId = 100 };
+    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId,
+           firstRecentId = 100, firstSampleSongId = 200 };
 
     juce::PopupMenu menu;
     menu.addItem (newId, "New");
@@ -331,6 +333,15 @@ void TransportBar::showFileMenu()
     menu.addSubMenu ("Open Recent", recentMenu, ! recent.isEmpty());
 
     menu.addItem (openDemoId, "Open Demo Song");
+
+    // The songs the app ships with, listed the same way the recents are.
+    const auto samples = model::sampleSongNames();
+    juce::PopupMenu sampleMenu;
+
+    for (int i = 0; i < samples.size(); ++i)
+        sampleMenu.addItem (firstSampleSongId + i, samples[i]);
+
+    menu.addSubMenu ("Open Sample Song", sampleMenu, ! samples.isEmpty());
     menu.addSeparator();
     menu.addItem (saveId, "Save");
     menu.addItem (saveAsId, "Save As...");
@@ -353,8 +364,15 @@ void TransportBar::showFileMenu()
             case exportId:    if (safe->onExport)   safe->onExport();   break;
 
             default:
-                if (result >= firstRecentId && safe->onOpenRecent != nullptr)
+                if (result >= firstSampleSongId)
+                {
+                    if (safe->onOpenSampleSong != nullptr)
+                        safe->onOpenSampleSong (result - firstSampleSongId);
+                }
+                else if (result >= firstRecentId && safe->onOpenRecent != nullptr)
+                {
                     safe->onOpenRecent (result - firstRecentId);
+                }
 
                 break;
         }

@@ -4,6 +4,7 @@
 
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
+#include "model/SampleSongs.h"
 
 namespace carve::app
 {
@@ -26,6 +27,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onOpenDemo = [this] { openDemoSong(); };
     transportBar->getRecentSongs = [this] { return recentSongNames(); };
     transportBar->onOpenRecent = [this] (int index) { openRecentSong (index); };
+    transportBar->onOpenSampleSong = [this] (int index) { openSampleSong (index); };
 
     recentSongs.setMaxNumberOfItems (10);
     recentSongs.restoreFromString (engine.getPropertyStorage().getPropertiesFile()
@@ -846,6 +848,18 @@ void MainComponent::openDemoSong()
     {
         if (safe != nullptr && goAhead)
             safe->loadSong (model::buildDemoSong());
+    });
+}
+
+void MainComponent::openSampleSong (int index)
+{
+    // Like the demo: built rather than loaded, so it opens as an unsaved
+    // "Untitled" and saving it asks where rather than writing over anything
+    // -- least of all over the copy the app ships with.
+    confirmDiscardChanges ([safe = juce::Component::SafePointer (this), index] (bool goAhead)
+    {
+        if (safe != nullptr && goAhead)
+            safe->loadSong (model::buildSampleSong (index));
     });
 }
 

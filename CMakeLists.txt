@@ -38,6 +38,8 @@ set(CARVE_CORE_SOURCES
     src/model/MidiPatternIO.cpp
     src/model/DemoSong.h
     src/model/DemoSong.cpp
+    src/model/SampleSongs.h
+    src/model/SampleSongs.cpp
     src/sync/EditSync.h
     src/sync/EditSync.cpp
     src/sync/EffectChains.h
@@ -111,6 +113,7 @@ target_sources(carve PRIVATE
     src/app/ExportComponent.h
     src/app/ExportComponent.cpp
     src/app/ExportWindow.h
+    src/app/FactoryContent.h
     src/app/DrumPadGrid.h
     src/app/DrumPadGrid.cpp
     src/app/SlateEditor.h
@@ -138,6 +141,31 @@ target_sources(carve PRIVATE
     src/app/TimelineView.h
     src/app/TimeSigSupport.h)
 carve_configure_target(carve)
+
+# --- Factory content ---
+#
+# The drum kit in content/ ships with the app as files rather than as binary
+# data: the sample browser browses it, and a pad takes a sample by being
+# dragged one, so what these have to be is real files in a real folder.
+# Copied on every build -- copy_directory only rewrites what changed -- so
+# regenerating the kit (scripts/generate-drums.py) is enough to see it.
+#
+# The source path is a fallback for anything that runs without the copy having
+# happened, which in practice means a scratch program linked against these
+# objects; see src/app/FactoryContent.h.
+target_compile_definitions(carve PRIVATE
+    CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content")
+
+if(APPLE)
+    set(CARVE_CONTENT_DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources/Content")
+else()
+    set(CARVE_CONTENT_DESTINATION "$<TARGET_FILE_DIR:carve>/Content")
+endif()
+
+add_custom_command(TARGET carve POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/content" "${CARVE_CONTENT_DESTINATION}"
+    COMMENT "Copying the factory content into the app")
 
 # --- Headless renderer CLI ---
 juce_add_console_app(carve-render

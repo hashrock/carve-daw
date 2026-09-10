@@ -1,4 +1,5 @@
 #include "SampleBrowser.h"
+#include "FactoryContent.h"
 #include "Fonts.h"
 
 namespace carve::app
@@ -525,6 +526,15 @@ void SampleBrowser::loadSettings()
         for (auto* child : xml->getChildIterator())
             if (const juce::File file (child->getStringAttribute ("path")); file != juce::File())
                 favourites.push_back (file);
+
+    // First run: the browser opened on the music folder, which on most
+    // machines is either empty or somebody's iTunes library, and the drum kit
+    // the app ships with was somewhere inside the bundle where nobody would
+    // think to look. Seeded on the absence of the key rather than of the
+    // list, so a user who removes it does not get it back next time.
+    if (! settings->containsKey ("favourites"))
+        if (const auto drums = factoryDrumsFolder(); drums != juce::File())
+            favourites.insert (favourites.begin(), drums);
 
     previewButton.setToggleState (settings->getBoolValue ("preview", true), juce::dontSendNotification);
 

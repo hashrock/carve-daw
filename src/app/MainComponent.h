@@ -58,6 +58,11 @@ public:
     juce::StringArray recentSongNames();
     void openRecentSong (int index);
 
+    // The songs that ship with the app (model::sampleSongNames()), opened by
+    // their index in that list. Public for the same reason the recents are:
+    // the menu bar, which is not part of this component, builds the list.
+    void openSampleSong (int index);
+
 private:
     void timerCallback() override;
 

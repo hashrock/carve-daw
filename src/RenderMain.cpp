@@ -3,6 +3,7 @@
 
 #include "EngineSetup.h"
 #include "model/DemoSong.h"
+#include "model/SampleSongs.h"
 #include "sync/EditSync.h"
 #include "NoteOffPlayback.h"
 
@@ -39,6 +40,8 @@ void printUsage()
                  "\n"
                  "Usage:\n"
                  "  carve-render --demo <out.wav>          render the built-in demo song\n"
+                 "  carve-render --sample <name> <out.wav> render one of the sample songs\n"
+                 "        (a substring of its name, or its number; --sample with no name lists them)\n"
                  "  carve-render --write-demo <out.carve>  write the demo song as a project file\n"
                  "  carve-render <song.carve> <out.wav>    render an Carve project file\n"
                  "  carve-render <in.tracktionedit> <out.wav>  render a raw tracktion edit\n"
@@ -225,6 +228,33 @@ int renderSongToWav (te::Engine& engine, const carve::model::Song& song, const j
     return renderEditToWav (*edit, outputFile, song.getName());
 }
 
+// By number as listed, or by any substring of the name -- the same courtesy
+// --plugin-demo does, and for the same reason: nobody wants to type "Neon
+// Streets" exactly to hear whether it still renders.
+int renderSampleSong (te::Engine& engine, const juce::String& nameOrNumber,
+                      const juce::File& outputFile)
+{
+    const auto names = carve::model::sampleSongNames();
+
+    int index = -1;
+
+    if (const auto number = nameOrNumber.getIntValue();
+        number >= 1 && number <= names.size() && nameOrNumber.containsOnly ("0123456789"))
+        index = number - 1;
+    else
+        for (int i = 0; i < names.size(); ++i)
+            if (index < 0 && names[i].containsIgnoreCase (nameOrNumber))
+                index = i;
+
+    if (index < 0)
+    {
+        std::cerr << "No sample song matching \"" << nameOrNumber << "\" - run --sample to list them\n";
+        return 1;
+    }
+
+    return renderSongToWav (engine, carve::model::buildSampleSong (index), outputFile);
+}
+
 int scanPlugins (te::Engine& engine)
 {
     auto& pluginManager = engine.getPluginManager();
@@ -301,8 +331,22 @@ int main (int argc, char* argv[])
         return 1;
 
     const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs" ? 1
-                           : args[0] == "--plugin-demo"                             ? 3
+                           : args[0] == "--plugin-demo" || args[0] == "--sample"     ? 3
                                                                                     : 2;
+
+    // --sample on its own lists what there is to ask for, rather than being
+    // an argument-count error about a name the user does not have yet.
+    if (args.size() == 1 && args[0] == "--sample")
+    {
+        const auto names = carve::model::sampleSongNames();
+
+        std::cout << "Sample songs:\n";
+
+        for (int i = 0; i < names.size(); ++i)
+            std::cout << "  " << (i + 1) << "  " << names[i] << "\n";
+
+        return 0;
+    }
     if (args.isEmpty() || args.size() != expectedArgs)
     {
         printUsage();
@@ -324,6 +368,9 @@ int main (int argc, char* argv[])
 
     if (args[0] == "--demo")
         return renderSongToWav (engine, carve::model::buildDemoSong(), resolveFile (args[1]));
+
+    if (args[0] == "--sample")
+        return renderSampleSong (engine, args[1], resolveFile (args[2]));
 
     if (args[0] == "--write-demo")
     {
