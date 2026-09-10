@@ -37,6 +37,7 @@ public:
         // which is exactly what the help bar is for. They are always available,
         // so unlike the pattern editor's this list never changes.
         helpBar.setEntries ({ { "+ FX", "add effect" },
+                              { "dbl-click name", "open generator" },
                               { "click", "open FX editor" },
                               { "drag", "reorder FX" },
                               { "dot", "bypass" },
@@ -61,6 +62,13 @@ public:
     void setSong (model::Song song)
     {
         mixer.setSong (std::move (song));
+    }
+
+    // Double-clicking a strip's name opens that generator's window, which only
+    // the app can do -- so it hands the mixer the way there.
+    void setOpenGeneratorHandler (std::function<void (const juce::String& generatorId)> handler)
+    {
+        mixer.onOpenGenerator = std::move (handler);
     }
 
     void closeButtonPressed() override

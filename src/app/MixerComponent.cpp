@@ -23,6 +23,27 @@ namespace
 } // namespace
 
 //==============================================================================
+// A label that passes its double clicks on. juce::Label handles them itself --
+// to start editing, which a non-editable one cannot do -- so they otherwise go
+// nowhere.
+class DoubleClickLabel : public juce::Label
+{
+public:
+    std::function<void()> onDoubleClick;
+
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        if (! e.mods.isPopupMenu() && onDoubleClick != nullptr)
+        {
+            onDoubleClick();
+            return;
+        }
+
+        juce::Label::mouseDoubleClick (e);
+    }
+};
+
+//==============================================================================
 // One generator's strip.
 //
 // The insert slots sit above the fader, in a Viewport: a long chain scrolls
@@ -77,6 +98,16 @@ public:
         nameLabel.setJustificationType (juce::Justification::centred);
         nameLabel.setFont (juce::FontOptions (13.0f));
         nameLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8d8dc));
+
+        // Nothing on the strip says the name is a door, so the cursor does --
+        // there is no tooltip window over the mixer, and the window's help bar
+        // names the gesture instead.
+        nameLabel.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        nameLabel.onDoubleClick = [this]
+        {
+            if (onOpenGenerator)
+                onOpenGenerator();
+        };
 
         dbLabel.setJustificationType (juce::Justification::centred);
         dbLabel.setFont (juce::FontOptions (12.0f));
@@ -242,6 +273,10 @@ public:
         volumeSlider.setBounds (area);
     }
 
+    // Set by the mixer, which is the one that knows what opening a generator
+    // means; the strip only knows its name was double-clicked.
+    std::function<void()> onOpenGenerator;
+
 private:
     // Below this the fader stops being aimable, so the slots scroll instead.
     static constexpr int minFaderHeight = 110;
@@ -249,7 +284,8 @@ private:
     model::Generator generator;
     juce::UndoManager& undoManager;
 
-    juce::Label nameLabel, dbLabel;
+    DoubleClickLabel nameLabel;
+    juce::Label dbLabel;
     juce::Slider volumeSlider, panSlider;
     juce::TextButton muteButton { "M" }, soloButton { "S" };
 
@@ -759,6 +795,12 @@ void MixerComponent::rebuildStrips()
         slots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
         {
             closeEffectWindow (effectId);
+        };
+
+        strip->onOpenGenerator = [this, generatorId]
+        {
+            if (onOpenGenerator)
+                onOpenGenerator (generatorId);
         };
 
         addAndMakeVisible (*strip);

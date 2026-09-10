@@ -47,6 +47,11 @@ public:
     // strips need to be, so the containing window can re-fit itself.
     std::function<void()> onContentWidthChanged;
 
+    // A strip's name label was double-clicked: open that generator's window,
+    // the same way a double click on the playlist's row label does. The mixer
+    // is where you look at a generator's level, so it wants the same way in.
+    std::function<void (const juce::String& generatorId)> onOpenGenerator;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 

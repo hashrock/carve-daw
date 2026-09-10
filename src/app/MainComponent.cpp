@@ -596,6 +596,19 @@ void MainComponent::openMixer()
     };
     mixerWindow = std::make_unique<MixerWindow> (*edit, undoManager,
                                                  std::move (onClose), std::move (keyHandler));
+
+    // The same door the playlist's row label is, so the mixer needs no way of
+    // its own to get at a generator's editor.
+    mixerWindow->setOpenGeneratorHandler ([safe = juce::Component::SafePointer (this)]
+                                          (const juce::String& generatorId)
+    {
+        if (safe == nullptr)
+            return;
+
+        safe->generatorController->selectGenerator (generatorId);
+        safe->openGeneratorWindow (GeneratorWindow::Tab::instrument);
+    });
+
     mixerWindow->setSong (song);
 }
 
