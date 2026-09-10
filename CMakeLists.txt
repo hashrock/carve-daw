@@ -95,8 +95,8 @@ target_sources(carve PRIVATE
     src/app/ExportWindow.h
     src/app/DrumPadGrid.h
     src/app/DrumPadGrid.cpp
-    src/app/FourOscEditor.h
-    src/app/FourOscEditor.cpp
+    src/app/SlateEditor.h
+    src/app/SlateEditor.cpp
     src/app/GeneratorController.h
     src/app/GeneratorController.cpp
     src/app/GeneratorWindow.h

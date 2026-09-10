@@ -29,7 +29,7 @@ double GeneratorController::newPatternLengthBeats() const
 void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 {
     juce::PopupMenu menu;
-    menu.addItem (1, "4OSC (internal synth)");
+    menu.addItem (1, "Slate (internal synth)");
     menu.addItem (6, "808 Drums (internal drum synth)");
     menu.addItem (3, "Sampler (choose a sample)...");
     menu.addItem (4, "Drum Kit (16 pads)");
@@ -56,7 +56,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
                         [this, instruments] (int result)
     {
         if (result == 1)
-            addGenerator ("Synth " + juce::String (song.getNumGenerators() + 1),
+            addGenerator ("Slate " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::synthType, nullptr);
         else if (result == 2)
         {

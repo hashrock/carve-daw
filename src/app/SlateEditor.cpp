@@ -1,4 +1,4 @@
-#include "FourOscEditor.h"
+#include "SlateEditor.h"
 
 namespace carve::app
 {
@@ -38,10 +38,138 @@ namespace
         jassert (parameter != nullptr);
         return std::make_unique<ParameterKnob> (*parameter, name, size, std::move (isAlive));
     }
+
+    //==============================================================================
+    // Where LFO 1 goes.
+    //
+    // 4OSC has no wiring of its own between a modulator and a parameter: every
+    // route lives in a matrix, kept in the plugin's state as a MODMATRIX child
+    // holding one MODMATRIXITEM per (parameter, source) pair. Nothing in this
+    // editor showed that matrix, which meant the LFO knobs moved a modulator
+    // that reached nothing -- so this box writes the matrix instead of showing
+    // it, one destination at a time. The plugin reloads it on the spot: every
+    // change to that subtree triggers its own loadModMatrix.
+    //
+    // Depths are in the destination parameter's own 0..1 range, and are chosen
+    // so that the Depth knob all the way up is still musical rather than
+    // absurd. They are per destination because "as far as it goes" means a
+    // different amount for a filter than for a tuning.
+    struct LfoDestination
+    {
+        const char* name;
+        juce::StringArray parameterIDs;
+        float depth;
+    };
+
+    const std::vector<LfoDestination> lfoDestinations
+    {
+        { "Off",    {},                                   0.0f  },
+        // Fine tune, not tune: the plugin rounds Tune to whole semitones, so
+        // vibrato through it would step rather than glide. +-50 cents here.
+        { "Pitch",  { "fineTune1", "fineTune2" },          0.25f },
+        // The cutoff is stored as a note number over a 135-semitone range, so
+        // a quarter of it is a little under three octaves of sweep.
+        { "Filter", { "filterFreq" },                      0.25f },
+        { "Width",  { "pulseWidth1", "pulseWidth2" },      0.35f },
+    };
+
+    const juce::String lfo1SourceID { "lfo1" };
+
+    class LfoDestinationBox : public juce::ComboBox,
+                              public HeaderControl
+    {
+    public:
+        LfoDestinationBox (juce::ValueTree stateToEdit, std::function<bool()> isAliveCheck)
+            : state (std::move (stateToEdit)), isAlive (std::move (isAliveCheck))
+        {
+            for (const auto& destination : lfoDestinations)
+                addItem (destination.name, getNumItems() + 1);
+
+            setWantsKeyboardFocus (false);
+            setTooltip ("What LFO 1 moves");
+
+            onChange = [this]
+            {
+                if (isRefreshing || ! isAlive())
+                    return;
+
+                apply (getSelectedItemIndex());
+            };
+
+            refresh();
+        }
+
+        juce::Component& getComponent() override  { return *this; }
+        int getPreferredWidth() const override    { return 78; }
+
+        void refresh() override
+        {
+            if (! isAlive() || isPopupActive())
+                return;
+
+            const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
+            setSelectedItemIndex (findCurrentDestination(), juce::dontSendNotification);
+        }
+
+    private:
+        // The first destination whose parameters the matrix already points
+        // LFO 1 at, or "Off" if it points at nothing this box knows about --
+        // a preset built elsewhere can hold routes with no name here.
+        int findCurrentDestination() const
+        {
+            const auto matrix = state.getChildWithName (te::IDs::MODMATRIX);
+
+            if (! matrix.isValid())
+                return 0;
+
+            for (int i = 1; i < (int) lfoDestinations.size(); ++i)
+            {
+                for (const auto& item : matrix)
+                {
+                    if (item[te::IDs::modItem].toString() != lfo1SourceID)
+                        continue;
+
+                    if (lfoDestinations[(size_t) i].parameterIDs.contains (item[te::IDs::modParam].toString()))
+                        return i;
+                }
+            }
+
+            return 0;
+        }
+
+        void apply (int index)
+        {
+            if (! juce::isPositiveAndBelow (index, (int) lfoDestinations.size()))
+                return;
+
+            auto matrix = state.getOrCreateChildWithName (te::IDs::MODMATRIX, nullptr);
+
+            // Whatever LFO 1 drove before goes first, so switching destination
+            // moves the LFO rather than adding a second thing for it to do.
+            for (int i = matrix.getNumChildren(); --i >= 0;)
+                if (matrix.getChild (i)[te::IDs::modItem].toString() == lfo1SourceID)
+                    matrix.removeChild (i, nullptr);
+
+            const auto& destination = lfoDestinations[(size_t) index];
+
+            for (const auto& parameterID : destination.parameterIDs)
+            {
+                juce::ValueTree item (te::IDs::MODMATRIXITEM);
+                item.setProperty (te::IDs::modParam, parameterID, nullptr);
+                item.setProperty (te::IDs::modItem, lfo1SourceID, nullptr);
+                item.setProperty (te::IDs::modDepth, destination.depth, nullptr);
+                matrix.appendChild (item, nullptr);
+            }
+        }
+
+        juce::ValueTree state;
+        std::function<bool()> isAlive;
+        bool isRefreshing = false;
+    };
 } // namespace
 
 //==============================================================================
-FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
+SlateEditor::SlateEditor (te::FourOscPlugin& synth)
     : plugin (synth), presetBar (synth)
 {
     // The plugin can be deleted under an open window -- EditSync rebuilds the
@@ -49,10 +177,7 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
     auto isAlive = [this] { return plugin != nullptr; };
     auto state = synth.state;
 
-    // The signal path. Two oscillators, not four: four made a page you had to
-    // hunt through for the two anyone actually reaches for, and a second osc
-    // is already enough for the detuned-pair and octave-stack sounds that are
-    // the point of having more than one.
+    // The signal path.
     for (int i = 1; i <= 2; ++i)
     {
         auto* osc = synth.oscParams[i - 1];
@@ -120,8 +245,8 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         page.add (std::move (out));
     }
 
-    // Modulation, and how voices are handled: things done *to* a sound that
-    // already works.
+    // How voices are handled, and the one modulator: things done *to* a sound
+    // that already works.
     page.newRow();
     {
         auto voice = std::make_unique<KnobSection> ("VOICE");
@@ -131,79 +256,24 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
         voice->addKnob (knob (synth.legato, "Glide", S::small, isAlive));
         page.add (std::move (voice));
 
-        for (int i = 1; i <= 2; ++i)
+        if (auto* lfo = synth.lfoParams[0])
         {
-            auto* lfo = synth.lfoParams[i - 1];
-
-            if (lfo == nullptr)
-                continue;
-
-            auto section = std::make_unique<KnobSection> ("LFO " + juce::String (i));
-            section->addHeaderControl (std::make_unique<PropertyChoiceBox> (state, indexedId (te::IDs::lfoWaveShape, i),
-                                                                            lfoWaveShapes, isAlive, i == 1 ? 1 : 0));
-            section->addHeaderControl (std::make_unique<PropertyToggleButton> (state, indexedId (te::IDs::lfoSync, i),
+            auto section = std::make_unique<KnobSection> ("LFO");
+            section->addHeaderControl (std::make_unique<PropertyChoiceBox> (state, indexedId (te::IDs::lfoWaveShape, 1),
+                                                                            lfoWaveShapes, isAlive, 1));
+            // Where it goes, without which none of the rest of this section
+            // does anything at all -- see LfoDestinationBox.
+            section->addHeaderControl (std::make_unique<LfoDestinationBox> (state, isAlive));
+            section->addHeaderControl (std::make_unique<PropertyToggleButton> (state, indexedId (te::IDs::lfoSync, 1),
                                                                                "Sync", isAlive));
             section->addKnob (knob (lfo->rate, "Rate", S::medium, isAlive));
             section->addKnob (knob (lfo->depth, "Depth", S::medium, isAlive));
             // Only used while Sync is on, where the rate comes from the tempo.
-            section->addKnob (std::make_unique<PropertyKnob> (state, indexedId (te::IDs::lfoBeat, i), "Beats",
+            section->addKnob (std::make_unique<PropertyKnob> (state, indexedId (te::IDs::lfoBeat, 1), "Beats",
                                                               S::small, 0.25, 8.0, 0.25, juce::String(),
                                                               isAlive, 1.0));
             page.add (std::move (section));
         }
-
-        for (int i = 1; i <= 2; ++i)
-        {
-            auto* env = synth.modEnvParams[i - 1];
-
-            if (env == nullptr)
-                continue;
-
-            auto section = std::make_unique<KnobSection> ("ENV " + juce::String (i));
-            // A D S R: at this size the full names are wider than the knobs.
-            section->addKnob (knob (env->modAttack, "A", S::small, isAlive));
-            section->addKnob (knob (env->modDecay, "D", S::small, isAlive));
-            section->addKnob (knob (env->modSustain, "S", S::small, isAlive));
-            section->addKnob (knob (env->modRelease, "R", S::small, isAlive));
-            page.add (std::move (section));
-        }
-    }
-
-    // The effects. Each has its switch in the title band and its mix as the
-    // one medium knob.
-    page.newRow();
-    {
-        auto distortion = std::make_unique<KnobSection> ("DIST");
-        distortion->addHeaderControl (std::make_unique<PropertyToggleButton> (state, te::IDs::distortionOn, "On", isAlive));
-        distortion->addKnob (knob (synth.distortion, "Amount", S::medium, isAlive));
-        page.add (std::move (distortion));
-
-        auto chorus = std::make_unique<KnobSection> ("CHORUS");
-        chorus->addHeaderControl (std::make_unique<PropertyToggleButton> (state, te::IDs::chorusOn, "On", isAlive));
-        chorus->addKnob (knob (synth.chorusSpeed, "Speed", S::small, isAlive));
-        chorus->addKnob (knob (synth.chorusDepth, "Depth", S::small, isAlive));
-        chorus->addKnob (knob (synth.chorusWidth, "Width", S::small, isAlive));
-        chorus->addKnob (knob (synth.chorusMix, "Mix", S::medium, isAlive));
-        page.add (std::move (chorus));
-
-        auto delay = std::make_unique<KnobSection> ("DELAY");
-        delay->addHeaderControl (std::make_unique<PropertyToggleButton> (state, te::IDs::delayOn, "On", isAlive));
-        // The delay time is in beats, and the only one of its settings that is
-        // not an automatable parameter.
-        delay->addKnob (std::make_unique<PropertyKnob> (state, te::IDs::delay, "Beats", S::small,
-                                                        0.125, 4.0, 0.125, juce::String(), isAlive, 1.0));
-        delay->addKnob (knob (synth.delayFeedback, "Feedback", S::small, isAlive));
-        delay->addKnob (knob (synth.delayCrossfeed, "Crossfeed", S::small, isAlive));
-        delay->addKnob (knob (synth.delayMix, "Mix", S::medium, isAlive));
-        page.add (std::move (delay));
-
-        auto reverb = std::make_unique<KnobSection> ("REVERB");
-        reverb->addHeaderControl (std::make_unique<PropertyToggleButton> (state, te::IDs::reverbOn, "On", isAlive));
-        reverb->addKnob (knob (synth.reverbSize, "Size", S::small, isAlive));
-        reverb->addKnob (knob (synth.reverbDamping, "Damping", S::small, isAlive));
-        reverb->addKnob (knob (synth.reverbWidth, "Width", S::small, isAlive));
-        reverb->addKnob (knob (synth.reverbMix, "Mix", S::medium, isAlive));
-        page.add (std::move (reverb));
     }
 
     addAndMakeVisible (presetBar);
@@ -213,19 +283,19 @@ FourOscEditor::FourOscEditor (te::FourOscPlugin& synth)
     startTimerHz (15);
 }
 
-void FourOscEditor::paint (juce::Graphics& g)
+void SlateEditor::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff232327));
 }
 
-void FourOscEditor::resized()
+void SlateEditor::resized()
 {
     auto area = getLocalBounds();
     presetBar.setBounds (area.removeFromTop (PresetBar::height));
     page.setBounds (area);
 }
 
-void FourOscEditor::timerCallback()
+void SlateEditor::timerCallback()
 {
     if (plugin == nullptr)
     {

@@ -11,7 +11,7 @@
 #include "DrumPadGrid.h"
 #include "sync/EngineIds.h"
 #include "DrumSynthEditor.h"
-#include "FourOscEditor.h"
+#include "SlateEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
@@ -183,8 +183,8 @@ public:
             return juce::Point<int> (640, 384);
 
         // The built-in editors size themselves.
-        if (fourOsc != nullptr)
-            return juce::Point<int> (fourOsc->getWidth(), fourOsc->getHeight());
+        if (slate != nullptr)
+            return juce::Point<int> (slate->getWidth(), slate->getHeight());
 
         if (drumSynth != nullptr)
             return juce::Point<int> (drumSynth->getWidth(), drumSynth->getHeight());
@@ -371,8 +371,8 @@ public:
         {
             if (auto synth = dynamic_cast<te::FourOscPlugin*> (instrument))
             {
-                fourOsc = std::make_unique<FourOscEditor> (*synth);
-                viewport.setViewedComponent (fourOsc.get(), false);
+                slate = std::make_unique<SlateEditor> (*synth);
+                viewport.setViewedComponent (slate.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -515,7 +515,7 @@ public:
             dropHint.setBounds (centre);
         }
 
-        if (fourOsc != nullptr || drumSynth != nullptr)
+        if (slate != nullptr || drumSynth != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         if (externalEditor != nullptr || presetBar != nullptr)
@@ -574,7 +574,7 @@ private:
         presetBar.reset();
         viewport.setViewedComponent (nullptr, false);
         removeChildComponent (&viewport);
-        fourOsc.reset();
+        slate.reset();
         drumSynth.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
@@ -630,7 +630,7 @@ private:
     juce::Label sampleName, dropHint;
     bool sampleDragOver = false;
     juce::Viewport viewport;
-    std::unique_ptr<FourOscEditor> fourOsc;
+    std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
