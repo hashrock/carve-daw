@@ -124,7 +124,8 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
 
 private:
-    bool patternMode = false;
+    // Lit on the same side MainComponent starts on; see its patternMode.
+    bool patternMode = true;
 };
 
 //==============================================================================

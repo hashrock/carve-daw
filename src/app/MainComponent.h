@@ -141,7 +141,11 @@ private:
     // Pattern mode (the transport bar's Pattern / Song switch): the Edit is
     // built around every generator's current pattern rather than the
     // playlist, and follows the pattern pickers while the mode is on.
-    bool patternMode = false;
+    // Pattern mode is where the work happens: a part is written by looping it
+    // against the others, and the playlist is what it is arranged into
+    // afterwards. Starting in Song mode meant a new song's first Play was
+    // silence, because nothing has been placed yet.
+    bool patternMode = true;
     void updateAudition();
     double auditionLengthBeats() const;
 
