@@ -353,9 +353,15 @@ void OvertopPlugin::applyToBuffer (const te::PluginRenderContext& fc)
             {
                 const auto levelDb = (float) te::gainToDb (dynamic.envelope + envelopeEpsilon);
                 const auto instantDb = (float) te::gainToDb (dynamic.fastEnvelope + envelopeEpsilon);
+                const auto dynamicsGainDb = gainForLevel (levelDb, instantDb, settings);
 
-                dynamic.targetGain = (float) te::dbToGain (gainForLevel (levelDb, instantDb, settings))
+                dynamic.targetGain = (float) te::dbToGain (dynamicsGainDb)
                                       * settings.bandGain[(size_t) band];
+
+                // For the editor: the band's own level and what the curve is
+                // doing with it, without the band's output trim mixed in.
+                bandLevelDb[(size_t) band].store (levelDb, std::memory_order_relaxed);
+                bandGainDb[(size_t) band].store (dynamicsGainDb, std::memory_order_relaxed);
             }
 
             dynamic.gain += (dynamic.targetGain - dynamic.gain) * settings.gainSlew;

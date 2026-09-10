@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 
 #include <tracktion_engine/tracktion_engine.h>
 
@@ -65,6 +66,21 @@ public:
     void applyToBuffer (const te::PluginRenderContext&) override;
 
     void restorePluginStateFromValueTree (const juce::ValueTree&) override;
+
+    // What each band is hearing and what it is doing about it, for the
+    // editor's display: a threshold is the one control that cannot be set
+    // sensibly without seeing where the signal sits relative to it. Published
+    // once per gain update, read on the message thread.
+    static constexpr int numBandsPublished = 3;
+    float getBandLevelDb (int band) const noexcept
+    {
+        return bandLevelDb[(size_t) juce::jlimit (0, numBandsPublished - 1, band)].load (std::memory_order_relaxed);
+    }
+
+    float getBandGainDb (int band) const noexcept
+    {
+        return bandGainDb[(size_t) juce::jlimit (0, numBandsPublished - 1, band)].load (std::memory_order_relaxed);
+    }
 
     juce::CachedValue<float> depthValue, lowMidHzValue, midHighHzValue,
                              thresholdDbValue, downwardRatioValue, upwardRatioValue,
@@ -193,6 +209,9 @@ private:
 
     Splitter splitters[maxChannels];
     BandDynamics dynamics[numBands];
+
+    std::atomic<float> bandLevelDb[numBands] { -100.0f, -100.0f, -100.0f };
+    std::atomic<float> bandGainDb[numBands] { 0.0f, 0.0f, 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OvertopPlugin)
 };

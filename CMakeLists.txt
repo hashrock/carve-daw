@@ -103,6 +103,8 @@ target_sources(carve PRIVATE
     src/app/ClipPropertiesPanel.cpp
     src/app/MissingMediaWindow.h
     src/app/MissingMediaWindow.cpp
+    src/app/EffectGraphs.h
+    src/app/EffectGraphs.cpp
     src/app/EffectParameterWindow.h
     src/app/EffectSlotList.h
     src/app/EffectSlotList.cpp

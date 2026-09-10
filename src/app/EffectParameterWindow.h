@@ -8,6 +8,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "EffectGraphs.h"
 #include "ParameterRows.h"
 #include "PresetManager.h"
 #include "../plugins/GainReduction.h"
@@ -228,7 +229,7 @@ public:
     }
 
 private:
-    static constexpr int maxHeight = 460;
+    static constexpr int maxHeight = 620;
 
     // The preset strip has to stay put while the parameters scroll, so the
     // viewport is a child here rather than the window's content itself.
@@ -276,6 +277,13 @@ private:
                 addAndMakeVisible (*meter);
             }
 
+            // Some effects say what they are doing better as a picture than
+            // as a list of numbers; the list stays underneath either way.
+            graph = createEffectGraph (plugin);
+
+            if (graph)
+                addAndMakeVisible (*graph.component);
+
             auto panel = std::make_unique<EffectParameterPanel> (plugin);
             panelHeight = panel->getHeight();
 
@@ -290,7 +298,8 @@ private:
         int getExtraRowsHeight() const
         {
             return (sidechainBox != nullptr ? sidechainRowHeight : 0)
-                 + (meter != nullptr ? GainReductionMeter::height : 0);
+                 + (meter != nullptr ? GainReductionMeter::height : 0)
+                 + graph.height;
         }
 
         static constexpr int sidechainRowHeight = 28;
@@ -302,6 +311,9 @@ private:
 
             if (sidechainBox != nullptr)
                 sidechainBox->setBounds (area.removeFromTop (sidechainRowHeight).reduced (6, 3));
+
+            if (graph)
+                graph.component->setBounds (area.removeFromTop (graph.height));
 
             if (meter != nullptr)
                 meter->setBounds (area.removeFromTop (GainReductionMeter::height));
@@ -319,6 +331,7 @@ private:
         std::optional<SidechainPicker> sidechain;
         std::unique_ptr<juce::ComboBox> sidechainBox;
         std::unique_ptr<GainReductionMeter> meter;
+        EffectGraph graph;
         juce::Viewport viewport;
         int panelHeight = 0;
     };
