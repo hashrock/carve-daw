@@ -40,6 +40,8 @@ set(CARVE_CORE_SOURCES
     src/model/DemoSong.cpp
     src/sync/EditSync.h
     src/sync/EditSync.cpp
+    src/sync/EffectChains.h
+    src/sync/EffectChains.cpp
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp
     src/plugins/SaturationPlugin.h
@@ -209,4 +211,17 @@ if(CARVE_BUILD_TESTS)
         Catch2::Catch2WithMain
         rapidcheck
         juce::juce_recommended_config_flags)
+
+    # The same properties, one layer out: what the sync makes of a song. This
+    # one does link the engine -- that is the point of it -- which is why it
+    # belongs in the app's own build directory, where tracktion is compiled
+    # already. `./run.sh --test` builds the model-layer suite in build-tests at
+    # Debug; this one comes with the app:
+    #
+    #   cmake --build build --target carve-sync-tests --parallel
+    #   ./build/carve-sync-tests_artefacts/Release/carve-sync-tests
+    juce_add_console_app(carve-sync-tests PRODUCT_NAME "carve-sync-tests")
+    target_sources(carve-sync-tests PRIVATE tests/SyncProperties.cpp)
+    carve_configure_target(carve-sync-tests)
+    target_link_libraries(carve-sync-tests PRIVATE Catch2::Catch2WithMain rapidcheck)
 endif()

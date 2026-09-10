@@ -98,19 +98,10 @@ private:
     void generatorListChanged (const juce::ValueTree& parent);
     void effectListChanged (const juce::ValueTree& parent);
 
-    // generator order == track order (EditSync invariant), then the plugin on
-    // that track stamped with the effect's id. An empty generatorId means the
-    // master list, where the id is the plugin's own EditItemID.
-    te::Plugin* findEffectPlugin (const juce::String& generatorId,
-                                  const juce::String& effectId) const;
-
-    // The plugin behind a slot, wherever its chain lives. Everything that has
-    // to match a slot to a live plugin goes through this rather than picking
-    // one of the two lookups below and getting returns wrong.
-    te::Plugin* findEffectPluginForOwner (const juce::String& ownerId, const juce::String& effectId);
-
+    // Matching a slot to its live plugin is sync::findEffectPlugin's job, for
+    // every kind of owner: the mixer having had its own idea of where a
+    // plugin lives is what closed a return's editor the moment it opened.
     void openEffectEditor (const juce::String& generatorId, const juce::String& effectId);
-    te::Plugin* findReturnEffectPlugin (const juce::String& returnId, const juce::String& effectId);
     void closeEffectWindow (const juce::String& effectId);
 
     // Drops any window whose plugin the model or EditSync has replaced or

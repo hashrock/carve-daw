@@ -78,6 +78,25 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
             midi->setUsesProxy (false);
     }
 
+    // tracktion ships a mixing desk's worth of limits: four plugins on the
+    // master, sixteen on a track. The master's four include its own fader, so
+    // the app's own master chain ran out after three inserts -- and ran out
+    // silently, the model keeping an effect the engine had refused. A song
+    // whose master carries a limiter, an EQ and a compressor is not an
+    // unusual song, and the per-track figure is just as easy to reach with a
+    // sampler, a note monitor, a fader and a handful of inserts.
+    //
+    // The numbers below are what a modern machine can chew through rather
+    // than what a 2003 desk could: nothing here allocates per slot until a
+    // plugin is actually in one.
+    te::EditLimits getEditLimits() override
+    {
+        auto limits = te::EngineBehaviour::getEditLimits();
+        limits.maxNumMasterPlugins = 32;
+        limits.maxPluginsOnTrack = 64;
+        return limits;
+    }
+
     // Scan plugins in a child process. A scan loads arbitrary third-party code
     // and plenty of plugins crash on load or on destruction; in-process that
     // takes the whole app down mid-scan. The engine restarts the child, gives

@@ -71,6 +71,16 @@ double auditionLengthBeats (const model::Song& song, const Audition& audition);
 void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments = false,
                      const Audition* audition = nullptr);
 
+// Copies what the live plugins hold back into the song: an internal plugin's
+// whole state tree, an external one's getStateInformation blob. Call before
+// saving, or the knobs moved since the last load are not in the file.
+//
+// A free function beside syncSongToEdit rather than only a method on EditSync,
+// because it is the other half of the same relationship -- and because the two
+// of them together are what the sync properties can then drive without a
+// message loop to run an EditSync in.
+void captureLivePluginState (const model::Song& song, te::Edit& edit);
+
 // Samplers pick their sounds up out of their own state from a message-loop
 // callback, so anything that renders straight after syncing would get silence.
 // A GUI's loop delivers that callback on its own a moment later; a headless
@@ -104,8 +114,8 @@ public:
     // where it gets to look again.
     std::function<void()> onSynced;
 
-    // Copies each live external plugin's state (getStateInformation) back
-    // into the model. Call before saving the song.
+    // Copies each live plugin's state back into the model, for this Edit and
+    // this song. Call before saving the song.
     void captureLivePluginState();
 
     // Re-reads one audio placement's file from disk. A resync deliberately

@@ -1,5 +1,7 @@
 #include "MixerComponent.h"
 
+#include "../sync/EffectChains.h"
+
 #include "LevelMeterView.h"
 
 #include "sync/EngineIds.h"
@@ -850,70 +852,7 @@ void MixerComponent::rebuildStrips()
         onContentWidthChanged();
 }
 
-te::Plugin* MixerComponent::findEffectPlugin (const juce::String& generatorId,
-                                              const juce::String& effectId) const
-{
-    if (effectId.isEmpty())
-        return nullptr;
 
-    // No generator means the master chain. Its plugins are stamped with their
-    // model Effect's id by EditSync, exactly like a track's insert chain.
-    if (generatorId.isEmpty())
-    {
-        for (auto plugin : edit.getMasterPluginList().getPlugins())
-            if (plugin->state.getProperty (effectIdProperty).toString() == effectId)
-                return plugin;
-
-        return nullptr;
-    }
-
-    const auto generators = song.getGenerators();
-    const auto tracks = te::getAudioTracks (edit);
-
-    for (size_t i = 0; i < generators.size(); ++i)
-    {
-        if (generators[i].getId() != generatorId)
-            continue;
-
-        if ((int) i >= tracks.size())
-            return nullptr;
-
-        for (auto plugin : tracks[(int) i]->pluginList.getPlugins())
-            if (plugin->state.getProperty (effectIdProperty).toString() == effectId)
-                return plugin;
-
-        return nullptr;
-    }
-
-    return nullptr;
-}
-
-te::Plugin* MixerComponent::findReturnEffectPlugin (const juce::String& returnId,
-                                                    const juce::String& effectId)
-{
-    for (auto track : te::getAudioTracks (edit))
-        if (sync::getReturnTrackId (*track) == returnId)
-            for (auto plugin : track->pluginList.getPlugins())
-                if (plugin->state.getProperty (effectIdProperty).toString() == effectId)
-                    return plugin;
-
-    return nullptr;
-}
-
-// The plugin behind one slot, whoever owns the chain it sits in: a generator,
-// the master, or a return bus. Both the editor and the staleness check below
-// go through here. When they each had their own idea of where to look, a
-// return's editor opened and the very next timer tick decided the plugin it
-// was showing had gone and closed it again -- which looked exactly like the
-// slot ignoring the click.
-te::Plugin* MixerComponent::findEffectPluginForOwner (const juce::String& ownerId,
-                                                      const juce::String& effectId)
-{
-    if (auto* plugin = findEffectPlugin (ownerId, effectId))
-        return plugin;
-
-    return findReturnEffectPlugin (ownerId, effectId);
-}
 
 void MixerComponent::openEffectEditor (const juce::String& generatorId, const juce::String& effectId)
 {
@@ -924,7 +863,7 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const ju
     }
 
     // "generatorId" may name a return bus instead; both resolve to a track.
-    auto* plugin = findEffectPluginForOwner (generatorId, effectId);
+    auto* plugin = sync::findEffectPlugin (song, edit, generatorId, effectId);
 
     if (plugin == nullptr)
         return;   // EditSync has not built this one yet
@@ -1009,7 +948,7 @@ void MixerComponent::closeStaleEffectWindows()
     juce::StringArray stale;
 
     for (const auto& [effectId, open] : effectWindows)
-        if (findEffectPluginForOwner (open.generatorId, effectId) != open.plugin.get())
+        if (sync::findEffectPlugin (song, edit, open.generatorId, effectId) != open.plugin.get())
             stale.add (effectId);
 
     // Erasing inside the loop above would invalidate it.

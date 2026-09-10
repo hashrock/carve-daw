@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "EffectChains.h"
 #include "EngineIds.h"
 #include "../plugins/MeteredCompressorPlugin.h"
 
@@ -452,14 +453,26 @@ namespace
         }
     }
 
-    // Reconciles one plugin list against one model effect list. Shared by the
-    // generator chains and the master chain, which differ only in where their
-    // effects sit and what they sit after.
-    void syncEffectChain (te::Edit& edit, te::PluginList& plugins, juce::ValueTree ownerState,
-                          const std::vector<model::Effect>& effects,
-                          const std::function<bool (const juce::String&)>& stillWanted,
-                          int insertAt)
+    // Reconciles one chain against what the model says should be in it. Every
+    // kind of chain -- a generator's, a return's, the master's -- comes in as
+    // an EffectChainSite, so none of them can be forgotten by being spelled
+    // out separately (see EffectChains.h).
+    void syncEffectChain (te::Edit& edit, const sync::EffectChainSite& site)
     {
+        auto& plugins = *site.plugins;
+        const auto& effects = site.effects;
+        const auto& ownerState = site.ownerState;
+        const auto insertAt = site.insertAt;
+
+        auto stillWanted = [&effects] (const juce::String& id)
+        {
+            for (const auto& effect : effects)
+                if (effect.getId() == id)
+                    return true;
+
+            return false;
+        };
+
         // Copy: deleting mutates the list we would be walking.
         for (auto plugin : te::Plugin::Array (plugins.getPlugins()))
             if (isEffect (*plugin) && ! stillWanted (getEffectId (*plugin)))
@@ -484,14 +497,7 @@ namespace
 
     void syncEffects (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
-        // After the instrument, before the fader: the level meter is post-fader
-        // and stays that way.
-        const auto instrument = findInstrument (track);
-        const auto insertAt = instrument != nullptr ? track.pluginList.indexOf (instrument) + 1 : 0;
-
-        syncEffectChain (edit, track.pluginList, track.state, generator.getEffects(),
-                         [&generator] (const juce::String& id) { return generator.findEffect (id).has_value(); },
-                         insertAt);
+        syncEffectChain (edit, sync::generatorChainSite (generator, track));
     }
 
     void syncMasterBus (const model::Song& song, te::Edit& edit)
@@ -500,9 +506,7 @@ namespace
 
         // Master effects go at the head of the list, so the Edit's own master
         // volume and meter stay last and stay post-fader.
-        syncEffectChain (edit, edit.getMasterPluginList(), edit.state, master.getEffects(),
-                         [&master] (const juce::String& id) { return master.findEffect (id).has_value(); },
-                         0);
+        syncEffectChain (edit, sync::masterChainSite (master, edit));
 
         if (auto volume = edit.getMasterVolumePlugin())
             if (std::abs (volume->getVolumeDb() - master.getVolumeDb()) > 0.01f)
@@ -770,9 +774,7 @@ namespace
             if (track->getName() != ret->getName())
                 track->setName (ret->getName());
 
-            syncEffectChain (edit, track->pluginList, track->state, ret->getEffects(),
-                             [&ret] (const juce::String& id) { return ret->findEffect (id).has_value(); },
-                             1);
+            syncEffectChain (edit, sync::returnChainSite (*ret, *track));
 
             if (auto volume = track->getVolumePlugin())
                 if (std::abs (volume->getVolumeDb() - ret->getVolumeDb()) > 0.01f)
@@ -1555,6 +1557,16 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     syncModifiers (song, edit, tracks);
     syncReturns (song, edit);
 
+   #if JUCE_DEBUG
+    // Every debug session is a search for the class of bug this checks for:
+    // an owner enumerated in one place and forgotten in another. See
+    // findSyncProblems, which the property tests assert on too.
+    for (const auto& problem : sync::findSyncProblems (song, edit))
+    {
+        DBG ("sync invariant broken: " << problem);
+        jassertfalse;
+    }
+   #endif
 }
 
 void flushSamplerLoads (te::Edit& edit)
@@ -1567,42 +1579,28 @@ void flushSamplerLoads (te::Edit& edit)
 
 void EditSync::captureLivePluginState()
 {
-    // The master's own chain. It was left out of here until a new song started
-    // arriving with a limiter on it, at which point "my settings come back at
-    // their defaults" stopped being something only the handful of people who
-    // put an effect on the master ever saw.
-    {
-        auto master = song.getMasterBus();
+    sync::captureLivePluginState (song, edit);
+}
 
-        for (auto effect : master.getEffects())
-            if (auto plugin = findEffectPlugin (edit.getMasterPluginList(), effect.getId()))
+void captureLivePluginState (const model::Song& song, te::Edit& edit)
+{
+    // Every chain the song has, from one enumeration: a kind of chain that is
+    // not in that list is not in the app either, which is the only way this
+    // stays complete. It was three hand-written loops before, and the one that
+    // was missing -- the master's -- meant a limiter on the master came back
+    // at its defaults every time a song was reopened.
+    for (auto& site : sync::getEffectChainSites (song, edit))
+        for (auto effect : site.effects)
+            if (auto plugin = site.findPlugin (effect.getId()))
                 captureEffectState (effect, *plugin);
-    }
 
-    // Return busses next: their reverbs have knobs too.
-    for (auto track : te::getAudioTracks (edit))
-    {
-        const auto returnTrackId = sync::getReturnTrackId (*track);
-        if (returnTrackId.isEmpty())
-            continue;
-
-        if (auto ret = song.findReturn (returnTrackId))
-            for (auto effect : ret->getEffects())
-                if (auto plugin = findEffectPlugin (*track, effect.getId()))
-                    captureEffectState (effect, *plugin);
-    }
-
+    // The instruments, which belong to a generator rather than to a chain.
     const auto generators = song.getGenerators();
     const auto tracks = te::getAudioTracks (edit);
 
     for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
     {
         auto generator = generators[(size_t) i];
-
-        // Insert effects first: these apply whatever the generator's own type.
-        for (auto effect : generator.getEffects())
-            if (auto plugin = findEffectPlugin (*tracks[i], effect.getId()))
-                captureEffectState (effect, *plugin);
 
         // The built-in instruments keep their knobs in their own tree, and
         // until this copied it into the song every 4OSC came back at its

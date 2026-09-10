@@ -74,7 +74,8 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
 ./run.sh                # ビルドして GUI 起動 (初回は tracktion+JUCE 取得で ~500MB)
 ./run.sh --asan         # AddressSanitizer ビルドで起動
 ./run.sh --render ...   # ヘッドレスレンダラ (引数はそのまま渡る)
-./run.sh --test         # プロパティテスト
+./run.sh --test         # プロパティテスト (モデル層)
+./run.sh --sync-test    # プロパティテスト (エンジンに同期した結果)
 ```
 
 素の CMake なら `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`。
@@ -97,6 +98,17 @@ Catch2 + RapidCheck による property-based test。既定で有効なので、�
 ```sh
 RC_PARAMS="max_success=20000 max_size=200 seed=1" ./run.sh --test
 ```
+
+テストは 2 つに分かれている。`--test` はモデル層 (エンジンをリンクしないので速い)、
+`--sync-test` は**モデルをエンジンに射影した結果**を見る。後者が見張っているのは
+「ジェネレータ / リターン / マスターという 3 種類の持ち主を、ある場所では全部
+列挙して別の場所では 2 つしか列挙していない」という種類のバグで、実際にそれで
+出たバグが 3 件ある (マスターのエフェクトが保存されない・リターンのエフェクト
+エディタが即閉じる・マスターの 4 個目のエフェクトが無言で消える)。
+
+不変条件は `sync::findSyncProblems` 1 か所に書いてあり、**Debug ビルドでは同期の
+たびに assert される**。つまり Debug で GUI を触っているだけでこの種のバグを
+探していることになる。
 
 対象は「モデル層の算術」「ドキュメントの編集操作（undo/redo・XML 往復を含む）」「ピアノロールのノート移動ジェスチャ」。エンジン（tracktion）と GUI コンポーネントは対象外で、テストバイナリは engine をリンクしない。フェッチを避けたいときは `-DCARVE_BUILD_TESTS=OFF`。
 
