@@ -2,6 +2,7 @@
 
 #include "../plugins/DelayPlugin.h"
 #include "../plugins/LimiterPlugin.h"
+#include "../plugins/OvertopPlugin.h"
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
 
@@ -28,6 +29,7 @@ namespace
     {
         { "compressor",   "Compressor",           "Comp" },
         { plugins::LimiterPlugin::xmlTypeName, "Limiter", "Limit" },
+        { plugins::OvertopPlugin::xmlTypeName, "Overtop (multiband)", "Overtop" },
         { "4bandEq",      "4-Band EQ",            "EQ" },
         { "lowpass",      "Low / High Pass",      "Filter" },
         { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },

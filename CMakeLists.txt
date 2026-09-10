@@ -49,6 +49,8 @@ set(CARVE_CORE_SOURCES
     src/plugins/DelayPlugin.h
     src/plugins/DelayPlugin.cpp
     src/plugins/GainReduction.h
+    src/plugins/OvertopPlugin.h
+    src/plugins/OvertopPlugin.cpp
     src/plugins/LimiterPlugin.h
     src/plugins/LimiterPlugin.cpp
     src/plugins/DrumSynthPlugin.h
