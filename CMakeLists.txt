@@ -232,5 +232,8 @@ if(CARVE_BUILD_TESTS)
     juce_add_console_app(carve-sync-tests PRODUCT_NAME "carve-sync-tests")
     target_sources(carve-sync-tests PRIVATE tests/SyncProperties.cpp)
     carve_configure_target(carve-sync-tests)
-    target_link_libraries(carve-sync-tests PRIVATE Catch2::Catch2WithMain rapidcheck)
+    # Catch2 without its main(): this suite writes its own, so that the engine
+    # and JUCE are opened and closed in a scope rather than at atexit. See the
+    # note at the bottom of SyncProperties.cpp.
+    target_link_libraries(carve-sync-tests PRIVATE Catch2::Catch2 rapidcheck)
 endif()

@@ -27,6 +27,7 @@
 #include <optional>
 #include <vector>
 
+#include <catch2/catch_session.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <rapidcheck.h>
 
@@ -44,11 +45,12 @@ namespace sync = carve::sync;
 //==============================================================================
 // One engine for the whole run: building one opens the device manager and
 // reads the settings folder, which is far too much to do per generated case.
+// main() owns it, and the note down there says why it is not a static.
+te::Engine* liveEngine = nullptr;
+
 te::Engine& testEngine()
 {
-    static juce::ScopedJuceInitialiser_GUI juceState;
-    static auto engine = carve::createEngine (std::make_unique<carve::HeadlessUIBehaviour>());
-    return *engine;
+    return *liveEngine;
 }
 
 //==============================================================================
@@ -365,4 +367,32 @@ TEST_CASE ("What the plugins hold comes back into the song", "[sync][capture]")
 
         RC_ASSERT (found == mark);
     }));
+}
+
+//==============================================================================
+// The engine and JUCE's own state are owned here rather than by a static
+// inside testEngine(), and the difference is not tidiness.
+//
+// A function-local static is destroyed by atexit, after main has returned,
+// among every other static in the program -- Catch2's included. Torn down
+// there, a run where every property passed still ended in SIGABRT: the engine
+// went down, then ~ScopedJuceInitialiser_GUI walked JUCE's list of
+// shutdown-owned singletons and freed something that was no longer a heap
+// block. The app never hit it because JUCEApplicationBase owns the same two
+// things in a scope and closes them in order, which is what this does.
+int main (int argc, char* argv[])
+{
+    juce::ScopedJuceInitialiser_GUI juceState;
+
+    auto engine = carve::createEngine (std::make_unique<carve::HeadlessUIBehaviour>());
+    liveEngine = engine.get();
+
+    const auto result = Catch::Session().run (argc, argv);
+
+    // Explicit, and in this order: the engine first, then JUCE as juceState
+    // goes out of scope -- both before anything static is touched.
+    liveEngine = nullptr;
+    engine.reset();
+
+    return result;
 }
