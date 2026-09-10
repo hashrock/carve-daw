@@ -625,10 +625,15 @@ void TransportBar::resized()
 
     // Loop: the checkbox, then start over length in two rows
     {
+        // The word LOOP ends close to the right of the checkbox it belongs to,
+        // so the two rows of captions beside it need more than a hairline to
+        // read as a separate thing.
+        constexpr int afterLoopLabel = 8;
+
         const int fieldWidth = loopStartDisplay.getWidth();
-        auto p = panel (6 + 60 + 4 + wideCaptionWidth + fieldWidth + 6);
+        auto p = panel (6 + 60 + afterLoopLabel + wideCaptionWidth + fieldWidth + 6);
         loopCheck.setBounds (p.removeFromLeft (60));
-        p.removeFromLeft (4);
+        p.removeFromLeft (afterLoopLabel);
 
         const int rowHeight = (h - 2) / 2;
         auto top = p.removeFromTop (rowHeight);
