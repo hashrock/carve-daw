@@ -557,16 +557,6 @@ void TransportBar::paint (juce::Graphics& g)
         g.drawText (text, area, juce::Justification::centredLeft);
     }
 
-    // Dividers: a dark line with a light one beside it, the bevel a real
-    // panel would have between its sections.
-    for (int x : dividers)
-    {
-        g.setColour (juce::Colour (0xff17171a));
-        g.fillRect (x, 6, 1, getHeight() - 12);
-        g.setColour (juce::Colour (0xff3a3a40));
-        g.fillRect (x + 1, 6, 1, getHeight() - 12);
-    }
-
     g.setColour (juce::Colour (0xff17171a));
     g.fillRect (0, getHeight() - 1, getWidth(), 1);
 }
@@ -575,7 +565,6 @@ void TransportBar::resized()
 {
     panels.clear();
     captions.clear();
-    dividers.clear();
 
     auto area = getLocalBounds().reduced (6, 5);
     const int h = area.getHeight();
@@ -592,12 +581,10 @@ void TransportBar::resized()
         return r;
     };
 
-    auto divider = [&]
-    {
-        area.removeFromLeft (4);
-        dividers.push_back (area.getX());
-        area.removeFromLeft (8);
-    };
+    // The space that used to carry a bevelled line between two groups. The
+    // panels are already drawn as panels, so the line was saying a second time
+    // what the gap and the two edges say once.
+    auto gap = [&] { area.removeFromLeft (12); };
 
     auto panel = [&] (int width)
     {
@@ -607,7 +594,7 @@ void TransportBar::resized()
     };
 
     logoButton.setBounds (take (52, 6));
-    divider();
+    gap();
 
     // BPM
     {
@@ -615,10 +602,10 @@ void TransportBar::resized()
         captions.emplace_back (p.removeFromLeft (captionWidth), "BPM");
         bpmDisplay.setBounds (p.withSizeKeepingCentre (bpmDisplay.getWidth(), 22));
     }
-    divider();
+    gap();
 
     playMode.setBounds (take (66));
-    divider();
+    gap();
 
     // Transport
     {
@@ -626,7 +613,7 @@ void TransportBar::resized()
         for (auto* b : { &rewindButton, &playButton, &stopButton, &forwardButton })
             b->setBounds (p.removeFromLeft (32).withSizeKeepingCentre (32, 28));
     }
-    divider();
+    gap();
 
     // Bar
     {
@@ -634,7 +621,7 @@ void TransportBar::resized()
         captions.emplace_back (p.removeFromLeft (captionWidth), "BAR");
         barDisplay.setBounds (p.withSizeKeepingCentre (barDisplay.getWidth(), 22));
     }
-    divider();
+    gap();
 
     // Loop: the checkbox, then start over length in two rows
     {
@@ -651,11 +638,11 @@ void TransportBar::resized()
         loopStartDisplay.setBounds (top.withSizeKeepingCentre (fieldWidth, 17));
         loopLengthDisplay.setBounds (bottom.withSizeKeepingCentre (fieldWidth, 17));
     }
-    divider();
+    gap();
 
     undoButton.setBounds (take (28, 2).withSizeKeepingCentre (28, 28));
     redoButton.setBounds (take (28).withSizeKeepingCentre (28, 28));
-    divider();
+    gap();
 
     browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
     mixerButton.setBounds (take (76, 10).withSizeKeepingCentre (76, 28));

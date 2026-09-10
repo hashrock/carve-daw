@@ -132,7 +132,7 @@ private:
 // Orion's toolbar, in Carve's clothes: the logo menu, tempo, Pattern / Song,
 // the transport group, the bar counter, the loop with its start and length,
 // undo / redo, the mixer, and the master level with a meter. Groups are drawn
-// as recessed panels with dividers between them, which is what makes a row of
+// as recessed panels with a gap between them, which is what makes a row of
 // this many controls readable at a glance.
 class TransportBar : public juce::Component,
                      private juce::Timer
@@ -231,11 +231,10 @@ private:
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;
 
-    // Laid out by resized(), drawn by paint(): the recessed group panels, the
-    // small captions inside them, and the dividers between.
+    // Laid out by resized(), drawn by paint(): the recessed group panels and
+    // the small captions inside them.
     std::vector<juce::Rectangle<int>> panels;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
-    std::vector<int> dividers;
 };
 
 } // namespace carve::app
