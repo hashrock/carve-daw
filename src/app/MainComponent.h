@@ -80,6 +80,12 @@ private:
     void newSong();
     void openSong();
     void openSongFile (const juce::File&);
+
+    // Where the song choosers open, kept apart from the folder the sample
+    // choosers remember so that browsing samples does not drag the song's
+    // Open / Save along with it.
+    juce::File songBrowseDirectory() const;
+    void rememberSongDirectory (const juce::File& songFile);
     void openDemoSong();
     void openPluginManager();
     void openPatternEditor();

@@ -618,6 +618,34 @@ void MainComponent::openPluginManager()
     pluginScanWindow = std::make_unique<PluginScanWindow> (engine, std::move (onClose));
 }
 
+//==============================================================================
+// Where the last song was opened from or saved to. Without one of its own the
+// chooser opens on whatever the app browsed last, which is the sample library:
+// picking samples happens many times per session and opening a song once, so
+// the songs kept losing the race. Sits in the same properties file the sample
+// directory uses (see GeneratorController) because tracktion's PropertyStorage
+// only takes keys from its own fixed SettingID enum.
+static constexpr const char* lastSongDirectoryKey = "lastSongDirectory";
+
+juce::File MainComponent::songBrowseDirectory() const
+{
+    const juce::File remembered (engine.getPropertyStorage().getPropertiesFile()
+                                     .getValue (lastSongDirectoryKey));
+
+    // A folder that has since been deleted or unmounted would open the chooser
+    // on nothing at all, so fall back rather than trust it.
+    if (remembered.isDirectory())
+        return remembered;
+
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+}
+
+void MainComponent::rememberSongDirectory (const juce::File& songFile)
+{
+    engine.getPropertyStorage().getPropertiesFile()
+        .setValue (lastSongDirectoryKey, songFile.getParentDirectory().getFullPathName());
+}
+
 void MainComponent::saveSong (std::function<void (bool)> onDone)
 {
     if (currentFile != juce::File())
@@ -635,7 +663,9 @@ void MainComponent::saveSong (std::function<void (bool)> onDone)
 
 void MainComponent::saveSongAs (std::function<void (bool)> onDone)
 {
-    fileChooser = std::make_shared<juce::FileChooser> ("Save song", currentFile, "*.carve");
+    const auto startAt = currentFile != juce::File() ? currentFile : songBrowseDirectory();
+
+    fileChooser = std::make_shared<juce::FileChooser> ("Save song", startAt, "*.carve");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                   | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
@@ -676,6 +706,7 @@ bool MainComponent::writeSongTo (const juce::File& file)
     }
 
     currentFile = file;
+    rememberSongDirectory (file);
     hasUnsavedChanges = false;   // captureLivePluginState above will have set it
     updateDocumentDisplay();
     return true;
@@ -755,7 +786,8 @@ void MainComponent::openSong()
         if (safe == nullptr || ! goAhead)
             return;
 
-        safe->fileChooser = std::make_shared<juce::FileChooser> ("Open song", juce::File(), "*.carve;*.orion");
+        safe->fileChooser = std::make_shared<juce::FileChooser> ("Open song", safe->songBrowseDirectory(),
+                                                                 "*.carve;*.orion");
         safe->fileChooser->launchAsync (juce::FileBrowserComponent::openMode
                                             | juce::FileBrowserComponent::canSelectFiles,
                                         [safe] (const juce::FileChooser& chooser)
@@ -772,6 +804,7 @@ void MainComponent::openSongFile (const juce::File& file)
 {
     if (auto loaded = model::Song::loadFromFile (file))
     {
+        rememberSongDirectory (file);
         loadSong (*loaded, file);
         return;
     }
