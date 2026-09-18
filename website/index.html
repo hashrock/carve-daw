@@ -9,6 +9,7 @@
 <meta property="og:title" content="Carve DAW">
 <meta property="og:description" content="曲を彫刻のように盛ったり削ったりして作る、ノートのようにミニマルな macOS の DAW。">
 <meta property="og:image" content="https://hashrock.github.io/carve-daw/img/shot-playlist.png">
+<script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
 <style>
   :root {
     --bg: #1b1b1f; --panel: #232327; --panel-2: #2a2a31; --line: #3a3a40;
@@ -65,6 +66,10 @@
 </style>
 </head>
 <body>
+
+<!-- hashrock の他のサービスへのメニュー。ヘッダが無いので画面右上の角に浮かせる。
+     ページが暗い配色で固定 (color-scheme: dark) なので、OS の設定によらず dark に揃える -->
+<hashrock-switcher floating theme="dark"></hashrock-switcher>
 
 <header class="wrap">
   <div class="brand">
