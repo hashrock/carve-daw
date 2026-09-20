@@ -1,136 +1,132 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Carve DAW</title>
-<meta name="description" content="曲を彫刻のように盛ったり削ったりして作る、ノートのようにミニマルな macOS の DAW。">
+<meta name="theme-color" content="#1c1c20">
+<title>Carve DAW — Sculpt your music.</title>
+<meta name="description" content="Sculpt your music. A pattern-based DAW for macOS. No AI features. Make it yours, one note at a time.">
 <link rel="icon" href="img/favicon.png">
 <meta property="og:title" content="Carve DAW">
-<meta property="og:description" content="曲を彫刻のように盛ったり削ったりして作る、ノートのようにミニマルな macOS の DAW。">
+<meta property="og:description" content="Sculpt your music. A pattern-based DAW for macOS. No AI features. Make it yours, one note at a time.">
 <meta property="og:image" content="https://hashrock.github.io/carve-daw/img/shot-playlist.png">
 <script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
 <style>
-  :root {
-    --bg: #1b1b1f; --panel: #232327; --panel-2: #2a2a31; --line: #3a3a40;
-    --text: #e6e6ea; --dim: #9a9aa4; --accent: #e08a3c; --accent-2: #e0a24f;
-  }
-  * { box-sizing: border-box; }
-  html { color-scheme: dark; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
-    font-size: 16px; line-height: 1.7; -webkit-font-smoothing: antialiased;
-  }
-  a { color: var(--accent-2); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
-
-  header { padding: 72px 0 40px; }
-  .brand { display: flex; align-items: center; gap: 18px; }
-  .brand img { width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
-  .brand h1 { margin: 0; font-size: 40px; letter-spacing: -0.02em; }
-  .tagline { margin: 22px 0 0; font-size: 22px; line-height: 1.55; max-width: 720px; }
-  .sub { color: var(--dim); margin: 10px 0 0; max-width: 720px; }
-  .cta { margin-top: 30px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-  .btn {
-    display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600;
-    background: var(--accent); color: #1b1b1f; border: 1px solid transparent;
-  }
-  .btn:hover { text-decoration: none; filter: brightness(1.08); }
-  .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
-  .note { color: var(--dim); font-size: 14px; }
-
-  .hero { margin-top: 8px; }   /* not `margin:` -- that would drop .wrap's auto side margins */
-  .hero img { width: 100%; display: block; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.5); }
-
-  section { padding: 56px 0 0; }
-  h2 { font-size: 26px; margin: 0 0 18px; letter-spacing: -0.01em; }
-  h2 small { color: var(--dim); font-weight: 400; font-size: 15px; margin-left: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
-  .card h3 { margin: 0 0 8px; font-size: 17px; color: var(--accent-2); }
-  .card p { margin: 0; color: var(--dim); font-size: 15px; }
-
-  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
-  .shots figure { margin: 0; }
-  .shots img { width: 100%; display: block; border-radius: 10px; border: 1px solid var(--line); }
-  .shots figcaption { color: var(--dim); font-size: 14px; margin-top: 8px; }
-  @media (max-width: 720px) { .shots { grid-template-columns: 1fr; } .brand h1 { font-size: 32px; } .tagline { font-size: 19px; } }
-
-  table { border-collapse: collapse; width: 100%; font-size: 15px; }
-  td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
-  td:first-child { color: var(--accent-2); white-space: nowrap; width: 34%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
-
-  footer { margin-top: 72px; padding: 28px 0 56px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+:root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38;--ochre:#bc8b57;--lime:#a5bf56;--green:#55ba52;--teal:#56b7a8}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+a:focus-visible{outline:2px solid var(--orange);outline-offset:6px}
+::selection{background:var(--orange);color:var(--bg)}
+.wrap{width:min(1280px,calc(100% - 96px));margin-inline:auto}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.75rem;letter-spacing:.08em}
+header{height:112px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:14px;font-size:1.375rem;font-weight:750;letter-spacing:-.04em}
+.brand img{width:38px;height:38px;filter:invert(96%)}
+.brand span{font-size:.75rem;font-weight:500;letter-spacing:.12em;color:var(--muted);margin-left:4px}
+nav{display:flex;align-items:center;gap:32px;padding-right:36px;font-size:.875rem}
+nav a{color:var(--muted);transition:color .2s}nav a:hover{color:var(--text)}
+.intro{padding-top:58px;position:relative}
+.eyebrow{display:flex;justify-content:space-between;color:var(--muted);margin:0 0 30px}
+.eyebrow span:first-child{color:var(--orange)}
+.hero-copy{display:grid;grid-template-columns:1.5fr 1fr;gap:48px;align-items:end}
+h1{font-size:clamp(3rem,5.9vw,5.625rem);line-height:1.27;letter-spacing:-.055em;margin:0;font-weight:800}
+h1 span{display:block}
+.hero-side{padding-bottom:8px}
+.hero-side p{font-size:1rem;line-height:1.95;color:var(--muted);margin:0 0 26px}
+.download{display:inline-flex;align-items:center;justify-content:space-between;gap:30px;background:var(--orange);color:#211c17;font-size:.9375rem;font-weight:700;padding:18px 22px;border:1px solid var(--orange);border-radius:3px;transition:background .2s,transform .2s}
+.download:hover{background:#f2a453;transform:translateY(-2px)}
+.download svg{width:18px;height:18px;flex-shrink:0}
+.requirements{font-size:.75rem;color:var(--muted);line-height:1.8;margin:12px 0 0}
+.sequence{margin-top:54px;position:relative;border-top:1px solid var(--line);padding-top:28px}
+.ruler{position:absolute;inset:8px 0 auto;display:flex;justify-content:space-between;color:#88888f;font-size:.75rem}
+.patterns{height:128px;display:grid;grid-template-columns:repeat(16,1fr);grid-template-rows:repeat(3,1fr);gap:5px;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(6.25% - 1px),#34343a calc(6.25% - 1px),#34343a 6.25%);position:relative}
+.clip{border-radius:2px;background:var(--ochre);position:relative;overflow:hidden}
+.clip:after{content:"";position:absolute;left:10px;right:10px;bottom:10px;height:2px;background:currentColor;opacity:.25}
+.clip:nth-child(1){grid-area:1/1/2/5}.clip:nth-child(2){grid-area:1/5/2/9}.clip:nth-child(3){grid-area:1/9/2/13}.clip:nth-child(4){grid-area:2/5/3/9;background:var(--lime)}.clip:nth-child(5){grid-area:2/9/3/15;background:var(--green)}.clip:nth-child(6){grid-area:3/1/4/5;background:var(--teal)}.clip:nth-child(7){grid-area:3/5/4/9;background:var(--teal)}.clip:nth-child(8){grid-area:3/9/4/13;background:var(--teal)}
+.playhead{position:absolute;top:-7px;bottom:0;width:1px;left:50%;background:var(--orange)}
+.playhead:before{content:"";position:absolute;top:0;left:-4px;border:4px solid transparent;border-top:7px solid var(--orange)}
+.product{margin-top:36px}
+.product img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid #44444a;box-shadow:0 28px 70px #0004}
+.product figcaption{display:flex;justify-content:space-between;color:var(--muted);padding:16px 0;gap:16px;line-height:1.6}
+.statement{padding:116px 0 100px;display:grid;grid-template-columns:1fr 2fr;gap:48px;border-bottom:1px solid var(--line)}
+.section-label{color:var(--muted);padding-top:12px;margin:0}
+.section-label:before{content:"";display:inline-block;width:12px;height:10px;background:var(--teal);margin-right:12px;clip-path:polygon(0 0,40% 0,50% 35%,60% 0,100% 0,100% 100%,0 100%)}
+h2{font-size:clamp(1.875rem,3.5vw,3rem);letter-spacing:-.045em;line-height:1.5;margin:0 0 24px;font-weight:700}
+.statement p:not(.section-label){font-size:1rem;line-height:2.1;color:var(--muted);margin:0;max-width:600px}
+.specs{padding:72px 0;display:grid;grid-template-columns:1fr 2fr;gap:48px;border-bottom:1px solid var(--line)}
+.specs h2{font-size:1.5rem;margin-bottom:24px}
+.spec-list{margin:0}
+.spec-list>div{display:grid;grid-template-columns:140px 1fr;gap:24px;padding:17px 0;border-top:1px solid var(--line);font-size:.9375rem;line-height:1.8}
+.spec-list dt{color:var(--muted)}
+.spec-list dd{margin:0;overflow-wrap:anywhere}
+@media(max-width:900px){.specs{grid-template-columns:1fr;gap:24px;padding:60px 0}}
+@media(max-width:600px){.spec-list>div{grid-template-columns:100px 1fr;gap:16px;font-size:.875rem}}
+.closing{display:flex;align-items:center;justify-content:space-between;gap:32px;padding:70px 0 76px}
+.closing h2{font-size:clamp(1.75rem,3vw,2.5rem);margin:0 0 12px}
+.closing p{color:var(--muted);font-size:.875rem;margin:0;line-height:1.8}
+footer{border-top:1px solid var(--line);padding-top:22px;padding-bottom:30px;display:flex;justify-content:space-between;gap:24px;color:var(--muted);font-size:.75rem;line-height:1.8}
+footer a:hover{text-decoration:underline}
+@media(min-width:900px){.patterns .clip{animation:appear .7s both}.clip:nth-child(2n){animation-delay:.12s}.clip:nth-child(3n){animation-delay:.24s}@keyframes appear{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}}
+@media(min-width:1600px){.intro{padding-top:76px}}
+@media(max-width:900px){.wrap{width:calc(100% - 48px)}header{height:88px}.hero-copy{grid-template-columns:1fr;gap:28px}.hero-side{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:start}.hero-side p{margin:0;grid-row:1/3}.requirements{grid-column:2}.intro{padding-top:40px}h1{font-size:clamp(3rem,8vw,4.5rem)}.statement{padding:76px 0;grid-template-columns:1fr;gap:24px}.closing{padding:56px 0}.sequence{margin-top:38px}.patterns{height:102px}}
+@media(max-width:600px){.wrap{width:calc(100% - 40px)}header{height:80px}.brand{gap:8px}.brand span{display:none}nav{gap:18px;padding-right:32px}nav a:first-child{display:none}.eyebrow{font-size:.6875rem;letter-spacing:.04em}.eyebrow span:last-child{display:none}h1{font-size:clamp(2.45rem,10vw,3.75rem)}.hero-side{display:block}.hero-side p{margin-bottom:22px}.requirements{font-size:.75rem}.download{padding:16px 20px}.patterns{height:88px;gap:3px}.clip:after{left:5px;right:5px}.product{margin-top:24px}.product img{border-radius:4px}.product figcaption{font-size:.6875rem}.product figcaption span:last-child{display:none}.statement{padding:60px 0}.statement p:not(.section-label){font-size:.9375rem}.closing{align-items:flex-start;flex-direction:column;gap:24px}footer{flex-direction:column;gap:8px}.ruler{font-size:.6875rem}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.patterns .clip{animation:none}.download{transition:none}}
 </style>
 </head>
 <body>
-
-<!-- hashrock の他のサービスへのメニュー。ヘッダが無いので画面右上の角に浮かせる。
-     ページが暗い配色で固定 (color-scheme: dark) なので、OS の設定によらず dark に揃える -->
 <hashrock-switcher floating theme="dark"></hashrock-switcher>
-
 <header class="wrap">
-  <div class="brand">
-    <img src="img/icon-256.png" alt="">
-    <h1>Carve DAW</h1>
-  </div>
-  <p class="tagline">曲を彫刻のように、盛って、削って。<br>試行錯誤するための、ノートのようにミニマルな DAW。</p>
-  <p class="sub">Synapse Audio Software の Orion を参考に作った、Generator 中心・パターンベースの macOS 用 DAW。パターンを直せば曲中の全配置に反映され、手を動かした分だけ曲が変わる。</p>
-  <div class="cta">
-    <a class="btn" href="https://github.com/hashrock/carve-daw/releases/latest">macOS 版をダウンロード</a>
-    <a class="btn ghost" href="https://github.com/hashrock/carve-daw">GitHub</a>
-    <span class="note">macOS 11 以降 / Apple Silicon・Intel / 署名・公証済み</span>
-  </div>
+  <a class="brand" href="./" aria-label="Carve DAW home"><img src="img/logo.svg" width="38" height="38" alt="">Carve <span>DAW</span></a>
+  <nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="https://github.com/hashrock/carve-daw">GitHub ↗</a></nav>
 </header>
-
-<div class="wrap hero">
-  <img src="img/hero.png" alt="Carve DAW のプレイリスト、サンプルブラウザ、ピアノロール">
-</div>
-
-<section class="wrap">
-  <h2>特徴</h2>
-  <div class="grid">
-    <div class="card"><h3>パターンが第一級</h3><p>曲はパターンの配置。パターンを直せば、曲中に並べた全部が同時に変わる。コピーの管理はしない。</p></div>
-    <div class="card"><h3>盛って、削って</h3><p>ペイントで並べ、Alt ドラッグで消す。ノートは Shift で一時的に選択、⌘ドラッグで複製 — ドラッグの途中からでも。</p></div>
-    <div class="card"><h3>808 Drums 内蔵</h3><p>キック・スネア・クラップ・ハイハット・タム・カウベル。ハイハットは 6 基の矩形波を帯域通過した 808 の回路どおり。</p></div>
-    <div class="card"><h3>4OSC 内蔵シンセ</h3><p>2 オシレータ・フィルタ・アンプ・LFO・エフェクトがノブで 1 画面。ノブの大きさが優先度。パッチは曲と一緒に保存される。</p></div>
-    <div class="card"><h3>サンプルブラウザ</h3><p>お気に入りフォルダを並べ、クリックで試聴。ドラムパッド、サンプラー、プレイリストへそのままドラッグ。</p></div>
-    <div class="card"><h3>VST3 / AU</h3><p>お手持ちのプラグインをそのまま。プラグイン自身のプリセットも Carve 側のメニューから選べる。</p></div>
-    <div class="card"><h3>ミキサーとオートメーション</h3><p>センド / リターン、サイドチェイン・コンプ、拍基準のオートメーションと LFO。テンポを変えても追従する。</p></div>
-  </div>
-</section>
-
-<section class="wrap">
-  <h2>画面</h2>
-  <div class="shots">
-    <figure><img src="img/shot-pianoroll.png" alt="ピアノロール"><figcaption>ピアノロール — Generator ウィンドウの Pianoroll タブ</figcaption></figure>
-    <figure><img src="img/shot-808.png" alt="808 Drums"><figcaption>808 Drums — 実機の前面パネルどおり、ドラムごとにパッドとノブ</figcaption></figure>
-    <figure><img src="img/shot-4osc.png" alt="4OSC"><figcaption>4OSC — 信号の流れ、モジュレーション、エフェクトが 1 画面に</figcaption></figure>
-    <figure><img src="img/shot-mixer.png" alt="ミキサー"><figcaption>ミキサー — フェーダー、インサート FX、リターンバス</figcaption></figure>
-  </div>
-</section>
-
-<section class="wrap">
-  <h2>操作 <small>各ウィンドウ下部のヘルプバーが「その時できる操作」を表示する</small></h2>
-  <table>
-    <tr><td>ロゴ (左上)</td><td>Open / Save / Save As / Export</td></tr>
-    <tr><td>Pattern / Song</td><td>編集中のパターンだけをループ再生 / プレイリストを再生</td></tr>
-    <tr><td>⌘B</td><td>サンプルブラウザの表示 / 非表示</td></tr>
-    <tr><td>行ラベルをダブルクリック</td><td>Generator ウィンドウを開く。右クリックでリネーム / 削除</td></tr>
-    <tr><td>B / E, D / E</td><td>ペイント / 選択 (プレイリスト)、描画 / 選択 (ピアノロール)</td></tr>
-    <tr><td>Shift</td><td>押している間だけ選択ツール (ピアノロール)</td></tr>
-    <tr><td>⌘ / Ctrl + ドラッグ</td><td>ノートを複製して移動。ドラッグ途中の押下 / 解放でも切り替わる</td></tr>
-    <tr><td>右クリック</td><td>選択中のノート上で選択を削除、それ以外は消しゴム</td></tr>
-    <tr><td>⌘D</td><td>複製 (クリップ / パターン)</td></tr>
-    <tr><td>⌘E</td><td>WAV 書き出し</td></tr>
-  </table>
-</section>
-
-<footer class="wrap">
-  Carve DAW は tracktion_engine と JUCE の上に作られています。ソースコードは <a href="https://github.com/hashrock/carve-daw">GitHub</a> に。
-</footer>
-
+<main>
+  <section class="intro wrap" aria-labelledby="headline">
+    <p class="eyebrow mono"><span>A PATTERN-BASED DAW FOR macOS</span><span>ONE NOTE AT A TIME.</span></p>
+    <div class="hero-copy">
+      <h1 id="headline"><span>Sculpt your</span><span>music.</span></h1>
+      <div class="hero-side">
+        <p>Add a note. Take one away. Shape it by hand.<br>Make something that feels like you.<br>A pattern-based DAW for macOS.</p>
+        <a class="download" href="https://github.com/hashrock/carve-daw/releases/latest">Download for macOS<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></a>
+        <div class="requirements">Free. No sign-up required.<br>macOS 11+ · Apple Silicon / Intel · Signed &amp; notarized</div>
+      </div>
+    </div>
+    <div class="sequence" aria-hidden="true">
+      <div class="ruler mono"><span>001</span><span>005</span><span>009</span><span>013</span><span>017</span></div>
+      <div class="patterns"><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="clip"></i><i class="playhead"></i></div>
+    </div>
+  </section>
+  <figure class="product wrap" id="workspace">
+    <img src="img/hero.png" width="1440" height="900" fetchpriority="high" alt="The Carve workspace, with color-coded patterns in the playlist and a piano roll for editing notes.">
+    <figcaption class="mono"><span>THE CARVE WORKSPACE</span><span>PATTERNS → ARRANGEMENT → YOUR SOUND</span></figcaption>
+  </figure>
+  <section class="statement wrap" aria-labelledby="idea">
+    <p class="section-label mono">THE IDEA</p>
+    <div><h2 id="idea">Made by hand.<br>Made yours.</h2>
+    <p>Carve has no AI features.<br>Choose a sound. Place a note. Listen back. Move it a little.<br>You decide what to add and what to take away.<br>With every choice, the music becomes yours.</p></div>
+  </section>
+  <section class="specs wrap" aria-labelledby="specifications">
+    <p class="section-label mono">SPECIFICATIONS</p>
+    <div>
+      <h2 id="specifications">The essentials</h2>
+      <dl class="spec-list">
+        <div><dt>System</dt><dd>macOS 11 or later · Apple Silicon / Intel<br>Signed &amp; notarized</dd></div>
+        <div><dt>Workflow</dt><dd>Pattern-based sequencer / Piano roll</dd></div>
+        <div><dt>Instruments</dt><dd>Slate synth / 808 Drums / Sampler / 16-pad drum kit</dd></div>
+        <div><dt>Plugins</dt><dd>VST3 / Audio Unit (AU)</dd></div>
+        <div><dt>Mixing</dt><dd>Group buses / Sends &amp; returns / Sidechain / Automation</dd></div>
+        <div><dt>Input &amp; recording</dt><dd>MIDI keyboard input &amp; MIDI recording.<br>Audio file import supported. No audio recording.</dd></div>
+        <div><dt>Export</dt><dd>WAV / Stems / MIDI patterns</dd></div>
+        <div><dt>Price &amp; license</dt><dd>Free &amp; open source (AGPL-3.0-or-later)</dd></div>
+      </dl>
+    </div>
+  </section>
+  <section class="closing wrap" aria-labelledby="start">
+    <div><h2 id="start">Your next idea starts here.</h2><p>Free &amp; open source. No sign-up required.</p></div>
+    <a class="download" href="https://github.com/hashrock/carve-daw/releases/latest">Download for macOS<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></a>
+  </section>
+</main>
+<footer class="wrap"><span>Carve DAW / Made by <a href="https://github.com/hashrock">hashrock</a></span><span>Built with tracktion_engine &amp; JUCE · <a href="https://github.com/hashrock/carve-daw">Source &amp; documentation ↗</a></span></footer>
 </body>
 </html>
