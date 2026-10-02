@@ -55,6 +55,18 @@ h1 span{display:block}
 .section-label:before{content:"";display:inline-block;width:12px;height:10px;background:var(--teal);margin-right:12px;clip-path:polygon(0 0,40% 0,50% 35%,60% 0,100% 0,100% 100%,0 100%)}
 h2{font-size:clamp(1.875rem,3.5vw,3rem);letter-spacing:-.045em;line-height:1.5;margin:0 0 24px;font-weight:700}
 .statement p:not(.section-label){font-size:1rem;line-height:2.1;color:var(--muted);margin:0;max-width:600px}
+.tour{padding:100px 0;border-bottom:1px solid var(--line)}
+.tour-head{display:grid;grid-template-columns:1fr 2fr;gap:48px;margin-bottom:48px}
+.tour-head p:not(.section-label){font-size:1rem;line-height:2.1;color:var(--muted);margin:0;max-width:600px}
+.shots{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px}
+.shot{margin:0;min-width:0;grid-column:span 12;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.shot.wide{grid-column:span 7}.shot.narrow{grid-column:span 5}
+.shot .frame{flex:1;display:flex;align-items:center;justify-content:center;padding:32px}
+.shot img{display:block;max-width:100%;height:auto;filter:drop-shadow(0 18px 36px #0006)}
+.shot figcaption{border-top:1px solid var(--line);padding:16px 20px 18px;font-size:.875rem;line-height:1.8;color:var(--muted)}
+.shot figcaption b{display:block;color:var(--text);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.75rem;letter-spacing:.08em;font-weight:500;margin-bottom:2px}
+@media(max-width:900px){.tour{padding:76px 0}.tour-head{grid-template-columns:1fr;gap:24px;margin-bottom:32px}.shot.wide,.shot.narrow{grid-column:span 12}}
+@media(max-width:600px){.tour{padding:60px 0}.shots{gap:14px}.shot .frame{padding:16px}.shot figcaption{padding:12px 14px 14px;font-size:.8125rem}.tour-head p:not(.section-label){font-size:.9375rem}}
 .specs{padding:72px 0;display:grid;grid-template-columns:1fr 2fr;gap:48px;border-bottom:1px solid var(--line)}
 .specs h2{font-size:1.5rem;margin-bottom:24px}
 .spec-list{margin:0}
@@ -79,7 +91,7 @@ footer a:hover{text-decoration:underline}
 <hashrock-switcher floating theme="dark"></hashrock-switcher>
 <header class="wrap">
   <a class="brand" href="./" aria-label="Carve DAW home"><img src="img/logo.svg" width="38" height="38" alt="">Carve <span>DAW</span></a>
-  <nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="https://github.com/hashrock/carve-daw">GitHub ↗</a></nav>
+  <nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="#tour">Tour</a><a href="https://github.com/hashrock/carve-daw">GitHub ↗</a></nav>
 </header>
 <main>
   <section class="intro wrap" aria-labelledby="headline">
@@ -105,6 +117,27 @@ footer a:hover{text-decoration:underline}
     <p class="section-label mono">THE IDEA</p>
     <div><h2 id="idea">Made by hand.<br>Made yours.</h2>
     <p>Carve has no AI features.<br>Choose a sound. Place a note. Listen back. Move it a little.<br>You decide what to add and what to take away.<br>With every choice, the music becomes yours.</p></div>
+  </section>
+  <section class="tour wrap" id="tour" aria-labelledby="closer">
+    <div class="tour-head">
+      <p class="section-label mono">A CLOSER LOOK</p>
+      <div><h2 id="closer">Everything on one desk.</h2>
+      <p>Arrange patterns, draw notes, shape sounds and mix them,<br>all in a few small windows that stay out of your way.</p></div>
+    </div>
+    <div class="shots">
+      <figure class="shot"><div class="frame"><img src="img/tour-playlist.webp" width="1280" height="470" loading="lazy" alt="The playlist, with Pad, Arp and Sub rows of color-coded pattern clips and the clip panel showing the selected clip's length and transpose."></div>
+        <figcaption><b>PLAYLIST</b>Patterns come first. Place one many times, then edit it once and every placement follows.</figcaption></figure>
+      <figure class="shot wide"><div class="frame"><img src="img/tour-pianoroll.webp" width="1000" height="600" loading="lazy" alt="The piano roll with an arpeggio pattern and a velocity lane beneath it."></div>
+        <figcaption><b>PIANO ROLL</b>Draw, move and duplicate notes, with velocity right below. Quantize and swing when you want them.</figcaption></figure>
+      <figure class="shot narrow"><div class="frame"><img src="img/tour-808.webp" width="686" height="349" loading="lazy" alt="The 808 Drums instrument, with level, tune and decay knobs for kick, rim, snare, clap, hi-hats, toms and bell."></div>
+        <figcaption><b>808 DRUMS</b>A built-in drum synth modeled on the classic circuit, down to the six-oscillator hi-hats.</figcaption></figure>
+      <figure class="shot"><div class="frame"><img src="img/tour-slate-arp.webp" width="954" height="414" loading="lazy" alt="The Slate synth panel: two oscillators, filter, amp envelope, output, voice and LFO sections."></div>
+        <figcaption><b>SLATE SYNTH</b>Two oscillators, a filter, an envelope and an LFO, laid out in the order the signal flows.</figcaption></figure>
+      <figure class="shot narrow"><div class="frame"><img src="img/tour-effects.webp" width="664" height="594" loading="lazy" alt="Two effect windows side by side: Overtop, a three-band compressor with input meters, and a 4-band EQ with a draggable response curve."></div>
+        <figcaption><b>EFFECTS</b>Effects you can see: drag the EQ curve, watch the bands of the Overtop multiband compressor.</figcaption></figure>
+      <figure class="shot wide"><div class="frame"><img src="img/tour-mixer.webp" width="880" height="419" loading="lazy" alt="The mixer with Drums, Bass, Chords and Lead strips, a group bus, a reverb return and the master with a limiter, meters lit during playback."></div>
+        <figcaption><b>MIXER</b>Insert effects, sends and returns, sidechain, and group buses that export as one stem.</figcaption></figure>
+    </div>
   </section>
   <section class="specs wrap" aria-labelledby="specifications">
     <p class="section-label mono">SPECIFICATIONS</p>
