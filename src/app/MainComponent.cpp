@@ -45,6 +45,8 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         midiInput->setRecording (shouldRecord);
     };
     transportBar->setRecordAvailable (midiInput->hasMidiInput());
+    transportBar->onCapture = [this] { capturePlayed(); };
+    transportBar->onToggleTypingKeyboard = [this] { toggleTypingKeyboard(); };
 
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
@@ -602,6 +604,19 @@ void MainComponent::openExport()
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
 }
 
+void MainComponent::capturePlayed()
+{
+    if (generatorController->capturePattern (midiInput->getPlayed()))
+        midiInput->clearPlayed();
+}
+
+void MainComponent::toggleTypingKeyboard()
+{
+    auto& typing = midiInput->getTypingKeyboard();
+    typing.setEnabled (! typing.isEnabled());
+    transportBar->setTypingKeyboardOn (typing.isEnabled());
+}
+
 void MainComponent::openSettings()
 {
     if (settingsWindow != nullptr)
@@ -965,6 +980,11 @@ void MainComponent::perform (Action action)
 
 bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
 {
+    // Ahead of the rest: with nothing focused a typed note arrives here
+    // rather than at the component the typing keyboard is listening on.
+    if (midiInput->getTypingKeyboard().keyPressed (key, this))
+        return true;
+
     if (key == juce::KeyPress::spaceKey)
     {
         transportBar->togglePlay();
@@ -983,6 +1003,17 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
     if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
     {
         transportBar->toggleRecord();
+        return true;
+    }
+    if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier
+                                        | juce::ModifierKeys::shiftModifier, 0))
+    {
+        capturePlayed();
+        return true;
+    }
+    if (key == juce::KeyPress ('k', juce::ModifierKeys::commandModifier, 0))
+    {
+        toggleTypingKeyboard();
         return true;
     }
     if (key == juce::KeyPress (',', juce::ModifierKeys::commandModifier, 0))
@@ -1096,6 +1127,7 @@ void MainComponent::timerCallback()
     // A keyboard plugged in while the app is running: the device list is
     // watched, but the button that greys itself out on it is here.
     transportBar->setRecordAvailable (midiInput->hasMidiInput());
+    transportBar->setCaptureAvailable (midiInput->canCapture());
 
     if (generatorWindow != nullptr)
         generatorWindow->setPlayheadPatternBeat (patternBeatOfPlayhead (songBeat));

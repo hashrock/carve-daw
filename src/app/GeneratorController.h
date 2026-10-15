@@ -4,6 +4,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "model/Capture.h"
 #include "model/SongModel.h"
 
 namespace te = tracktion;
@@ -66,6 +67,11 @@ public:
     // the middle of "make one, clone it, vary it", and a dialog there is what
     // breaks the take.
     void clonePattern();
+
+    // Capture: the last phrase of what was played becomes a new pattern of the
+    // selected generator, selected on the spot, as one undoable step. False
+    // when there was nothing to capture or nowhere to put it.
+    bool capturePattern (const std::vector<model::capture::PlayedNote>& played);
 
     // The picker's menu button: rename, delete, copy to another generator,
     // MIDI in and out. screenArea is where to hang the menu.

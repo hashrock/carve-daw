@@ -110,6 +110,12 @@ private:
     void openSettings();
     void openPatternEditor();
 
+    // Capture (Shift+Cmd+R): the last phrase played becomes a new pattern of
+    // the selected generator, selected on the spot -- so in Pattern mode it is
+    // looping before the hands are back on the keys.
+    void capturePlayed();
+    void toggleTypingKeyboard();
+
     // One window per selection, the tab picking which half is in front. The
     // pattern editor above and the playlist's label double-click land here.
     void openGeneratorWindow (GeneratorWindow::Tab);

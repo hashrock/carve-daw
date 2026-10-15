@@ -7,6 +7,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "TypingKeyboard.h"
+#include "model/Capture.h"
 #include "model/SongModel.h"
 
 namespace te = tracktion;
@@ -41,6 +43,11 @@ namespace carve::app
 // read, not the UI's copy of it) and subtracts the time the event spent
 // waiting, which puts it back where it was played to within a millisecond or
 // so rather than within a message-loop tick.
+//
+// And a third job, which needs neither record nor a rolling transport:
+// everything played is kept, so Capture can make a pattern of the last phrase
+// after the fact (see model/Capture.h). The computer keyboard is one more
+// input among the devices (see TypingKeyboard.h), so it can do all three.
 class MidiInputController : private juce::MidiKeyboardStateListener,
                             private juce::AsyncUpdater,
                             private juce::ChangeListener,
@@ -65,12 +72,24 @@ public:
     // starts it, and this turns itself off when it stops.
     void setRecording (bool shouldRecord);
 
-    // Whether anything is listening: false when the machine has no MIDI input
-    // at all, which is what the record button greys itself out on.
-    bool hasMidiInput() const  { return ! listeningTo.empty(); }
+    // Whether anything can be played: a MIDI input, or the computer keyboard
+    // switched on. What the record button greys itself out on.
+    bool hasMidiInput() const  { return ! listeningTo.empty() || typing.isEnabled(); }
 
     // Fired when recording turns itself off, so the button can follow.
     std::function<void (bool recording)> onRecordingChanged;
+
+    TypingKeyboard& getTypingKeyboard()  { return typing; }
+
+    // Whether anything has been played (and let go) since the last capture.
+    bool canCapture() const  { return ! played.empty(); }
+
+    // Everything played since the last clearPlayed, in order of the starts:
+    // what Capture makes its pattern from (GeneratorController::capturePattern).
+    const std::vector<model::capture::PlayedNote>& getPlayed() const  { return played; }
+
+    // Once captured, so a second press does not make the same pattern twice.
+    void clearPlayed()  { played.clear(); }
 
 private:
     // One key press or release, as it arrived.
@@ -89,6 +108,8 @@ private:
         int velocity = 0;
         double startBeat = 0.0;   // edit beats, not pattern beats
         bool recorded = false;    // false when the press was not being recorded
+        double captureBeat = 0.0; // on the capture clock, see captureClock
+        std::optional<double> barPhase;
     };
 
     // Where a note played at a given moment belongs.
@@ -120,6 +141,11 @@ private:
     void writeNote (const Held&, double endBeat);
     void finishHeldNotes (double endBeat);
 
+    // Beats of wall time, at the tempo of the moment: the clock capture
+    // stamps with, which keeps running forward where the playhead loops or
+    // stands still.
+    double captureClock (double wallClockMs, double bpm);
+
     te::Engine& engine;
     te::Edit& edit;
     model::Song song;
@@ -138,6 +164,13 @@ private:
     std::vector<Event> events;
 
     std::vector<Held> held;
+
+    // Everything played, in order of the starts, for capture to pick through.
+    std::vector<model::capture::PlayedNote> played;
+    double captureBeatNow = 0.0;
+    double captureWallClockMs = -1.0;
+
+    TypingKeyboard typing;
 
     // Where the playhead was the last time it was looked at, so a note still
     // down when the transport stops has an end to be given.

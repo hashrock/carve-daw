@@ -36,6 +36,8 @@ set(CARVE_CORE_SOURCES
     src/model/SongModel.cpp
     src/model/MidiPatternIO.h
     src/model/MidiPatternIO.cpp
+    src/model/Capture.h
+    src/model/Capture.cpp
     src/model/DemoSong.h
     src/model/DemoSong.cpp
     src/model/SampleSongs.h
@@ -144,6 +146,8 @@ target_sources(carve PRIVATE
     src/app/PlaylistComponent.cpp
     src/app/ShortcutHelpBar.h
     src/app/TimelineView.h
+    src/app/TypingKeyboard.h
+    src/app/TypingKeyboard.cpp
     src/app/TimeSigSupport.h)
 carve_configure_target(carve)
 
@@ -238,6 +242,8 @@ if(CARVE_BUILD_TESTS)
     juce_add_console_app(carve-tests PRODUCT_NAME "carve-tests")
     target_sources(carve-tests PRIVATE
         src/model/SongModel.cpp
+        src/model/Capture.cpp
+        tests/CaptureProperties.cpp
         tests/NoteGestureProperties.cpp
         tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)

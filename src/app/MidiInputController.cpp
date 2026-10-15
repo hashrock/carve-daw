@@ -1,5 +1,6 @@
 #include "MidiInputController.h"
 
+#include "DrumPadGrid.h"
 #include "sync/EngineIds.h"
 
 namespace carve::app
@@ -17,6 +18,9 @@ namespace
     // switched off".
     constexpr const char* seenMidiInputsKey = "midiInputsSeen";
 
+    // Plenty for a phrase, and a bound on a session spent noodling.
+    constexpr size_t maxPlayedNotes = 4096;
+
     int toVelocity (float normalised)
     {
         return juce::jlimit (1, 127, juce::roundToInt (normalised * 127.0f));
@@ -29,6 +33,7 @@ MidiInputController::MidiInputController (te::Engine& engineToUse, te::Edit& edi
 {
     engine.getDeviceManager().addChangeListener (this);
     refreshDevices();
+    typing.state.addListener (this);
 
     // Slow: this is here to notice the transport stopping under a recording,
     // not to follow the playhead.
@@ -41,6 +46,7 @@ MidiInputController::~MidiInputController()
     cancelPendingUpdate();
     engine.getDeviceManager().removeChangeListener (this);
     stopListening();
+    typing.state.removeListener (this);
 }
 
 void MidiInputController::setSong (model::Song newSong)
@@ -55,6 +61,14 @@ void MidiInputController::setSong (model::Song newSong)
 
 void MidiInputController::setTarget (const juce::String& generatorId, const juce::String& patternId)
 {
+    if (generatorId != targetGeneratorId)
+    {
+        // The A key on the kick for a drum generator, on middle C otherwise.
+        const auto generator = song.findGenerator (generatorId);
+        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth());
+        typing.setHomeNote (drums ? drumkit::firstNote : 60);
+    }
+
     targetGeneratorId = generatorId;
     targetPatternId = patternId;
 }
@@ -233,9 +247,13 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
     if (rolling)
         lastPlayheadBeat = beat;
 
+    const auto captureBeat = captureClock (event.wallClockMs,
+                                           edit.tempoSequence.getBpmAt (edit.tempoSequence.toTime (te::BeatPosition::fromBeats (beat))));
+
     if (event.isNoteOn)
     {
-        held.push_back ({ event.pitch, event.velocity, beat, recording && rolling });
+        held.push_back ({ event.pitch, event.velocity, beat, recording && rolling, captureBeat,
+                          rolling ? std::optional (song.toBarsAndBeats (beat).beat) : std::nullopt });
         return;
     }
 
@@ -246,6 +264,18 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
 
         if (it->recorded)
             writeNote (*it, beat);
+
+        // Dropped a quarter at a time, so a long session at the cap is not
+        // shifting the whole buffer on every note.
+        if (played.size() >= maxPlayedNotes)
+            played.erase (played.begin(), played.begin() + (std::ptrdiff_t) (maxPlayedNotes / 4));
+
+        // Releases come almost in order of the starts, so this lands at or
+        // near the end.
+        const model::capture::PlayedNote note { it->captureBeat, captureBeat, it->pitch, it->velocity, it->barPhase };
+        played.insert (std::upper_bound (played.begin(), played.end(), note,
+                                         [] (const auto& a, const auto& b) { return a.startBeat < b.startBeat; }),
+                       note);
 
         held.erase (it);
         return;
@@ -400,6 +430,18 @@ void MidiInputController::finishHeldNotes (double endBeat)
 
         note.recorded = false;
     }
+}
+
+//==============================================================================
+// Capture
+
+double MidiInputController::captureClock (double wallClockMs, double bpm)
+{
+    if (captureWallClockMs >= 0.0)
+        captureBeatNow += juce::jmax (0.0, wallClockMs - captureWallClockMs) / 60000.0 * bpm;
+
+    captureWallClockMs = wallClockMs;
+    return captureBeatNow;
 }
 
 } // namespace carve::app

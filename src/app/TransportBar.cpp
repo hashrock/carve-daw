@@ -233,6 +233,9 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     forwardButton.onClick = [this] { stepBar (1); };
     playButton.onClick = [this] { togglePlay(); };
     recordButton.onClick = [this] { toggleRecord(); };
+    captureButton.onClick = [this] { if (onCapture) onCapture(); };
+    keyboardButton.onClick = [this] { if (onToggleTypingKeyboard) onToggleTypingKeyboard(); };
+    keyboardButton.setClickingTogglesState (false);   // MainComponent sets the state
     stopButton.onClick = [this]
     {
         auto& transport = edit.getTransport();
@@ -248,11 +251,16 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     forwardButton.setTooltip ("Forward a bar");
     playButton.setTooltip ("Play / pause (Space)");
     recordButton.setTooltip ("Record MIDI into the playing pattern (Cmd+R)");
+    captureButton.setTooltip ("Capture: make a pattern of what you just played, recording or not (Shift+Cmd+R)");
+    keyboardButton.setTooltip ("Play with the computer keyboard: A-L white keys, W-P black keys, Z/X octave (Cmd+K)");
     stopButton.setTooltip ("Stop and return to the start");
 
-    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton,
-                     &undoButton, &redoButton })
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
+                     &keyboardButton, &undoButton, &redoButton })
         b->setFlat (true);
+
+    captureButton.setEnabled (false);
+    keyboardButton.setColour (juce::TextButton::textColourOnId, accent);
 
     // Play is lit while the song runs, the way the pattern lamp is.
     playButton.setColour (juce::TextButton::textColourOnId, accent);
@@ -310,8 +318,8 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &logoButton, &bpmDisplay, &playMode,
-             &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton,
-             &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
+             &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
+             &keyboardButton, &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
              &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter, &documentLabel })
         addAndMakeVisible (c);
 
@@ -529,6 +537,16 @@ void TransportBar::setRecordAvailable (bool available)
     recordButton.setEnabled (available);
 }
 
+void TransportBar::setCaptureAvailable (bool available)
+{
+    captureButton.setEnabled (available);
+}
+
+void TransportBar::setTypingKeyboardOn (bool on)
+{
+    keyboardButton.setToggleState (on, juce::dontSendNotification);
+}
+
 te::BeatRange TransportBar::patternLoopRange() const
 {
     // Never shorter than a beat: a song with nothing to audition still needs
@@ -661,8 +679,10 @@ void TransportBar::resized()
 
     // Transport
     {
-        auto p = panel (6 + 5 * 32 + 6);
-        for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &forwardButton })
+        const auto buttons = { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton,
+                               &forwardButton, &keyboardButton };
+        auto p = panel (6 + (int) buttons.size() * 32 + 6);
+        for (auto* b : buttons)
             b->setBounds (p.removeFromLeft (32).withSizeKeepingCentre (32, 28));
     }
     gap();

@@ -483,6 +483,32 @@ void GeneratorController::clonePattern()
         duplicatePattern (generator->getId(), pattern->getId(), generator->getId());
 }
 
+bool GeneratorController::capturePattern (const std::vector<model::capture::PlayedNote>& played)
+{
+    // A phrase is over once nothing has sounded for this many bars, which is
+    // what tells the last idea from the one before it.
+    constexpr double gapBars = 2.0;
+
+    auto generator = getSelectedGenerator();
+
+    if (! generator || generator->isAudio() || played.empty())
+        return false;
+
+    const auto beatsPerBar = newPatternLengthBeats();
+    const auto captured = model::capture::toPattern (model::capture::lastPhrase (played, gapBars * beatsPerBar),
+                                                     beatsPerBar);
+
+    undoManager.beginNewTransaction ("Capture");
+    auto pattern = generator->addPattern (generator->makeUniquePatternName ("Capture"),
+                                          captured.lengthBeats, &undoManager);
+
+    for (const auto& note : captured.notes)
+        pattern.addNote (note.startBeat, note.lengthBeats, note.pitch, note.velocity, &undoManager);
+
+    selectPattern (pattern.getId());
+    return true;
+}
+
 //==============================================================================
 // The pattern menu: rename, delete, copy to another generator, MIDI in and out
 
