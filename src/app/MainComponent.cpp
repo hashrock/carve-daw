@@ -45,6 +45,8 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         midiInput->setRecording (shouldRecord);
     };
     transportBar->setRecordAvailable (midiInput->hasMidiInput());
+    transportBar->onCapture = [this] { capturePlayed(); };
+    transportBar->onToggleTypingKeyboard = [this] { toggleTypingKeyboard(); };
 
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
@@ -358,6 +360,14 @@ void MainComponent::parentHierarchyChanged()
 
 void MainComponent::selectionChanged (const juce::String& generatorId, const juce::String& patternId)
 {
+    if (generatorId != selectedGeneratorId)
+    {
+        // The A key on the kick for a drum generator, on middle C otherwise.
+        const auto generator = song.findGenerator (generatorId);
+        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth());
+        midiInput->getTypingKeyboard().setHomeNote (drums ? 36 : 60);
+    }
+
     selectedGeneratorId = generatorId;
     selectedPatternId = patternId;
     playlist.setSelection (generatorId, patternId);
@@ -600,6 +610,20 @@ void MainComponent::openExport()
         editSync->captureLivePluginState();
 
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
+}
+
+void MainComponent::capturePlayed()
+{
+    if (const auto patternId = midiInput->capture())
+        generatorController->selectPattern (*patternId);
+}
+
+void MainComponent::toggleTypingKeyboard()
+{
+    auto& typing = midiInput->getTypingKeyboard();
+    typing.setEnabled (! typing.isEnabled());
+    transportBar->setTypingKeyboardOn (typing.isEnabled());
+    transportBar->setRecordAvailable (midiInput->hasMidiInput());
 }
 
 void MainComponent::openSettings()
@@ -965,6 +989,11 @@ void MainComponent::perform (Action action)
 
 bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
 {
+    // Ahead of the rest: with nothing focused a typed note arrives here
+    // rather than at the component the typing keyboard is listening on.
+    if (midiInput->getTypingKeyboard().keyPressed (key, this))
+        return true;
+
     if (key == juce::KeyPress::spaceKey)
     {
         transportBar->togglePlay();
@@ -983,6 +1012,17 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
     if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
     {
         transportBar->toggleRecord();
+        return true;
+    }
+    if (key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier
+                                        | juce::ModifierKeys::shiftModifier, 0))
+    {
+        capturePlayed();
+        return true;
+    }
+    if (key == juce::KeyPress ('k', juce::ModifierKeys::commandModifier, 0))
+    {
+        toggleTypingKeyboard();
         return true;
     }
     if (key == juce::KeyPress (',', juce::ModifierKeys::commandModifier, 0))
@@ -1096,6 +1136,7 @@ void MainComponent::timerCallback()
     // A keyboard plugged in while the app is running: the device list is
     // watched, but the button that greys itself out on it is here.
     transportBar->setRecordAvailable (midiInput->hasMidiInput());
+    transportBar->setCaptureAvailable (midiInput->canCapture());
 
     if (generatorWindow != nullptr)
         generatorWindow->setPlayheadPatternBeat (patternBeatOfPlayhead (songBeat));

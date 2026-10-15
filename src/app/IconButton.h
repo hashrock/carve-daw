@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <tuple>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -18,7 +19,8 @@ enum class Icon
     plus, clone, menu,
     pencil, select,
     zoomIn, zoomOut,
-    folder, audioFile, star, arrowUp, speaker
+    folder, audioFile, star, arrowUp, speaker,
+    capture, keyboard
 };
 
 namespace icons
@@ -295,6 +297,38 @@ namespace icons
                 p.addRectangle (0.04f, 0.34f, 0.2f, 0.32f);
                 p.addQuadrilateral (0.2f, 0.34f, 0.5f, 0.08f, 0.5f, 0.92f, 0.2f, 0.66f);
                 p.addPath (stroked (arc ({ 0.5f, 0.5f }, 0.34f, 40.0f, 140.0f), 0.12f));
+                break;
+            }
+
+            case Icon::capture:
+            {
+                // The record dot, framed by the corners of a viewfinder: what
+                // was played, grabbed after the fact.
+                juce::Path corners;
+                for (auto [x, y, dx, dy] : { std::tuple (0.06f, 0.06f, 1.0f, 1.0f), std::tuple (0.94f, 0.06f, -1.0f, 1.0f),
+                                             std::tuple (0.06f, 0.94f, 1.0f, -1.0f), std::tuple (0.94f, 0.94f, -1.0f, -1.0f) })
+                {
+                    corners.startNewSubPath (x, y + dy * 0.26f);
+                    corners.lineTo (x, y);
+                    corners.lineTo (x + dx * 0.26f, y);
+                }
+                p = stroked (corners, 0.1f);
+                p.addEllipse (0.3f, 0.3f, 0.4f, 0.4f);
+                break;
+            }
+
+            case Icon::keyboard:
+            {
+                // A computer keyboard: the case, two rows of keys and a space bar.
+                juce::Path frame;
+                frame.addRoundedRectangle (0.04f, 0.2f, 0.92f, 0.6f, 0.08f);
+                p = stroked (frame, 0.08f);
+
+                for (int row = 0; row < 2; ++row)
+                    for (int key = 0; key < 5; ++key)
+                        p.addRectangle (0.17f + (float) key * 0.14f, 0.32f + (float) row * 0.14f, 0.09f, 0.08f);
+
+                p.addRectangle (0.3f, 0.62f, 0.4f, 0.07f);
                 break;
             }
 

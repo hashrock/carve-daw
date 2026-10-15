@@ -17,6 +17,13 @@ namespace
     // switched off".
     constexpr const char* seenMidiInputsKey = "midiInputsSeen";
 
+    // A phrase is over once nothing has sounded for this many bars, which is
+    // what tells the last idea from the one before it.
+    constexpr double captureGapBars = 2.0;
+
+    // Plenty for a phrase, and a bound on a session spent noodling.
+    constexpr size_t maxPlayedNotes = 4096;
+
     int toVelocity (float normalised)
     {
         return juce::jlimit (1, 127, juce::roundToInt (normalised * 127.0f));
@@ -29,6 +36,7 @@ MidiInputController::MidiInputController (te::Engine& engineToUse, te::Edit& edi
 {
     engine.getDeviceManager().addChangeListener (this);
     refreshDevices();
+    typing.state.addListener (this);
 
     // Slow: this is here to notice the transport stopping under a recording,
     // not to follow the playhead.
@@ -41,6 +49,7 @@ MidiInputController::~MidiInputController()
     cancelPendingUpdate();
     engine.getDeviceManager().removeChangeListener (this);
     stopListening();
+    typing.state.removeListener (this);
 }
 
 void MidiInputController::setSong (model::Song newSong)
@@ -233,9 +242,16 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
     if (rolling)
         lastPlayheadBeat = beat;
 
+    const auto captureBeat = captureClock (event.wallClockMs, song.getTempoAt (beat));
+
     if (event.isNoteOn)
     {
-        held.push_back ({ event.pitch, event.velocity, beat, recording && rolling });
+        Held note { event.pitch, event.velocity, beat, recording && rolling, captureBeat, {} };
+
+        if (rolling)
+            note.barPhase = song.toBarsAndBeats (beat).beat;
+
+        held.push_back (note);
         return;
     }
 
@@ -246,6 +262,11 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
 
         if (it->recorded)
             writeNote (*it, beat);
+
+        if (played.size() >= maxPlayedNotes)
+            played.erase (played.begin());
+
+        played.push_back ({ it->captureBeat, captureBeat, it->pitch, it->velocity, it->barPhase });
 
         held.erase (it);
         return;
@@ -400,6 +421,47 @@ void MidiInputController::finishHeldNotes (double endBeat)
 
         note.recorded = false;
     }
+}
+
+//==============================================================================
+// Capture
+
+double MidiInputController::captureClock (double wallClockMs, double bpm)
+{
+    if (captureWallClockMs >= 0.0)
+        captureBeatNow += juce::jmax (0.0, wallClockMs - captureWallClockMs) / 60000.0 * bpm;
+
+    captureWallClockMs = wallClockMs;
+    return captureBeatNow;
+}
+
+std::optional<juce::String> MidiInputController::capture()
+{
+    auto generator = song.findGenerator (targetGeneratorId);
+
+    if (! generator || generator->isAudio() || ! canCapture())
+        return {};
+
+    // Kept in order of release; a phrase is read in order of the starts.
+    auto notes = played;
+    std::stable_sort (notes.begin(), notes.end(), [] (const auto& a, const auto& b)
+    {
+        return a.startBeat < b.startBeat;
+    });
+
+    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
+    const auto captured = model::capture::toPattern (model::capture::lastPhrase (notes, captureGapBars * beatsPerBar),
+                                                     beatsPerBar);
+
+    undoManager.beginNewTransaction ("Capture");
+    auto pattern = generator->addPattern (generator->makeUniquePatternName ("Capture"),
+                                          captured.lengthBeats, &undoManager);
+
+    for (const auto& note : captured.notes)
+        pattern.addNote (note.startBeat, note.lengthBeats, note.pitch, note.velocity, &undoManager);
+
+    played.clear();
+    return pattern.getId();
 }
 
 } // namespace carve::app
