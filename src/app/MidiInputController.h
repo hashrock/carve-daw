@@ -84,11 +84,12 @@ public:
     // Whether anything has been played (and let go) since the last capture.
     bool canCapture() const  { return ! played.empty(); }
 
-    // Makes the last phrase played on the selected generator into a new
-    // pattern of it, as one undoable step, and forgets it so a second press
-    // does not make it twice. Returns the new pattern's id, or nothing when
-    // there was nothing to capture or nowhere to put it.
-    std::optional<juce::String> capture();
+    // Everything played since the last clearPlayed, in order of the starts:
+    // what Capture makes its pattern from (GeneratorController::capturePattern).
+    const std::vector<model::capture::PlayedNote>& getPlayed() const  { return played; }
+
+    // Once captured, so a second press does not make the same pattern twice.
+    void clearPlayed()  { played.clear(); }
 
 private:
     // One key press or release, as it arrived.
@@ -164,7 +165,7 @@ private:
 
     std::vector<Held> held;
 
-    // Everything played, in order of release, for capture to pick through.
+    // Everything played, in order of the starts, for capture to pick through.
     std::vector<model::capture::PlayedNote> played;
     double captureBeatNow = 0.0;
     double captureWallClockMs = -1.0;

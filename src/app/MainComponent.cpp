@@ -360,14 +360,6 @@ void MainComponent::parentHierarchyChanged()
 
 void MainComponent::selectionChanged (const juce::String& generatorId, const juce::String& patternId)
 {
-    if (generatorId != selectedGeneratorId)
-    {
-        // The A key on the kick for a drum generator, on middle C otherwise.
-        const auto generator = song.findGenerator (generatorId);
-        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth());
-        midiInput->getTypingKeyboard().setHomeNote (drums ? 36 : 60);
-    }
-
     selectedGeneratorId = generatorId;
     selectedPatternId = patternId;
     playlist.setSelection (generatorId, patternId);
@@ -614,8 +606,8 @@ void MainComponent::openExport()
 
 void MainComponent::capturePlayed()
 {
-    if (const auto patternId = midiInput->capture())
-        generatorController->selectPattern (*patternId);
+    if (generatorController->capturePattern (midiInput->getPlayed()))
+        midiInput->clearPlayed();
 }
 
 void MainComponent::toggleTypingKeyboard()
@@ -623,7 +615,6 @@ void MainComponent::toggleTypingKeyboard()
     auto& typing = midiInput->getTypingKeyboard();
     typing.setEnabled (! typing.isEnabled());
     transportBar->setTypingKeyboardOn (typing.isEnabled());
-    transportBar->setRecordAvailable (midiInput->hasMidiInput());
 }
 
 void MainComponent::openSettings()

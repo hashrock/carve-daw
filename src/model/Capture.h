@@ -40,7 +40,8 @@ struct PlayedNote
 // Returns the notes in the order they were played.
 std::vector<PlayedNote> lastPhrase (const std::vector<PlayedNote>& played, double gapBeats);
 
-// A phrase laid out as a pattern.
+// A phrase laid out as a pattern. The phrase is in order of the starts, as
+// lastPhrase hands it over.
 struct CapturedPattern
 {
     struct Note

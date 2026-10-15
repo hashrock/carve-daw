@@ -42,20 +42,15 @@ CapturedPattern toPattern (const std::vector<PlayedNote>& phrase, double beatsPe
     const auto& first = phrase.front();
     const auto origin = first.startBeat - std::fmod (std::max (0.0, first.barPhase.value_or (0.0)), beatsPerBar);
 
-    double lastStart = 0.0;
-
-    for (const auto& note : phrase)
-        lastStart = std::max (lastStart, note.startBeat - origin);
-
+    const auto lastStart = phrase.back().startBeat - origin;
     result.lengthBeats = (std::floor (lastStart / beatsPerBar) + 1.0) * beatsPerBar;
 
     for (const auto& note : phrase)
     {
-        const auto start = Note::clampStart (note.startBeat - origin);
+        const auto start = note.startBeat - origin;
         const auto length = std::min (note.endBeat - note.startBeat, result.lengthBeats - start);
 
-        result.notes.push_back ({ start, Note::clampLength (length),
-                                  Note::clampPitch (note.pitch), Note::clampVelocity (note.velocity) });
+        result.notes.push_back ({ start, Note::clampLength (length), note.pitch, note.velocity });
     }
 
     return result;

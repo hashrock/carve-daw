@@ -1,5 +1,6 @@
 #include "MidiInputController.h"
 
+#include "DrumPadGrid.h"
 #include "sync/EngineIds.h"
 
 namespace carve::app
@@ -16,10 +17,6 @@ namespace
     // what tells "a keyboard nobody has ever seen" from "a keyboard somebody
     // switched off".
     constexpr const char* seenMidiInputsKey = "midiInputsSeen";
-
-    // A phrase is over once nothing has sounded for this many bars, which is
-    // what tells the last idea from the one before it.
-    constexpr double captureGapBars = 2.0;
 
     // Plenty for a phrase, and a bound on a session spent noodling.
     constexpr size_t maxPlayedNotes = 4096;
@@ -64,6 +61,14 @@ void MidiInputController::setSong (model::Song newSong)
 
 void MidiInputController::setTarget (const juce::String& generatorId, const juce::String& patternId)
 {
+    if (generatorId != targetGeneratorId)
+    {
+        // The A key on the kick for a drum generator, on middle C otherwise.
+        const auto generator = song.findGenerator (generatorId);
+        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth());
+        typing.setHomeNote (drums ? drumkit::firstNote : 60);
+    }
+
     targetGeneratorId = generatorId;
     targetPatternId = patternId;
 }
@@ -242,16 +247,13 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
     if (rolling)
         lastPlayheadBeat = beat;
 
-    const auto captureBeat = captureClock (event.wallClockMs, song.getTempoAt (beat));
+    const auto captureBeat = captureClock (event.wallClockMs,
+                                           edit.tempoSequence.getBpmAt (edit.tempoSequence.toTime (te::BeatPosition::fromBeats (beat))));
 
     if (event.isNoteOn)
     {
-        Held note { event.pitch, event.velocity, beat, recording && rolling, captureBeat, {} };
-
-        if (rolling)
-            note.barPhase = song.toBarsAndBeats (beat).beat;
-
-        held.push_back (note);
+        held.push_back ({ event.pitch, event.velocity, beat, recording && rolling, captureBeat,
+                          rolling ? std::optional (song.toBarsAndBeats (beat).beat) : std::nullopt });
         return;
     }
 
@@ -263,10 +265,17 @@ void MidiInputController::handleEvent (const Event& event, double nowMs, double 
         if (it->recorded)
             writeNote (*it, beat);
 
+        // Dropped a quarter at a time, so a long session at the cap is not
+        // shifting the whole buffer on every note.
         if (played.size() >= maxPlayedNotes)
-            played.erase (played.begin());
+            played.erase (played.begin(), played.begin() + (std::ptrdiff_t) (maxPlayedNotes / 4));
 
-        played.push_back ({ it->captureBeat, captureBeat, it->pitch, it->velocity, it->barPhase });
+        // Releases come almost in order of the starts, so this lands at or
+        // near the end.
+        const model::capture::PlayedNote note { it->captureBeat, captureBeat, it->pitch, it->velocity, it->barPhase };
+        played.insert (std::upper_bound (played.begin(), played.end(), note,
+                                         [] (const auto& a, const auto& b) { return a.startBeat < b.startBeat; }),
+                       note);
 
         held.erase (it);
         return;
@@ -433,35 +442,6 @@ double MidiInputController::captureClock (double wallClockMs, double bpm)
 
     captureWallClockMs = wallClockMs;
     return captureBeatNow;
-}
-
-std::optional<juce::String> MidiInputController::capture()
-{
-    auto generator = song.findGenerator (targetGeneratorId);
-
-    if (! generator || generator->isAudio() || ! canCapture())
-        return {};
-
-    // Kept in order of release; a phrase is read in order of the starts.
-    auto notes = played;
-    std::stable_sort (notes.begin(), notes.end(), [] (const auto& a, const auto& b)
-    {
-        return a.startBeat < b.startBeat;
-    });
-
-    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
-    const auto captured = model::capture::toPattern (model::capture::lastPhrase (notes, captureGapBars * beatsPerBar),
-                                                     beatsPerBar);
-
-    undoManager.beginNewTransaction ("Capture");
-    auto pattern = generator->addPattern (generator->makeUniquePatternName ("Capture"),
-                                          captured.lengthBeats, &undoManager);
-
-    for (const auto& note : captured.notes)
-        pattern.addNote (note.startBeat, note.lengthBeats, note.pitch, note.velocity, &undoManager);
-
-    played.clear();
-    return pattern.getId();
 }
 
 } // namespace carve::app

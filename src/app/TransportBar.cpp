@@ -679,9 +679,10 @@ void TransportBar::resized()
 
     // Transport
     {
-        auto p = panel (6 + 7 * 32 + 6);
-        for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
-                         &keyboardButton })
+        const auto buttons = { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton,
+                               &forwardButton, &keyboardButton };
+        auto p = panel (6 + (int) buttons.size() * 32 + 6);
+        for (auto* b : buttons)
             b->setBounds (p.removeFromLeft (32).withSizeKeepingCentre (32, 28));
     }
     gap();
