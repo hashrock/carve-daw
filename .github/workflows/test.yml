@@ -50,7 +50,10 @@ jobs:
       # (git@github.com:juce-framework/JUCE.git), which clones only for someone
       # with a key on the box. A runner has none, so the submodule step of the
       # tracktion fetch fails on "Permission denied (publickey)" -- rewrite it
-      # to the anonymous HTTPS remote before anything fetches.
+      # to the anonymous HTTPS remote before anything fetches. CMakeLists.txt
+      # sets the same rewrite for the configure that fetches the submodule, so
+      # a local build does not depend on this step; the global config still
+      # covers any git command outside that configure.
       - name: Clone GitHub over HTTPS
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 

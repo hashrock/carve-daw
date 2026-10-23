@@ -24,7 +24,11 @@ public:
         // window. Paired with canScanPluginsOutOfProcess() in EngineSetup.h.
         if (te::PluginManager::startChildProcessPluginScan (commandLine))
         {
+            // The scanner is this same executable launched again, so on macOS
+            // it would take a Dock icon of its own. The call exists only there.
+           #if JUCE_MAC
             juce::Process::setDockIconVisible (false);
+           #endif
             return;
         }
 
