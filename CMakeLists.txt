@@ -12,6 +12,24 @@ endif()
 include(FetchContent)
 
 # tracktion_engine bundles JUCE as a git submodule, so no separate JUCE fetch.
+# The submodule URL is git@github.com:juce-framework/JUCE.git, which clones
+# only on a machine with an SSH key. `git submodule update` does not honour a
+# repo-local url.insteadOf, so the rewrite has to be git config in the
+# environment of the fetch. Set it for this configure's child processes and
+# leave the user's global git config alone. The CI workflow sets the same
+# rewrite globally, which is what a runner with no key needs too.
+if(DEFINED ENV{GIT_CONFIG_COUNT} AND NOT "$ENV{GIT_CONFIG_COUNT}" STREQUAL "")
+    set(_carve_git_config_index "$ENV{GIT_CONFIG_COUNT}")
+else()
+    set(_carve_git_config_index 0)
+endif()
+set(ENV{GIT_CONFIG_KEY_${_carve_git_config_index}} "url.https://github.com/.insteadof")
+set(ENV{GIT_CONFIG_VALUE_${_carve_git_config_index}} "git@github.com:")
+math(EXPR _carve_git_config_next "${_carve_git_config_index} + 1")
+set(ENV{GIT_CONFIG_COUNT} "${_carve_git_config_next}")
+unset(_carve_git_config_index)
+unset(_carve_git_config_next)
+
 FetchContent_Declare(tracktion
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
     GIT_TAG        v3.2.0
