@@ -295,6 +295,42 @@ SamplerSound Generator::setSingleSound (const juce::File& file, juce::UndoManage
     return addSound (file, um);
 }
 
+juce::File Generator::getSoundFontFile() const
+{
+    const auto sounds = getSounds();
+    return sounds.empty() ? juce::File() : sounds.front().getFile();
+}
+
+void Generator::setSoundFontFile (const juce::File& file, juce::UndoManager* um)
+{
+    setSingleSound (file, um);
+}
+
+int Generator::getSoundFontBank() const
+{
+    const auto sounds = getSounds();
+    return sounds.empty() ? 0 : (int) sounds.front().state.getProperty (ids::bank, 0);
+}
+
+int Generator::getSoundFontProgram() const
+{
+    const auto sounds = getSounds();
+    return sounds.empty() ? 0 : (int) sounds.front().state.getProperty (ids::program, 0);
+}
+
+void Generator::setSoundFontPreset (int bank, int program, juce::UndoManager* um)
+{
+    const auto sounds = getSounds();
+
+    // A preset means nothing without a font to look it up in.
+    if (sounds.empty())
+        return;
+
+    auto node = sounds.front().state;
+    node.setProperty (ids::bank, juce::jlimit (0, 128, bank), um);
+    node.setProperty (ids::program, juce::jlimit (0, 127, program), um);
+}
+
 //==============================================================================
 // Effect
 

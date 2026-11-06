@@ -48,6 +48,14 @@ FetchContent_Declare(tracktion
 
 FetchContent_MakeAvailable(tracktion)
 
+# TinySoundFont: the SF2 player behind the SoundFont generator. One header,
+# MIT, and no CMakeLists of its own, so making it available only fetches it;
+# its implementation is compiled into SoundFontPlugin.cpp alone.
+FetchContent_Declare(tinysoundfont
+    GIT_REPOSITORY https://github.com/schellingb/TinySoundFont.git
+    GIT_TAG        853a0a171759f1ddba0de1442133a75912bbeffa)
+FetchContent_MakeAvailable(tinysoundfont)
+
 set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
@@ -64,6 +72,8 @@ set(CARVE_CORE_SOURCES
     src/sync/EditSync.cpp
     src/sync/EffectChains.h
     src/sync/EffectChains.cpp
+    src/sync/RenderPreroll.h
+    src/sync/RenderPreroll.cpp
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp
     src/plugins/SaturationPlugin.h
@@ -79,12 +89,15 @@ set(CARVE_CORE_SOURCES
     src/plugins/LimiterPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp
+    src/plugins/SoundFontPlugin.h
+    src/plugins/SoundFontPlugin.cpp
     src/plugins/NoteMonitorPlugin.h
     src/plugins/NoteMonitorPlugin.cpp)
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_include_directories(${target} SYSTEM PRIVATE ${tinysoundfont_SOURCE_DIR})
     target_compile_definitions(${target} PRIVATE
         # The Pitch Shifter is a wrapper round tracktion's TimeStretcher, and
         # with no stretching backend compiled in that wrapper is a very
@@ -138,6 +151,7 @@ target_sources(carve PRIVATE
     src/app/DrumPadGrid.cpp
     src/app/SlateEditor.h
     src/app/SlateEditor.cpp
+    src/app/SoundFontEditor.h
     src/app/GeneratorController.h
     src/app/GeneratorController.cpp
     src/app/GeneratorWindow.h

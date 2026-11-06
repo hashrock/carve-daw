@@ -7,6 +7,7 @@
 #include "plugins/DelayPlugin.h"
 #include "plugins/DistortionPlugin.h"
 #include "plugins/DrumSynthPlugin.h"
+#include "plugins/SoundFontPlugin.h"
 #include "plugins/LimiterPlugin.h"
 #include "plugins/MeteredCompressorPlugin.h"
 #include "plugins/OvertopPlugin.h"
@@ -163,6 +164,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::LimiterPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::OvertopPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::DrumSynthPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::SoundFontPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::NoteMonitorPlugin>();
 
     return engine;

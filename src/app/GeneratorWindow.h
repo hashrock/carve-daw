@@ -12,6 +12,7 @@
 #include "sync/EngineIds.h"
 #include "DrumSynthEditor.h"
 #include "SlateEditor.h"
+#include "SoundFontEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
@@ -164,6 +165,12 @@ public:
     // piano roll's previews.
     std::function<void (int note, int velocity)> onPreviewNote;
 
+    // The SF2 player's gestures: its Load button, an .sf2 dropped on it, and
+    // a preset picked from its list.
+    std::function<void()> onLoadSoundFont;
+    std::function<void (const juce::File&)> onSoundFontDropped;
+    std::function<void (int bank, int program)> onSoundFontPresetChosen;
+
     // Fired when what the view would like to be has changed: a new editor was
     // put up, or a plugin's own UI changed its size. The window fits itself
     // around it (see GeneratorWindow::fitToInstrument).
@@ -188,6 +195,9 @@ public:
 
         if (drumSynth != nullptr)
             return juce::Point<int> (drumSynth->getWidth(), drumSynth->getHeight());
+
+        if (soundFont != nullptr)
+            return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
 
         return std::nullopt;
     }
@@ -388,6 +398,29 @@ public:
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
+            else if (auto player = dynamic_cast<plugins::SoundFontPlugin*> (instrument))
+            {
+                soundFont = std::make_unique<SoundFontEditor> (*player);
+                soundFont->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                soundFont->onLoadSoundFont = [this] { if (onLoadSoundFont) onLoadSoundFont(); };
+                soundFont->onSoundFontDropped = [this] (const juce::File& file)
+                {
+                    if (onSoundFontDropped)
+                        onSoundFontDropped (file);
+                };
+                soundFont->onPresetChosen = [this] (int bank, int program)
+                {
+                    if (onSoundFontPresetChosen)
+                        onSoundFontPresetChosen (bank, program);
+                };
+                viewport.setViewedComponent (soundFont.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
             else if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
             {
                 if (auto instance = external->getAudioPluginInstance())
@@ -515,7 +548,7 @@ public:
             dropHint.setBounds (centre);
         }
 
-        if (slate != nullptr || drumSynth != nullptr)
+        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         if (externalEditor != nullptr || presetBar != nullptr)
@@ -576,6 +609,7 @@ private:
         removeChildComponent (&viewport);
         slate.reset();
         drumSynth.reset();
+        soundFont.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
     }
@@ -632,6 +666,7 @@ private:
     juce::Viewport viewport;
     std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
+    std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
 

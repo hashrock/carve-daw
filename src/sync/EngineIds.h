@@ -4,6 +4,7 @@
 
 #include "plugins/DrumSynthPlugin.h"
 #include "plugins/NoteMonitorPlugin.h"
+#include "plugins/SoundFontPlugin.h"
 
 namespace te = tracktion;
 
@@ -33,6 +34,7 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
         if (! isEffectPlugin (*plugin)
              && (dynamic_cast<te::FourOscPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::DrumSynthPlugin*> (plugin) != nullptr
+                  || dynamic_cast<plugins::SoundFontPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::SamplerPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr))
             return plugin;

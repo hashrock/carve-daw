@@ -408,11 +408,31 @@ public:
     static constexpr const char* synthType = "internal-synth";
     static constexpr const char* drumSynthType = "drum-synth";
 
+    // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
+    // the file is kept the way a sampler sound's is -- one SOUND node, with
+    // the relative-path, missing-media and relink handling that comes with
+    // it -- and the preset it plays sits on that node too. Nothing in its
+    // plugin's own tree is worth keeping, so unlike the two above it has no
+    // INSTRUMENT state: the model is the whole of it, and an undo of a
+    // preset change is an ordinary model undo.
+    static constexpr const char* soundFontType = "soundfont";
+
     bool isDrumKit() const    { return getType() == drumKitType; }
     bool isDrumSynth() const  { return getType() == drumSynthType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType; }
+    bool isSoundFont() const  { return getType() == soundFontType; }
+
+    // For type "soundfont": the .sf2 it plays (an empty File for none yet),
+    // and which of its presets. Bank 128 is where a General MIDI font keeps
+    // its drum kits. Choosing a new file goes back to bank 0 program 0, which
+    // in a GM font is the piano and in any other is its first preset.
+    juce::File getSoundFontFile() const;
+    void setSoundFontFile (const juce::File&, juce::UndoManager*);
+    int getSoundFontBank() const;
+    int getSoundFontProgram() const;
+    void setSoundFontPreset (int bank, int program, juce::UndoManager*);
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
 

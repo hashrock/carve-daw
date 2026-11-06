@@ -108,6 +108,13 @@ public:
     // chooser.
     void loadSampleIntoSelected (const juce::File& sample);
 
+    // The SF2 player's Inst tab: its Load button, an .sf2 dropped on it, and
+    // a preset picked from its list. All three are ignored unless the
+    // selected generator is a SoundFont one, and each is one undoable step.
+    void chooseSoundFontForSelected();
+    void soundFontDroppedOnSelected (const juce::File& soundFont);
+    void setSoundFontPresetForSelected (int bank, int program);
+
     // Whether the engine can read any of these as audio, for the pad grid's
     // drag-over test.
     bool canImportAudioFiles (const juce::StringArray& files) const;
@@ -136,6 +143,13 @@ private:
     juce::File getSampleBrowseDirectory() const;
     void rememberSampleDirectory (const juce::File& sample);
     void addSamplerGenerator (const juce::File& sample);
+
+    // The SoundFont side: the same shape as the sampler's, with a chooser
+    // that only offers .sf2 files and remembers its own folder -- fonts and
+    // samples rarely live together.
+    void launchSoundFontChooser (std::function<void (const juce::File&)> onChosen);
+    void addSoundFontGenerator (const juce::File& soundFont);
+    void assignSoundFont (model::Generator, const juce::File& soundFont);
     void assignSample (model::Generator, const juce::File& sample);
 
     // The drum-kit side. A kit is the same sampler with one sound per pad, so

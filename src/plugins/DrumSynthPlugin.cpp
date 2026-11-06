@@ -570,8 +570,12 @@ void DrumSynthPlugin::applyToBuffer (const te::PluginRenderContext& fc)
             if (! m.isNoteOn())
                 continue;
 
+            // Seconds from the start of the block, as tracktion hands every
+            // instrument its MIDI. Read as a sample count, as this once was,
+            // every hit truncated to 0 and landed on the block's first
+            // sample -- up to a block early.
             const int at = juce::jlimit (0, fc.bufferNumSamples,
-                                         (int) m.getTimeStamp() - fc.bufferStartSample);
+                                         juce::roundToInt (m.getTimeStamp() * sampleRate));
 
             if (at > pos)
             {

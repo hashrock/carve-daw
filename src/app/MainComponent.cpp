@@ -519,6 +519,21 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->chooseSampleForSelected();
         };
+        inst.onLoadSoundFont = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->chooseSoundFontForSelected();
+        };
+        inst.onSoundFontDropped = [safe = juce::Component::SafePointer (this)] (const juce::File& file)
+        {
+            if (safe != nullptr)
+                safe->generatorController->soundFontDroppedOnSelected (file);
+        };
+        inst.onSoundFontPresetChosen = [safe = juce::Component::SafePointer (this)] (int bank, int program)
+        {
+            if (safe != nullptr)
+                safe->generatorController->setSoundFontPresetForSelected (bank, program);
+        };
     }
 
     retargetGeneratorWindow();
