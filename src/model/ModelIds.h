@@ -26,13 +26,13 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
-// │     │                                | "drum-sampler" | "audio"
+// │     │                                | "drum-sampler" | "soundfont" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
 // │     ├─ INSTRUMENT                        for "internal-synth" / "drum-synth": holds the
 // │     │  └─ PLUGIN {...}                   tracktion plugin's own state tree, as an effect does
-// │     ├─ SOUNDS                           sampler types only, absent otherwise
+// │     ├─ SOUNDS                           sampler and soundfont types only
 // │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan, length}
 // │     │        file: absolute path to the sample. relPath: the same file
 // │     │        relative to the .carve's folder, rewritten on every save.
@@ -40,6 +40,9 @@
 // │     │        exists, so a song moved with its samples plays elsewhere.
 // │     │        Everything but the paths is optional; see SamplerSound for
 // │     │        the defaults (whole keyboard, root C3, unity gain).
+// │     │        A "soundfont" generator has exactly one SOUND, its .sf2,
+// │     │        with the preset it plays in `bank` and `program` (both
+// │     │        optional, 0 = the first piano of a GM font).
 // │     ├─ AUTOMATION
 // │     │  └─ AUTOCURVE {target, param}     target: "volume" | "pan" |
 // │     │     └─ PT {beat, value, curve}    "instrument" | an effect id.
@@ -172,6 +175,8 @@ CARVE_DECLARE_ID (solo)
 CARVE_DECLARE_ID (file)
 CARVE_DECLARE_ID (relPath)
 CARVE_DECLARE_ID (rootNote)
+CARVE_DECLARE_ID (bank)
+CARVE_DECLARE_ID (program)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
 

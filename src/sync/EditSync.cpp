@@ -51,6 +51,7 @@ namespace
         return ! isEffect (plugin)
                 && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
     }
@@ -311,6 +312,32 @@ namespace
         syncSamplerSounds (*sampler, generator);
     }
 
+    // The SF2 player takes everything it plays from the model on every sync:
+    // its font (read only when the file changes -- see SoundFontPlugin) and
+    // its preset. Nothing of it lives in its own tree, so a fresh one is a
+    // complete one.
+    void ensureSoundFontInstrument (te::Edit& edit, te::AudioTrack& track,
+                                    const model::Generator& generator)
+    {
+        auto player = dynamic_cast<plugins::SoundFontPlugin*> (findInstrument (track));
+
+        if (player == nullptr)
+        {
+            removeInstruments (track);
+
+            auto plugin = edit.getPluginCache().createNewPlugin (plugins::SoundFontPlugin::xmlTypeName, {});
+            player = dynamic_cast<plugins::SoundFontPlugin*> (plugin.get());
+
+            if (player == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        player->setSource (generator.getSoundFontFile(),
+                           generator.getSoundFontBank(), generator.getSoundFontProgram());
+    }
+
     // A drum kit's track carries a NoteMonitorPlugin in front of its sampler,
     // which is what lets the pad grid light the pads that are sounding (see
     // NoteMonitorPlugin.h). It is not an instrument, so removeInstruments
@@ -364,6 +391,10 @@ namespace
         else if (generator.isSampler())
         {
             ensureSamplerInstrument (edit, track, generator);
+        }
+        else if (generator.isSoundFont())
+        {
+            ensureSoundFontInstrument (edit, track, generator);
         }
         else if (generator.getType() == "plugin")
         {

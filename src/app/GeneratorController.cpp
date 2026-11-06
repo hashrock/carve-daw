@@ -33,6 +33,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (6, "808 Drums (internal drum synth)");
     menu.addItem (3, "Sampler (choose a sample)...");
     menu.addItem (4, "Drum Kit (16 pads)");
+    menu.addItem (7, "SoundFont (choose an .sf2)...");
     menu.addItem (5, "Audio track");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
@@ -80,6 +81,11 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
         {
             addGenerator ("Drums " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::drumSynthType, nullptr);
+        }
+        else if (result == 7)
+        {
+            // Like a sampler: the font first, so a cancel leaves nothing.
+            launchSoundFontChooser ([this] (const juce::File& soundFont) { addSoundFontGenerator (soundFont); });
         }
         else if (result == 5)
         {
@@ -200,6 +206,88 @@ void GeneratorController::chooseSampleForSelected()
         if (auto target = song.findGenerator (generatorId))
             assignSample (*target, sample);
     });
+}
+
+//==============================================================================
+// SoundFonts
+
+static constexpr const char* lastSoundFontDirectoryKey = "lastSoundFontDirectory";
+
+void GeneratorController::launchSoundFontChooser (std::function<void (const juce::File&)> onChosen)
+{
+    const juce::File remembered (engine.getPropertyStorage().getPropertiesFile()
+                                     .getValue (lastSoundFontDirectoryKey));
+
+    sampleChooser = std::make_unique<juce::FileChooser> (
+        "Choose a SoundFont",
+        remembered.isDirectory() ? remembered : getSampleBrowseDirectory(),
+        "*.sf2");
+
+    sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto soundFont = chooser.getResult(); soundFont.existsAsFile())
+        {
+            engine.getPropertyStorage().getPropertiesFile()
+                .setValue (lastSoundFontDirectoryKey, soundFont.getParentDirectory().getFullPathName());
+            onChosen (soundFont);
+        }
+    });
+}
+
+void GeneratorController::addSoundFontGenerator (const juce::File& soundFont)
+{
+    auto generator = addGenerator (soundFont.getFileNameWithoutExtension(),
+                                   model::Generator::soundFontType, nullptr);
+    generator.setSoundFontFile (soundFont, &undoManager);
+    refresh();
+}
+
+void GeneratorController::assignSoundFont (model::Generator generator, const juce::File& soundFont)
+{
+    if (! generator.isSoundFont())
+        return;
+
+    undoManager.beginNewTransaction();
+    generator.setSoundFontFile (soundFont, &undoManager);
+    refresh();
+}
+
+void GeneratorController::chooseSoundFontForSelected()
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isSoundFont())
+        return;
+
+    const auto generatorId = generator->getId();
+
+    launchSoundFontChooser ([this, generatorId] (const juce::File& soundFont)
+    {
+        if (auto target = song.findGenerator (generatorId))
+            assignSoundFont (*target, soundFont);
+    });
+}
+
+void GeneratorController::soundFontDroppedOnSelected (const juce::File& soundFont)
+{
+    if (auto generator = getSelectedGenerator(); generator && soundFont.existsAsFile())
+        assignSoundFont (*generator, soundFont);
+}
+
+void GeneratorController::setSoundFontPresetForSelected (int bank, int program)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isSoundFont())
+        return;
+
+    if (generator->getSoundFontBank() == bank && generator->getSoundFontProgram() == program)
+        return;
+
+    undoManager.beginNewTransaction();
+    generator->setSoundFontPreset (bank, program, &undoManager);
 }
 
 bool GeneratorController::canImportAudioFiles (const juce::StringArray& files) const

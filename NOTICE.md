@@ -13,6 +13,7 @@ The choice is not really a choice: it follows from what the app is built on.
 | [JUCE](https://juce.com) (inside tracktion_engine) | 8.0.6 | AGPL-3.0, or a commercial JUCE licence |
 | [SoundTouch](https://www.surina.net/soundtouch/) (inside tracktion_engine) | bundled | LGPL-2.1-or-later |
 | [VST3 SDK](https://steinbergmedia.github.io/vst3_dev_portal/) (inside JUCE, for hosting) | bundled | Steinberg's proprietary licence, or GPL-3.0 |
+| [TinySoundFont](https://github.com/schellingb/TinySoundFont) (the SF2 player) | commit 853a0a1 | MIT |
 | AudioUnit SDK, FLAC, Ogg Vorbis, zlib, HarfBuzz, and the rest inside JUCE | bundled | Apache-2.0 / BSD / zlib / MIT |
 
 No commercial licence has been bought for tracktion_engine or JUCE, so both are

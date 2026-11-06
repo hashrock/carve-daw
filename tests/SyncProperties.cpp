@@ -63,7 +63,7 @@ te::Engine& testEngine()
 // nothing here is about them.
 enum class Op
 {
-    addSynth, addDrumSynth, addSampler, addAudioGenerator, removeGenerator,
+    addSynth, addDrumSynth, addSampler, addSoundFont, addAudioGenerator, removeGenerator,
     addReturn, removeReturn,
     addGroup, removeGroup, setGroup,
     addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect,
@@ -154,6 +154,12 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
         case Op::addSampler:
             song.addGenerator ("Sampler", Generator::samplerType, &um);
+            break;
+
+        case Op::addSoundFont:
+            // No file: an empty player is the case every new one passes
+            // through, and the one that has to sync without reading anything.
+            song.addGenerator ("SoundFont", Generator::soundFontType, &um);
             break;
 
         case Op::addAudioGenerator:
