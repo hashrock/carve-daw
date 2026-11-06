@@ -331,6 +331,9 @@ void MainComponent::checkForMissingMedia()
 
 void MainComponent::markDirty()
 {
+    if (capturingPluginState)
+        return;
+
     if (hasUnsavedChanges)
         return;   // a fader drag arrives here on every mouse move
 
@@ -615,8 +618,20 @@ void MainComponent::openExport()
 
     // The live plugin state belongs in the model before anything renders from
     // it, exactly as it does before a save.
+    //
+    // Not an edit, though. Copying it in rewrites every instrument's and
+    // effect's state node whether or not anything in it differs, and a song
+    // that never had them stored (a sample song, a new synth) gains them for
+    // the first time -- either way the tree hears a change and the document
+    // went unsaved just for opening this window. What it copies is not the
+    // user's doing either: turning a plugin's knob changes the plugin's own
+    // tree, never the song's, so it never made the document unsaved before
+    // the copy and does not after it.
     if (editSync != nullptr)
+    {
+        const juce::ScopedValueSetter<bool> notAnEdit (capturingPluginState, true);
         editSync->captureLivePluginState();
+    }
 
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
 

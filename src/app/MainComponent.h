@@ -178,6 +178,10 @@ private:
     juce::File currentFile;
     bool hasUnsavedChanges = false;
 
+    // While the live plugin state is copied into the song for an export:
+    // the tree changes, the document does not (see openExport).
+    bool capturingPluginState = false;
+
     // Restored from the properties file on construction and written back on
     // every change, so the File menu's Open Recent survives a restart.
     juce::RecentlyOpenedFilesList recentSongs;
