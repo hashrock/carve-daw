@@ -87,6 +87,12 @@ void captureLivePluginState (const model::Song& song, te::Edit& edit);
 // caller has to ask for it, and must do so before rendering.
 void flushSamplerLoads (te::Edit& edit);
 
+// Singers synthesise their notes on worker threads (see UtauPlugin), and a
+// render started before they finish has holes where those notes go. Blocks
+// until every singer in the edit is done, or the timeout passes; false if one
+// was not. flushSamplerLoads waits for these too.
+bool waitForVoiceRenders (te::Edit& edit, int timeoutMs);
+
 // Keeps an Edit continuously in sync with a song model: any change to the
 // song tree triggers a debounced (coalesced per message-loop tick) full
 // resync. Message thread only.

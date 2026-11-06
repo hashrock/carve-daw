@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "RecentMediaList.h"
 #include "plugins/SoundFontPlugin.h"
 
 namespace carve::app
@@ -29,6 +30,10 @@ public:
     std::function<void (const juce::File&)> onSoundFontDropped;
     std::function<void (int bank, int program)> onPresetChosen;
     std::function<void (int note, int velocity)> onPreviewNote;
+    std::function<void (const juce::File&)> onRecentChosen;
+
+    // The fonts used lately, offered while this player has none.
+    void setRecentItems (std::vector<RecentMediaList::Item> items)  { recent.setItems (std::move (items)); }
 
     explicit SoundFontEditor (plugins::SoundFontPlugin& player) : plugin (&player)
     {
@@ -60,6 +65,9 @@ public:
         hint.setColour (juce::Label::textColourId, juce::Colour (0xff5e5e68));
         hint.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (hint);
+
+        recent.onChosen = [this] (const juce::File& file) { if (onRecentChosen) onRecentChosen (file); };
+        addChildComponent (recent);
 
         refreshFromPlugin();
         startTimerHz (8);
@@ -97,6 +105,9 @@ public:
         hint.setBounds (area.removeFromBottom (20));
         area.removeFromBottom (4);
         list.setBounds (area);
+
+        // In the filter's and the list's place while there is no font.
+        recent.setBounds (list.getBounds().withTop (filter.getY()));
     }
 
     // Only .sf2 files: an audio file dropped here is a sampler's, and taking
@@ -216,8 +227,9 @@ private:
         const auto file = sf->getLoadedFile();
         const auto error = sf->getLoadError();
 
-        if (file != shownFile || error != shownError)
+        if (! shownOnce || file != shownFile || error != shownError)
         {
+            shownOnce = true;   // an empty player has to be shown empty once, too
             shownFile = file;
             shownError = error;
 
@@ -231,6 +243,13 @@ private:
 
             fileLabel.setColour (juce::Label::textColourId,
                                  juce::Colour (error.isNotEmpty() ? 0xffe0a060 : 0xffd8d8de));
+
+            // Nothing to pick presets from: what to load instead.
+            const bool empty = file == juce::File();
+            recent.setVisible (empty);
+            filter.setVisible (! empty);
+            list.setVisible (! empty);
+
             rebuildRows();
         }
 
@@ -297,6 +316,7 @@ private:
     plugins::SoundFontPlugin* player() const  { return dynamic_cast<plugins::SoundFontPlugin*> (plugin.get()); }
 
     std::vector<plugins::SoundFontPlugin::Preset> rows;   // the filtered list
+    bool shownOnce = false;
     juce::File shownFile;
     juce::String shownError;
     int shownBank = -1, shownProgram = -1;
@@ -307,6 +327,7 @@ private:
     juce::Label fileLabel, hint;
     juce::TextEditor filter;
     juce::ListBox list;
+    RecentMediaList recent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SoundFontEditor)
 };

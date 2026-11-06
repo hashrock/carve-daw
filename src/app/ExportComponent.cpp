@@ -1,4 +1,5 @@
 #include "ExportComponent.h"
+#include "sync/EditSync.h"
 #include "Fonts.h"
 #include "sync/EngineIds.h"
 
@@ -652,6 +653,13 @@ void ExportComponent::startJobs (std::vector<Job> newJobs)
 
     // Before anything reads the Edit: in Pattern mode it is not the song yet.
     setToldRendering (true);
+
+    // A singer synthesises its notes on worker threads, and a render started
+    // before they are done has holes where they go. Switching to the song can
+    // have just asked for a phrase's worth, so this waits for them -- on the
+    // message thread, which the workers do not need.
+    if (! sync::waitForVoiceRenders (edit, 300000))
+        setStatus ("Some sung notes were still being synthesised", errorColour);
 
     jobs = std::move (newJobs);
     currentJob = 0;

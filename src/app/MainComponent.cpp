@@ -56,6 +56,13 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     generatorController->onManagePlugins = [this] { openPluginManager(); };
 
+    // A sampler, SoundFont player or singer made empty: straight to the tab
+    // that fills it, rather than a file chooser holding everything up.
+    generatorController->onOpenInstrumentForSetup = [this]
+    {
+        openGeneratorWindow (GeneratorWindow::Tab::instrument);
+    };
+
     // The pattern list changes without the selection moving (a rename, a
     // pattern made on another generator); the controller's refresh already
     // runs then, so it restocks the window's picker and pads too.
@@ -538,6 +545,31 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
         {
             if (safe != nullptr)
                 safe->generatorController->setSoundFontPresetForSelected (bank, program);
+        };
+        inst.onLoadVoicebank = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->chooseVoicebankForSelected();
+        };
+        inst.onVoicebankDropped = [safe = juce::Component::SafePointer (this)] (const juce::File& folder)
+        {
+            if (safe != nullptr)
+                safe->generatorController->voicebankDroppedOnSelected (folder);
+        };
+        inst.onVoiceStyleChanged = [safe = juce::Component::SafePointer (this)] (const juce::Identifier& id, double value)
+        {
+            if (safe != nullptr)
+                safe->generatorController->setVoiceStyleValueForSelected (id, value);
+        };
+        inst.getRecentMedia = [safe = juce::Component::SafePointer (this)] (MediaKind kind)
+        {
+            return safe != nullptr ? safe->generatorController->getRecentMedia (kind)
+                                   : std::vector<RecentMediaList::Item>();
+        };
+        inst.onRecentMediaChosen = [safe = juce::Component::SafePointer (this)] (MediaKind kind, const juce::File& file)
+        {
+            if (safe != nullptr)
+                safe->generatorController->recentMediaChosen (kind, file);
         };
     }
 

@@ -1,9 +1,11 @@
 #include "EditSync.h"
 
+#include <tuple>
 #include <utility>
 
 #include "EffectChains.h"
 #include "EngineIds.h"
+#include "model/Singing.h"
 #include "../plugins/MeteredCompressorPlugin.h"
 
 namespace carve::sync
@@ -52,6 +54,7 @@ namespace
                 && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
     }
@@ -338,6 +341,28 @@ namespace
                            generator.getSoundFontBank(), generator.getSoundFontProgram());
     }
 
+    // The singer, likewise: the voicebank is all it keeps, and the model's.
+    void ensureUtauInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
+    {
+        auto singer = dynamic_cast<plugins::UtauPlugin*> (findInstrument (track));
+
+        if (singer == nullptr)
+        {
+            removeInstruments (track);
+
+            auto plugin = edit.getPluginCache().createNewPlugin (plugins::UtauPlugin::xmlTypeName, {});
+            singer = dynamic_cast<plugins::UtauPlugin*> (plugin.get());
+
+            if (singer == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        singer->setVoicebank (generator.getVoicebankFolder());
+        singer->setVoiceStyle (generator.getVoiceStyle());
+    }
+
     // A drum kit's track carries a NoteMonitorPlugin in front of its sampler,
     // which is what lets the pad grid light the pads that are sounding (see
     // NoteMonitorPlugin.h). It is not an instrument, so removeInstruments
@@ -395,6 +420,10 @@ namespace
         else if (generator.isSoundFont())
         {
             ensureSoundFontInstrument (edit, track, generator);
+        }
+        else if (generator.isUtau())
+        {
+            ensureUtauInstrument (edit, track, generator);
         }
         else if (generator.getType() == "plugin")
         {
@@ -1370,6 +1399,160 @@ namespace
         return wanted;
     }
 
+    // A singer's clips carry no notes: a sung note starts before its beat and
+    // depends on its neighbours, so each one is prepared by the singer and
+    // played by a trigger placed where its sound begins (see UtauPlugin).
+    // The trigger is the SysEx itself, compared byte for byte.
+    struct WantedTrigger
+    {
+        double startBeats;
+        juce::MemoryBlock data;   // the SysEx payload, without F0/F7
+    };
+
+    std::vector<WantedTrigger> wantedTriggersFor (plugins::UtauPlugin& singer, const model::Pattern& pattern,
+                                                  double patternLength, double clipLength, int transpose,
+                                                  double clipStartBeat, const te::TempoSequence& tempo)
+    {
+        std::vector<WantedTrigger> wanted;
+        const auto notes = model::singing::inSingingOrder (pattern.getNotes());
+
+        auto secondsAt = [&] (double clipBeat)
+        {
+            return tempo.toTime (te::BeatPosition::fromBeats (clipStartBeat + clipBeat)).inSeconds();
+        };
+
+        struct Placed
+        {
+            double start, length;
+            int pitch, velocity;
+            juce::String lyric;
+        };
+
+        // Which notes follow on from which: model::singing, shared with the
+        // piano roll's marking of notes the voicebank cannot sing.
+        constexpr int maxRepeats = 512;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            // Each repeat is sung on its own: its first note starts a phrase
+            // whatever the last one of the repeat before did, so every repeat
+            // is the same snippets and a loop costs one pattern's synthesis.
+            std::vector<Placed> placed;
+
+            for (const auto& note : notes)
+            {
+                const auto start = offset + note.getStart();
+
+                if (start >= clipLength - 1.0e-9)
+                    continue;
+
+                placed.push_back ({ start, std::min (note.getLength(), clipLength - start),
+                                    model::Note::clampPitch (note.getPitch() + transpose),
+                                    note.getVelocity(), note.getLyric() });
+            }
+
+            for (size_t i = 0; i < placed.size(); ++i)
+            {
+                const auto& note = placed[i];
+                const auto startSec = secondsAt (note.start);
+
+                plugins::UtauPlugin::NoteContext context;
+                context.lyric = note.lyric;
+                context.pitch = note.pitch;
+                context.velocity = note.velocity;
+                context.lengthSec = secondsAt (note.start + note.length) - startSec;
+
+                if (i > 0)
+                {
+                    const auto& previous = placed[i - 1];
+
+                    if (model::singing::followsOn (previous.start, previous.length, note.start))
+                    {
+                        context.hasPrevious = true;
+                        context.previousLyric = previous.lyric;
+                        context.previousPitch = previous.pitch;
+                        context.previousLengthSec = secondsAt (previous.start + previous.length) - secondsAt (previous.start);
+                    }
+                }
+
+                if (i + 1 < placed.size())
+                {
+                    const auto& next = placed[i + 1];
+
+                    if (model::singing::followsOn (note.start, note.length, next.start))
+                    {
+                        context.hasNext = true;
+                        context.nextLyric = next.lyric;
+                        context.nextPitch = next.pitch;
+                        context.nextStartSec = secondsAt (next.start) - startSec;
+                    }
+                }
+
+                const auto prepared = singer.prepare (context);
+
+                if (prepared.id < 0)
+                    continue;
+
+                // Where its sound starts, in the clip's beats. A lead-in that
+                // would start before the clip does starts with the clip
+                // instead, that far into the note's sound.
+                const auto soundStartSec = startSec - prepared.leadSec;
+                const auto clipStartSec = secondsAt (0.0);
+                double triggerBeat = 0.0, skipSec = 0.0;
+
+                if (soundStartSec < clipStartSec)
+                    skipSec = clipStartSec - soundStartSec;
+                else
+                    triggerBeat = tempo.toBeats (te::TimePosition::fromSeconds (soundStartSec)).inBeats() - clipStartBeat;
+
+                const auto message = plugins::UtauPlugin::createTrigger (prepared.id, skipSec);
+                wanted.push_back ({ juce::jmax (0.0, triggerBeat),
+                                    juce::MemoryBlock (message.getSysExData(), (size_t) message.getSysExDataSize()) });
+            }
+        }
+
+        std::stable_sort (wanted.begin(), wanted.end(), [] (const WantedTrigger& a, const WantedTrigger& b)
+        {
+            return a.startBeats < b.startBeats;
+        });
+
+        return wanted;
+    }
+
+    bool triggersMatch (const te::MidiClip& clip, const std::vector<WantedTrigger>& wanted)
+    {
+        const auto& live = clip.getSequence().getSysexEvents();
+
+        if ((size_t) live.size() != wanted.size())
+            return false;
+
+        // Both sorted by beat; ties come out of the MidiList in an unspecified
+        // order, so a tie is compared as a set.
+        std::vector<bool> used (wanted.size(), false);
+
+        for (const auto* event : live)
+        {
+            const auto message = event->getMessage();
+            const juce::MemoryBlock data (message.getSysExData(), (size_t) juce::jmax (0, message.getSysExDataSize()));
+            bool found = false;
+
+            for (size_t i = 0; i < wanted.size() && ! found; ++i)
+                if (! used[i] && wanted[i].data == data
+                     && std::abs (wanted[i].startBeats - event->getBeatPosition().inBeats()) < 1.0e-6)
+                    used[i] = found = true;
+
+            if (! found)
+                return false;
+        }
+
+        return true;
+    }
+
     // Compared as sets: the MidiList keeps its notes sorted by start beat with
     // an unspecified order for ties, and the wanted list is in pattern order,
     // so both sides are put into one canonical order first.
@@ -1428,9 +1611,33 @@ namespace
             juce::String id, name;
             te::TimeRange time;
             std::vector<WantedNote> notes;
+            std::vector<WantedTrigger> triggers;
         };
 
         std::vector<Desired> desired;
+
+        // A singer gets triggers in place of notes (see wantedTriggersFor),
+        // and is told which of its notes are still in the song once they have
+        // all been asked for.
+        auto* singer = generator.isUtau() ? dynamic_cast<plugins::UtauPlugin*> (findInstrument (track)) : nullptr;
+
+        if (singer != nullptr)
+            singer->beginPreparing();
+
+        auto contentFor = [&] (Desired& want, const model::Pattern& pattern, double patternLength,
+                               double clipLength, int transpose, double clipStartBeat)
+        {
+            if (generator.isUtau())
+            {
+                if (singer != nullptr)
+                    want.triggers = wantedTriggersFor (*singer, pattern, patternLength, clipLength, transpose,
+                                                       clipStartBeat, edit.tempoSequence);
+            }
+            else
+            {
+                want.notes = wantedNotesFor (pattern, patternLength, clipLength, transpose);
+            }
+        };
 
         // Pattern mode: this generator's auditioned pattern from beat zero,
         // repeated out to the shared loop length so it keeps time with the
@@ -1446,10 +1653,11 @@ namespace
                     if (const auto length = pattern->getLengthBeats(); length > 0.0 && auditionLoopBeats > 0.0)
                     {
                         const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (auditionLoopBeats));
-                        desired.push_back ({ "audition:" + generator.getId() + ":" + pattern->getId(),
-                                             pattern->getName(),
-                                             edit.tempoSequence.toTime (beats),
-                                             wantedNotesFor (*pattern, length, auditionLoopBeats, 0) });
+                        Desired want { "audition:" + generator.getId() + ":" + pattern->getId(),
+                                       pattern->getName(),
+                                       edit.tempoSequence.toTime (beats), {}, {} };
+                        contentFor (want, *pattern, length, auditionLoopBeats, 0, 0.0);
+                        desired.push_back (std::move (want));
                     }
         }
         else for (const auto& placement : song.getPlaylist().getClips())
@@ -1478,10 +1686,9 @@ namespace
             const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
                                        te::BeatPosition::fromBeats (startBeat + clipLength));
 
-            desired.push_back ({ placement.getId(), pattern->getName(),
-                                 edit.tempoSequence.toTime (beats),
-                                 wantedNotesFor (*pattern, patternLength, clipLength,
-                                                 placement.getTranspose()) });
+            Desired want { placement.getId(), pattern->getName(), edit.tempoSequence.toTime (beats), {}, {} };
+            contentFor (want, *pattern, patternLength, clipLength, placement.getTranspose(), startBeat);
+            desired.push_back (std::move (want));
         }
 
         // Copy: removal mutates the list we would be walking. Anything that is
@@ -1518,7 +1725,7 @@ namespace
             if (! positionsMatch (midiClip->getPosition(), { want.time, te::TimeDuration() }))
                 midiClip->setPosition ({ want.time, te::TimeDuration() });
 
-            if (! sequenceMatches (*midiClip, want.notes))
+            if (! sequenceMatches (*midiClip, want.notes) || ! triggersMatch (*midiClip, want.triggers))
             {
                 auto& sequence = midiClip->getSequence();
                 sequence.clear (nullptr);
@@ -1528,8 +1735,16 @@ namespace
                                       te::BeatPosition::fromBeats (note.startBeats),
                                       te::BeatDuration::fromBeats (note.lengthBeats),
                                       note.velocity, 0, nullptr);
+
+                for (const auto& trigger : want.triggers)
+                    sequence.addSysExEvent (juce::MidiMessage::createSysExMessage (trigger.data.getData(),
+                                                                                  (int) trigger.data.getSize()),
+                                            te::BeatPosition::fromBeats (trigger.startBeats), nullptr);
             }
         }
+
+        if (singer != nullptr)
+            singer->endPreparing();
     }
 
     // Rebuilds the Edit's tempo sequence from the model. Everything downstream
@@ -1762,6 +1977,19 @@ void flushSamplerLoads (te::Edit& edit)
 
     for (int attempt = 0; attempt < maxAttempts && ! samplerSoundsAreLoaded (edit); ++attempt)
         juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
+
+    waitForVoiceRenders (edit, 300000);
+}
+
+bool waitForVoiceRenders (te::Edit& edit, int timeoutMs)
+{
+    bool allDone = true;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (auto singer = track->pluginList.findFirstPluginOfType<plugins::UtauPlugin>())
+            allDone = singer->waitForRenders (timeoutMs) && allDone;
+
+    return allDone;
 }
 
 void EditSync::captureLivePluginState()
@@ -1881,6 +2109,14 @@ void EditSync::applyTempoOnly()
     for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
     {
         const auto& generator = generators[(size_t) i];
+
+        // A singer's notes are synthesised to their length in seconds, which
+        // a tempo change moves: only a full sync prepares them again.
+        if (generator.isUtau())
+        {
+            triggerAsyncUpdate();
+            return;
+        }
 
         if (! repositionPatternClips (song, generator, edit, *tracks[i]))
         {

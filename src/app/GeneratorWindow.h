@@ -13,6 +13,7 @@
 #include "DrumSynthEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
+#include "UtauEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
@@ -171,6 +172,16 @@ public:
     std::function<void (const juce::File&)> onSoundFontDropped;
     std::function<void (int bank, int program)> onSoundFontPresetChosen;
 
+    // The singer's: its Load button and a voicebank folder dropped on it.
+    std::function<void()> onLoadVoicebank;
+    std::function<void (const juce::File&)> onVoicebankDropped;
+    std::function<void (const juce::Identifier&, double)> onVoiceStyleChanged;
+
+    // The history an empty instrument offers (see RecentMediaList), and a
+    // click on one of its entries.
+    std::function<std::vector<RecentMediaList::Item> (MediaKind)> getRecentMedia;
+    std::function<void (MediaKind, const juce::File&)> onRecentMediaChosen;
+
     // Fired when what the view would like to be has changed: a new editor was
     // put up, or a plugin's own UI changed its size. The window fits itself
     // around it (see GeneratorWindow::fitToInstrument).
@@ -198,6 +209,9 @@ public:
 
         if (soundFont != nullptr)
             return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
+
+        if (utau != nullptr)
+            return juce::Point<int> (utau->getWidth(), utau->getHeight());
 
         return std::nullopt;
     }
@@ -289,6 +303,13 @@ public:
         sampleName.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
         addChildComponent (sampleName);
 
+        recentSamples.onChosen = [this] (const juce::File& file)
+        {
+            if (onRecentMediaChosen)
+                onRecentMediaChosen (MediaKind::sample, file);
+        };
+        addChildComponent (recentSamples);
+
         dropHint.setText ("or drop an audio file here", juce::dontSendNotification);
         dropHint.setJustificationType (juce::Justification::centred);
         dropHint.setColour (juce::Label::textColourId, juce::Colour (0xff5e5e68));
@@ -372,6 +393,7 @@ public:
             padLabels[(size_t) i].setVisible (kind == Kind::drumKit);
         }
         loadSampleButton.setVisible (kind == Kind::sampler);
+        recentSamples.setVisible (false);   // refresh() shows it, for an empty sampler
         sampleName.setVisible (kind == Kind::sampler);
         dropHint.setVisible (kind == Kind::sampler);
         info.setVisible (false);
@@ -417,7 +439,44 @@ public:
                     if (onSoundFontPresetChosen)
                         onSoundFontPresetChosen (bank, program);
                 };
+                soundFont->onRecentChosen = [this] (const juce::File& file)
+                {
+                    if (onRecentMediaChosen)
+                        onRecentMediaChosen (MediaKind::soundFont, file);
+                };
+
+                if (getRecentMedia)
+                    soundFont->setRecentItems (getRecentMedia (MediaKind::soundFont));
                 viewport.setViewedComponent (soundFont.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto singer = dynamic_cast<plugins::UtauPlugin*> (instrument))
+            {
+                utau = std::make_unique<UtauEditor> (*singer);
+                utau->onLoadVoicebank = [this] { if (onLoadVoicebank) onLoadVoicebank(); };
+                utau->onVoicebankDropped = [this] (const juce::File& folder)
+                {
+                    if (onVoicebankDropped)
+                        onVoicebankDropped (folder);
+                };
+                utau->onVoiceStyleChanged = [this] (const juce::Identifier& id, double value)
+                {
+                    if (onVoiceStyleChanged)
+                        onVoiceStyleChanged (id, value);
+                };
+                utau->onRecentChosen = [this] (const juce::File& folder)
+                {
+                    if (onRecentMediaChosen)
+                        onRecentMediaChosen (MediaKind::voicebank, folder);
+                };
+
+                if (getRecentMedia)
+                    utau->setRecentItems (getRecentMedia (MediaKind::voicebank));
+
+                if (generator)
+                    utau->setVoiceStyle (generator->getVoiceStyle());
+                viewport.setViewedComponent (utau.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -465,6 +524,37 @@ public:
                   const juce::String& selectedPatternId)
     {
         currentGenerator = generator;
+
+        if (utau != nullptr)
+        {
+            utau->setPattern (generator ? generator->findPattern (selectedPatternId) : std::nullopt);
+
+            if (generator)
+                utau->setVoiceStyle (generator->getVoiceStyle());
+        }
+
+        // The histories, which loading anything has just added to.
+        const bool emptyInstrument = generator && generator->getSounds().empty();
+
+        if (getRecentMedia && emptyInstrument)
+        {
+            if (utau != nullptr)
+                utau->setRecentItems (getRecentMedia (MediaKind::voicebank));
+
+            if (soundFont != nullptr)
+                soundFont->setRecentItems (getRecentMedia (MediaKind::soundFont));
+
+            if (shownKind == Kind::sampler)
+                recentSamples.setItems (getRecentMedia (MediaKind::sample));
+        }
+
+        const bool showRecentSamples = shownKind == Kind::sampler && emptyInstrument;
+
+        if (recentSamples.isVisible() != showRecentSamples)
+        {
+            recentSamples.setVisible (showRecentSamples);
+            resized();
+        }
         refreshPadControls();
         if (shownKind == Kind::drumKit && generator)
         {
@@ -541,14 +631,24 @@ public:
 
         if (loadSampleButton.isVisible())
         {
-            auto centre = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 32, 320), 88);
+            // With the history under it while the sampler is empty, the pair
+            // sits higher so both fit.
+            const auto recentHeight = recentSamples.isVisible() ? juce::jmin (220, area.getHeight() - 140) : 0;
+            auto column = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 32, 360), 88 + (recentHeight > 0 ? recentHeight + 16 : 0));
+            auto centre = column.removeFromTop (88);
             loadSampleButton.setBounds (centre.removeFromTop (28));
             centre.removeFromTop (8);
             sampleName.setBounds (centre.removeFromTop (24));
             dropHint.setBounds (centre);
+
+            if (recentHeight > 0)
+            {
+                column.removeFromTop (16);
+                recentSamples.setBounds (column);
+            }
         }
 
-        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr)
+        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr || utau != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         if (externalEditor != nullptr || presetBar != nullptr)
@@ -610,6 +710,7 @@ private:
         slate.reset();
         drumSynth.reset();
         soundFont.reset();
+        utau.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
     }
@@ -661,12 +762,14 @@ private:
     juce::Label info;
     DrumPadGrid pads;
     juce::TextButton loadSampleButton { "Load Sample..." };
+    RecentMediaList recentSamples;
     juce::Label sampleName, dropHint;
     bool sampleDragOver = false;
     juce::Viewport viewport;
     std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<SoundFontEditor> soundFont;
+    std::unique_ptr<UtauEditor> utau;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
 
@@ -788,6 +891,30 @@ public:
         content.header.patterns.setFromGenerator (generator, selectedPatternId);
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
+        rollContent.setShowsLyrics (generator && generator->isUtau());
+        rollContent.setLyricCheck (lyricCheckFor (generator));
+    }
+
+    // What the roll marks silent notes by: the generator's voicebank, read
+    // from the model's folder rather than from the plugin, which only has it
+    // once the sync after a change has run. Parsed again only when the folder
+    // changes.
+    PianoRollComponent::LyricCheck lyricCheckFor (const std::optional<model::Generator>& generator)
+    {
+        if (! generator || ! generator->isUtau())
+            return {};
+
+        if (const auto folder = generator->getVoicebankFolder(); folder != checkedVoicebankFolder)
+        {
+            checkedVoicebankFolder = folder;
+            juce::String error;
+            checkedVoicebank = folder.isDirectory() ? voice::Voicebank::loadShared (folder, error) : nullptr;
+        }
+
+        return [bank = checkedVoicebank] (const juce::String& lyric, const juce::String& previousLyric, int pitch)
+        {
+            return bank != nullptr && bank->resolve (lyric, previousLyric, pitch) != nullptr;
+        };
     }
 
     // Which rows of the roll are sounds, for the two generators whose notes
@@ -976,6 +1103,8 @@ private:
         std::function<void()> onLayout;
     };
 
+    juce::File checkedVoicebankFolder;
+    std::shared_ptr<const voice::Voicebank> checkedVoicebank;
     std::function<void()> onClose;
     std::function<bool (const juce::KeyPress&)> onKey;
     juce::String titlePrefix;

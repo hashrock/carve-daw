@@ -4,6 +4,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "RecentMediaList.h"
 #include "model/Capture.h"
 #include "model/SongModel.h"
 
@@ -28,6 +29,20 @@ public:
     // (generatorId, patternId) — patternId may be empty if none exists
     std::function<void (const juce::String&, const juce::String&)> onSelectionChanged;
     std::function<void()> onManagePlugins;
+
+    // A generator was just made that has nothing to play yet -- a sampler, a
+    // SoundFont player, a singer -- and it is selected: its Inst tab is
+    // where it gets something, so the owner should open it there. Nothing
+    // is asked for on the way: the tab offers a chooser and the history.
+    std::function<void()> onOpenInstrumentForSetup;
+
+    // What each kind of instrument was last given, newest first, and only
+    // what is still on disk. For the empty Inst tabs' Recent lists.
+    std::vector<RecentMediaList::Item> getRecentMedia (MediaKind) const;
+
+    // A Recent entry clicked: loads it into the selected generator, if that
+    // is the kind it is for.
+    void recentMediaChosen (MediaKind, const juce::File&);
 
     // Fired after every refresh, which any change to the song tree triggers,
     // so the generator window can restock its pattern picker and recolour its
@@ -115,6 +130,14 @@ public:
     void soundFontDroppedOnSelected (const juce::File& soundFont);
     void setSoundFontPresetForSelected (int bank, int program);
 
+    // The singer's Inst tab: its Load button and a voicebank folder dropped
+    // on it. Ignored unless the selected generator is a UTAU one.
+    void chooseVoicebankForSelected();
+    void voicebankDroppedOnSelected (const juce::File& folder);
+
+    // One of the singer's voice knobs, let go of: one undo step.
+    void setVoiceStyleValueForSelected (const juce::Identifier&, double value);
+
     // Whether the engine can read any of these as audio, for the pad grid's
     // drag-over test.
     bool canImportAudioFiles (const juce::StringArray& files) const;
@@ -149,6 +172,12 @@ private:
     // samples rarely live together.
     void launchSoundFontChooser (std::function<void (const juce::File&)> onChosen);
     void addSoundFontGenerator (const juce::File& soundFont);
+
+    // The singer's: a folder chooser that starts in the last voicebank's
+    // parent, or OpenUtau's singers folder the first time.
+    void launchVoicebankChooser (std::function<void (const juce::File&)> onChosen);
+    void addUtauGenerator (const juce::File& folder);
+    void assignVoicebank (model::Generator, const juce::File& folder);
     void assignSoundFont (model::Generator, const juce::File& soundFont);
     void assignSample (model::Generator, const juce::File& sample);
 
@@ -163,6 +192,16 @@ private:
     void setPadSound (model::Generator&, int pad, const juce::File& sample);
 
     void ensureValidSelection();
+
+    // Adds to a kind's history; every way a file reaches an instrument
+    // comes through here.
+    void rememberMedia (MediaKind, const juce::File&);
+
+    // A generator made empty is named "Sampler 3", "UTAU 2"...; the first
+    // file it is given names it instead, unless the user has named it
+    // something else meanwhile.
+    void nameAfterFirstMedia (model::Generator&, bool wasEmpty, const juce::String& placeholderStem,
+                              const juce::String& newName);
 
     // Everything behind showPatternMenu works on (generatorId, patternId)
     // rather than on a Pattern, because the menu and the file choosers behind

@@ -59,6 +59,16 @@ FetchContent_Declare(tinysoundfont
     GIT_TAG        853a0a171759f1ddba0de1442133a75912bbeffa)
 FetchContent_MakeAvailable(tinysoundfont)
 
+# WORLD: the vocoder the UTAU singer re-pitches its recordings with (modified
+# BSD). Its own CMakeLists builds a static library, `world`; its examples are
+# switched off.
+set(WORLD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WORLD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(world
+    GIT_REPOSITORY https://github.com/mmorise/World.git
+    GIT_TAG        c794856b537758a3d300757db2e5e31685a822c2)
+FetchContent_MakeAvailable(world)
+
 set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
@@ -94,8 +104,22 @@ set(CARVE_CORE_SOURCES
     src/plugins/DrumSynthPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
+    src/plugins/UtauPlugin.h
+    src/plugins/UtauPlugin.cpp
+    src/voice/Voicebank.h
+    src/voice/Voicebank.cpp
+    src/voice/VoiceSynth.h
+    src/voice/VoiceSynth.cpp
     src/plugins/NoteMonitorPlugin.h
     src/plugins/NoteMonitorPlugin.cpp)
+
+# Shift_JIS, for UTAU voicebanks written by Windows UTAU (src/voice). glibc
+# has iconv built in; macOS keeps it in a library of its own.
+function(carve_link_iconv target)
+    if(APPLE)
+        target_link_libraries(${target} PRIVATE iconv)
+    endif()
+endfunction()
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
@@ -118,8 +142,10 @@ function(carve_configure_target target)
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
     target_link_libraries(${target} PRIVATE
         tracktion::tracktion_engine
+        world
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    carve_link_iconv(${target})
 endfunction()
 
 # --- GUI app ---
@@ -155,6 +181,8 @@ target_sources(carve PRIVATE
     src/app/SlateEditor.h
     src/app/SlateEditor.cpp
     src/app/SoundFontEditor.h
+    src/app/UtauEditor.h
+    src/app/RecentMediaList.h
     src/app/GeneratorController.h
     src/app/GeneratorController.cpp
     src/app/GeneratorWindow.h
@@ -278,7 +306,9 @@ if(CARVE_BUILD_TESTS)
     target_sources(carve-tests PRIVATE
         src/model/SongModel.cpp
         src/model/Capture.cpp
+        src/voice/Voicebank.cpp
         tests/CaptureProperties.cpp
+        tests/VoicebankTests.cpp
         tests/NoteGestureProperties.cpp
         tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)
@@ -294,6 +324,7 @@ if(CARVE_BUILD_TESTS)
         Catch2::Catch2WithMain
         rapidcheck
         juce::juce_recommended_config_flags)
+    carve_link_iconv(carve-tests)
 
     # The same properties, one layer out: what the sync makes of a song. This
     # one does link the engine -- that is the point of it -- which is why it
