@@ -53,7 +53,12 @@ void printUsage()
                  "        exits with the number of notes left ringing (see tests/NoteOffPlayback.cpp)\n"
                  "\n"
                  "Options:\n"
-                 "  --rate <hz>    sample rate of the rendered file (default 44100)\n";
+                 "  --rate <hz>    sample rate of the rendered file (default 44100)\n"
+                 "  --game-loop    render from the song's start to the end of its LOOP range,\n"
+                 "                 and (for .ogg) write LOOPSTART / LOOPLENGTH in samples\n"
+                 "\n"
+                 "The output's extension picks the format: .ogg writes Ogg Vorbis (192 kbps),\n"
+                 "anything else 24-bit WAV.\n";
 }
 
 // The rate every render in this process runs at. Set once from the command
@@ -61,6 +66,22 @@ void printUsage()
 // rather than of any one of the render entry points, all of which would
 // otherwise have to thread it through unchanged.
 double renderSampleRate = defaultSampleRate;
+
+// --game-loop: the same kind of run-wide setting as the rate.
+bool renderGameLoop = false;
+
+bool takeGameLoopOption (juce::StringArray& args)
+{
+    const auto index = args.indexOf ("--game-loop");
+
+    if (index >= 0)
+    {
+        renderGameLoop = true;
+        args.remove (index);
+    }
+
+    return true;
+}
 
 // Pulls "--rate <hz>" out of the argument list, leaving the positional
 // arguments behind for the command dispatch to read as it always has.
@@ -177,7 +198,8 @@ void stampFixedOriginationTime (const juce::File& file)
         out.write (fixedDateAndTime.toRawUTF8(), (size_t) fixedDateAndTime.length());
 }
 
-int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::String& name)
+int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::String& name,
+                     const carve::model::Song* song = nullptr)
 {
     // Render the whole edit plus a second of tail.
     //
@@ -199,6 +221,33 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
     params.blockSizeForAudio = renderBlockSize;
     params.time = { te::TimePosition(),
                     te::TimePosition::fromSeconds (edit.getLength().inSeconds() + 1.0) };
+
+    carve::sync::RenderOutput output;
+    output.bitDepth = 24;
+
+    if (outputFile.hasFileExtension ("ogg"))
+    {
+        output.format = engine.getAudioFileFormatManager().getOggFormat();
+        output.qualityIndex = carve::sync::defaultOggQualityIndex;
+    }
+
+    if (renderGameLoop)
+    {
+        const auto loop = song != nullptr ? carve::sync::getGameLoop (*song, edit, renderSampleRate)
+                                          : std::nullopt;
+
+        if (! loop)
+        {
+            std::cerr << "--game-loop needs a song with a LOOP range\n";
+            return 1;
+        }
+
+        params.time = loop->range;
+        output.exactLength = loop->getFileLength();
+        output.metadata = carve::sync::gameLoopMetadata (*loop);
+
+        std::cout << "Game loop: LOOPSTART=" << loop->loopStart << " LOOPLENGTH=" << loop->loopLength << "\n";
+    }
     params.usePlugins = true;
     params.useMasterPlugins = true;
     params.tracksToDo = te::toBitSet (te::getAllTracks (edit));
@@ -207,7 +256,7 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
 
     // Started early and trimmed afterwards: tracktion's first block is wrong
     // whenever the graph has latency. See RenderPreroll.h.
-    const auto preroll = carve::sync::applyPreroll (params);
+    const auto preroll = carve::sync::applyPreroll (params, engine);
 
     if (te::Renderer::renderToFile ("Render", params) == juce::File())
     {
@@ -216,7 +265,7 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
         return 1;
     }
 
-    if (const auto error = carve::sync::finishPreroll (preroll, engine, params.bitDepth); error.isNotEmpty())
+    if (const auto error = carve::sync::finishPreroll (preroll, engine, output); error.isNotEmpty())
     {
         std::cerr << "Render failed: " << error << "\n";
         return 1;
@@ -238,7 +287,7 @@ int renderSongToWav (te::Engine& engine, const carve::model::Song& song, const j
     // callback a sampler waits on and it would render silence.
     carve::sync::flushSamplerLoads (*edit);
 
-    return renderEditToWav (*edit, outputFile, song.getName());
+    return renderEditToWav (*edit, outputFile, song.getName(), &song);
 }
 
 // By number as listed, or by any substring of the name -- the same courtesy
@@ -340,7 +389,7 @@ int main (int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     juce::StringArray args (argv + 1, argc - 1);
 
-    if (! takeSampleRateOption (args))
+    if (! takeSampleRateOption (args) || ! takeGameLoopOption (args))
         return 1;
 
     const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs" ? 1

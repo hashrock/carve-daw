@@ -160,6 +160,10 @@ private:
     // afterwards. Starting in Song mode meant a new song's first Play was
     // silence, because nothing has been placed yet.
     bool patternMode = true;
+
+    // While an export renders: the Edit plays the song even in Pattern mode
+    // (see ExportComponent::onRenderingChanged).
+    bool exportingSong = false;
     void updateAudition();
     double auditionLengthBeats() const;
 

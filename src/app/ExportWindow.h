@@ -47,6 +47,12 @@ public:
         content.setSong (std::move (song));
     }
 
+    // See ExportComponent::onRenderingChanged.
+    void setOnRenderingChanged (std::function<void (bool)> callback)
+    {
+        content.onRenderingChanged = std::move (callback);
+    }
+
     void closeButtonPressed() override
     {
         requestClose();

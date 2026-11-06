@@ -116,10 +116,11 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     styleLabel (headingLabel, textColour, fonts::title);
     headingLabel.setText ("Export Audio", juce::dontSendNotification);
 
-    for (auto* label : { &contentLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel })
+    for (auto* label : { &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel })
         styleLabel (*label, dimTextColour, fonts::small);
 
     contentLabel.setText ("Content", juce::dontSendNotification);
+    formatLabel.setText ("Format", juce::dontSendNotification);
     rangeLabel.setText ("Range", juce::dontSendNotification);
     sampleRateLabel.setText ("Sample rate", juce::dontSendNotification);
     bitDepthLabel.setText ("Bit depth", juce::dontSendNotification);
@@ -135,16 +136,38 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
         updateRangeSummary();
     };
 
+    formatBox.addItem ("WAV", (int) Format::wav);
+
+    if (edit.engine.getAudioFileFormatManager().getOggFormat() != nullptr)
+        formatBox.addItem ("Ogg Vorbis", (int) Format::ogg);
+
+    formatBox.setSelectedId ((int) Format::wav, juce::dontSendNotification);
+    formatBox.onChange = [this] { refreshOptions(); };
+
+    if (auto* ogg = edit.engine.getAudioFileFormatManager().getOggFormat())
+    {
+        const auto qualities = ogg->getQualityOptions();
+
+        for (int i = 0; i < qualities.size(); ++i)
+            qualityBox.addItem (qualities[i], i + 1);   // ids are 1-based; the index is id - 1
+
+        qualityBox.setSelectedId (sync::defaultOggQualityIndex + 1, juce::dontSendNotification);
+    }
+
+    qualityBox.onChange = [this] { updateRangeSummary(); };
+
     rangeBox.addItem ("Whole song", (int) Range::wholeSong);
     rangeBox.addItem ("Loop range", (int) Range::loopRange);
+    rangeBox.addItem ("Game loop (intro + loop)", (int) Range::gameLoop);
     rangeBox.setSelectedId ((int) Range::wholeSong, juce::dontSendNotification);
     rangeBox.onChange = [this]
     {
         // A whole-song mixdown wants the reverb to ring out; a loop export is
         // meant to loop, and a tail would stop it butting up against itself.
+        // A game loop never has one: it ends where the loop does.
         tailButton.setToggleState (rangeBox.getSelectedId() == (int) Range::wholeSong,
                                    juce::dontSendNotification);
-        updateRangeSummary();
+        refreshOptions();
     };
 
     auto* format = edit.engine.getAudioFileFormatManager().getDefaultFormat();
@@ -175,6 +198,7 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     tailButton.onClick = [this] { updateRangeSummary(); };
 
     styleLabel (summaryLabel, dimTextColour, fonts::small);
+    summaryLabel.setJustificationType (juce::Justification::topLeft);
     styleLabel (statusLabel, dimTextColour, fonts::small);
 
     progressBar.setVisible (false);
@@ -194,10 +218,12 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     };
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &headingLabel, &contentLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
-             &contentBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
+             &headingLabel, &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
+             &contentBox, &formatBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
              &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton })
         addAndMakeVisible (c);
+
+    addChildComponent (qualityBox);
 
     setSize (preferredWidth, preferredHeight);
     refreshOptions();
@@ -205,6 +231,8 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
 
 ExportComponent::~ExportComponent()
 {
+    onRenderingChanged = nullptr;   // the owner may be going away too
+
     // Leaves any half-written file behind rather than deleting something the
     // user may have been watching appear; the cancel button is the tidy path.
     stopRender (false);
@@ -231,14 +259,31 @@ void ExportComponent::refreshOptions()
     const bool hasLoop = song.hasLoopRange();
 
     // Falling back rather than leaving a range selected that no longer exists.
-    if (! hasLoop && rangeBox.getSelectedId() == (int) Range::loopRange)
+    if (! hasLoop && (rangeBox.getSelectedId() == (int) Range::loopRange || isGameLoopExport()))
+    {
         rangeBox.setSelectedId ((int) Range::wholeSong, juce::dontSendNotification);
+        tailButton.setToggleState (true, juce::dontSendNotification);
+    }
 
     rangeBox.setItemEnabled ((int) Range::loopRange, hasLoop);
+    rangeBox.setItemEnabled ((int) Range::gameLoop, hasLoop);
+
+    // Ogg has no bit depth to choose, and a bitrate instead.
+    const bool ogg = isOggExport();
+    bitDepthBox.setVisible (! ogg);
+    qualityBox.setVisible (ogg);
+    bitDepthLabel.setText (ogg ? "Quality" : "Bit depth", juce::dontSendNotification);
+
+    // A game loop ends exactly at the end of its loop: a tail would put the
+    // loop's last note's release past the point the game jumps back from.
+    if (isGameLoopExport())
+        tailButton.setToggleState (false, juce::dontSendNotification);
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &contentBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton, &exportButton })
+             &contentBox, &formatBox, &rangeBox, &sampleRateBox, &bitDepthBox, &qualityBox, &tailButton, &exportButton })
         c->setEnabled (! rendering);
+
+    tailButton.setEnabled (! rendering && ! isGameLoopExport());
 
     closeButton.setButtonText (rendering ? "Cancel" : "Close");
     progressBar.setVisible (rendering);
@@ -315,8 +360,64 @@ ExportComponent::StemPlan ExportComponent::planStems() const
     return plan;
 }
 
+bool ExportComponent::isOggExport() const
+{
+    return formatBox.getSelectedId() == (int) Format::ogg;
+}
+
+bool ExportComponent::isGameLoopExport() const
+{
+    return rangeBox.getSelectedId() == (int) Range::gameLoop;
+}
+
+juce::AudioFormat* ExportComponent::getSelectedFormat() const
+{
+    auto& formats = edit.engine.getAudioFileFormatManager();
+    return isOggExport() ? formats.getOggFormat() : formats.getWavFormat();
+}
+
+juce::String ExportComponent::getSelectedExtension() const
+{
+    const auto* format = getSelectedFormat();
+    const auto extension = format != nullptr && ! format->getFileExtensions().isEmpty()
+                               ? format->getFileExtensions()[0]
+                               : juce::String (isOggExport() ? ".ogg" : ".wav");
+
+    return extension.startsWithChar ('.') ? extension : "." + extension;
+}
+
+std::optional<sync::GameLoop> ExportComponent::getSelectedGameLoop() const
+{
+    if (! isGameLoopExport())
+        return std::nullopt;
+
+    return sync::getGameLoop (song, edit, (double) sampleRateBox.getSelectedId());
+}
+
+sync::RenderOutput ExportComponent::getRenderOutput() const
+{
+    sync::RenderOutput output;
+    output.format = getSelectedFormat();
+    output.bitDepth = bitDepthBox.getSelectedId();
+    output.qualityIndex = juce::jmax (0, qualityBox.getSelectedId() - 1);
+
+    if (const auto loop = getSelectedGameLoop())
+    {
+        output.exactLength = loop->getFileLength();
+
+        // Written whatever the format; only Ogg's writer has anywhere to put
+        // them, and the summary line says so.
+        output.metadata = sync::gameLoopMetadata (*loop);
+    }
+
+    return output;
+}
+
 te::TimeRange ExportComponent::getTimeRange() const
 {
+    if (const auto loop = getSelectedGameLoop())
+        return loop->range;
+
     const auto tail = tailButton.getToggleState() ? 1.0 : 0.0;
 
     if (rangeBox.getSelectedId() == (int) Range::loopRange && song.hasLoopRange())
@@ -329,8 +430,14 @@ te::TimeRange ExportComponent::getTimeRange() const
                  te::TimePosition::fromSeconds (time.getEnd().inSeconds() + tail) };
     }
 
+    // From the playlist, not from edit.getLength(): in Pattern mode the live
+    // Edit holds the auditioned patterns rather than the song, and its length
+    // is theirs. The render switches the Edit over to the song (see
+    // onRenderingChanged); the range has to be the song's before that.
+    const auto end = edit.tempoSequence.toTime (te::BeatPosition::fromBeats (song.getLengthBeats()));
+
     return { te::TimePosition(),
-             te::TimePosition::fromSeconds (edit.getLength().inSeconds() + tail) };
+             te::TimePosition::fromSeconds (end.inSeconds() + tail) };
 }
 
 void ExportComponent::updateRangeSummary()
@@ -348,8 +455,16 @@ void ExportComponent::updateRangeSummary()
     auto text = formatDuration (range.getStart().inSeconds())
                     + " - " + formatDuration (range.getEnd().inSeconds())
                     + "  (" + juce::String (seconds, 1) + " s, "
-                    + juce::String (bitDepthBox.getSelectedId()) + " bit / "
-                    + juce::String (sampleRateBox.getSelectedId() / 1000.0, 1) + " kHz)";
+                    + (isOggExport() ? qualityBox.getText() : juce::String (bitDepthBox.getSelectedId()) + " bit")
+                    + " / " + juce::String (sampleRateBox.getSelectedId() / 1000.0, 1) + " kHz)";
+
+    // Where the loop starts, in the units a game engine's import settings
+    // ask for -- and, for a WAV, that the file itself will not say.
+    if (const auto loop = getSelectedGameLoop())
+        text += "\nLoop from " + juce::String ((double) loop->loopStart / sampleRateBox.getSelectedId(), 3) + " s"
+                    + "  (LOOPSTART " + juce::String (loop->loopStart)
+                    + ", LOOPLENGTH " + juce::String (loop->loopLength) + ")"
+                    + (isOggExport() ? juce::String() : juce::String ("  -  not written into a WAV"));
 
     if (isStemExport())
     {
@@ -403,10 +518,7 @@ void ExportComponent::chooseDestinationAndRender()
         return;
     }
 
-    auto* format = edit.engine.getAudioFileFormatManager().getDefaultFormat();
-    const auto extension = format != nullptr && ! format->getFileExtensions().isEmpty()
-                               ? format->getFileExtensions()[0]
-                               : juce::String (".wav");
+    const auto extension = getSelectedExtension();
 
     const auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
                                .getChildFile (juce::File::createLegalFileName (song.getName()))
@@ -471,14 +583,9 @@ void ExportComponent::renderStemsTo (const juce::File& folder)
         return;
     }
 
-    auto* format = edit.engine.getAudioFileFormatManager().getDefaultFormat();
-    const auto extension = format != nullptr && ! format->getFileExtensions().isEmpty()
-                               ? format->getFileExtensions()[0]
-                               : juce::String (".wav");
-
     // Appended rather than set through withFileExtension, which would cut a
     // generator called "Bass 2.0" back to "Bass 2".
-    const auto suffix = extension.startsWithChar ('.') ? extension : "." + extension;
+    const auto suffix = getSelectedExtension();
 
     // The return busses go into every stem. A track's share of the reverb is
     // part of that track, and nothing else is in the render to feed them --
@@ -543,6 +650,9 @@ void ExportComponent::startJobs (std::vector<Job> newJobs)
     // showing the truth.
     edit.getTransport().stop (false, false);
 
+    // Before anything reads the Edit: in Pattern mode it is not the song yet.
+    setToldRendering (true);
+
     jobs = std::move (newJobs);
     currentJob = 0;
     bytesWritten = 0;
@@ -588,7 +698,7 @@ bool ExportComponent::startCurrentJob()
 
     // Started early and trimmed afterwards: tracktion's first block is wrong
     // whenever the graph has latency -- the master limiter's is enough.
-    preroll = sync::applyPreroll (params);
+    preroll = sync::applyPreroll (params, engine);
 
     progress = 0.0f;
 
@@ -604,9 +714,9 @@ bool ExportComponent::startCurrentJob()
     }
 
     renderThread = std::make_unique<RenderThread> (*renderTask,
-        [&engine, render = preroll, bitDepth = params.bitDepth] (std::function<bool()> shouldStop)
+        [&engine, render = preroll, output = getRenderOutput()] (std::function<bool()> shouldStop)
         {
-            return sync::finishPreroll (render, engine, bitDepth, std::move (shouldStop));
+            return sync::finishPreroll (render, engine, output, std::move (shouldStop));
         });
     renderThread->startThread (juce::Thread::Priority::normal);
 
@@ -628,6 +738,9 @@ void ExportComponent::stopRender (bool deletePartialFile)
     renderThread.reset();
     renderTask.reset();
     renderStatus.reset();
+
+    // The transport is back, so the Edit can go back to what it was playing.
+    setToldRendering (false);
 
     // Only the file that was being written: the stems already finished are
     // whole, and are what they would have been had the batch run to the end.
@@ -707,6 +820,17 @@ void ExportComponent::renderFinished()
         setStatus ("Exported " + file.getFullPathName() + "  (" + total + ")", okColour);
 }
 
+void ExportComponent::setToldRendering (bool rendering)
+{
+    if (toldRendering == rendering)
+        return;
+
+    toldRendering = rendering;
+
+    if (onRenderingChanged != nullptr)
+        onRenderingChanged (rendering);
+}
+
 void ExportComponent::setStatus (const juce::String& text, juce::Colour colour)
 {
     statusLabel.setColour (juce::Label::textColourId, colour);
@@ -735,13 +859,15 @@ void ExportComponent::resized()
     };
 
     layoutRow (contentLabel, contentBox);
+    layoutRow (formatLabel, formatBox);
     layoutRow (rangeLabel, rangeBox);
     layoutRow (sampleRateLabel, sampleRateBox);
     layoutRow (bitDepthLabel, bitDepthBox);
+    qualityBox.setBounds (bitDepthBox.getBounds());
 
     tailButton.setBounds (area.removeFromTop (22).withTrimmedLeft (labelColumnWidth));
     area.removeFromTop (4);
-    summaryLabel.setBounds (area.removeFromTop (18));
+    summaryLabel.setBounds (area.removeFromTop (32));   // two lines for a game loop
     area.removeFromTop (4);
 
     auto buttons = area.removeFromBottom (26);

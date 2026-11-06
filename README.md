@@ -105,6 +105,14 @@ Synapse Audio Software の **Orion** を参考に作った、Generator 中心・
   それらの文字キーは音符なので、ピアノロールの D / E などのツール切り替えは
   効かない (修飾キー付きのショートカットとテキスト入力はそのまま)。録音も
   Capture も MIDI キーボードと同じに効く
+- **書き出し** (⌘E): ミックスダウンかステム (Generator ごとに 1 ファイル) を、
+  WAV (16/24/32 bit) か Ogg Vorbis (64〜500 kbps) で。範囲は曲全体 / LOOP の
+  範囲 / **ゲームループ**。ゲームループは曲頭から LOOP の終わりまでを書き出して
+  そこで切り (テールは付けない)、LOOP の頭の位置を Ogg の `LOOPSTART` と
+  `LOOPLENGTH` (どちらもサンプル数) に書き込む — RPG ツクール MV/MZ など、
+  このコメントでイントロ付きループを再生するゲームエンジン向け。WAV には
+  書き込まれないが、値は書き出し画面に出る。LOOP の終わりをまたいで鳴る音の
+  余韻はループの頭には回り込まず、そこで切れる
 - **設定画面** (⌘, / View メニュー / アップルメニュー): オーディオ出力デバイス・
   サンプルレート・バッファサイズと、使う MIDI 入力デバイスの選択。オーディオ
   入力は出てこない (下記の理由で開かないので)。設定はエンジン側にそのまま
@@ -177,6 +185,8 @@ $BIN song.carve out.wav           # .carve をレンダリング
 $BIN --scan                       # VST3/AU をスキャン (GUI と設定を共有)
 $BIN --plugin-demo <名前> out.wav  # 名前でマッチした VSTi でデモ曲をレンダ
 $BIN --rate 48000 song.carve out.wav  # レートを指定 (既定 44100)
+$BIN song.carve out.ogg           # 拡張子 .ogg なら Ogg Vorbis (192 kbps)
+$BIN --game-loop song.carve bgm.ogg  # 曲頭〜LOOP の終わり、LOOPSTART/LOOPLENGTH 付き
 ```
 
 `--rate` はどのコマンドにも付けられる。既定は 44100 Hz 固定で、オーディオ
@@ -191,7 +201,7 @@ $BIN --rate 48000 song.carve out.wav  # レートを指定 (既定 44100)
 
 | キー | 動作 |
 |---|---|
-| ⌘E | WAV 書き出し |
+| ⌘E | 書き出し (WAV / Ogg、ゲームループ) |
 | ⌘R | MIDI 録音の開始 / 停止 (停まっていれば再生も始まる) |
 | ⇧⌘R | Capture: 直前に弾いたフレーズを新しいパターンにする |
 | ⌘K | PC キーボードで弾く / やめる |
