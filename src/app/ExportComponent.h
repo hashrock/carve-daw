@@ -8,6 +8,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
+#include "sync/RenderPreroll.h"
 
 namespace te = tracktion;
 
@@ -173,6 +174,11 @@ private:
     std::unique_ptr<te::Edit::ScopedRenderStatus> renderStatus;
     std::unique_ptr<te::Renderer::RenderTask> renderTask;
     std::unique_ptr<RenderThread> renderThread;
+
+    // The file being rendered starts early and is trimmed into its
+    // destination once done (see RenderPreroll.h); this is that render's
+    // temporary file and how much of it to cut.
+    sync::PrerollRender preroll;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ExportComponent)
 };

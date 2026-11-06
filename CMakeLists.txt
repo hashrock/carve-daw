@@ -72,6 +72,8 @@ set(CARVE_CORE_SOURCES
     src/sync/EditSync.cpp
     src/sync/EffectChains.h
     src/sync/EffectChains.cpp
+    src/sync/RenderPreroll.h
+    src/sync/RenderPreroll.cpp
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp
     src/plugins/SaturationPlugin.h

@@ -5,6 +5,7 @@
 #include "model/DemoSong.h"
 #include "model/SampleSongs.h"
 #include "sync/EditSync.h"
+#include "sync/RenderPreroll.h"
 #include "NoteOffPlayback.h"
 
 namespace
@@ -203,9 +204,21 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
     params.tracksToDo = te::toBitSet (te::getAllTracks (edit));
 
     outputFile.deleteFile();
+
+    // Started early and trimmed afterwards: tracktion's first block is wrong
+    // whenever the graph has latency. See RenderPreroll.h.
+    const auto preroll = carve::sync::applyPreroll (params);
+
     if (te::Renderer::renderToFile ("Render", params) == juce::File())
     {
+        carve::sync::discardPreroll (preroll);
         std::cerr << "Render failed\n";
+        return 1;
+    }
+
+    if (const auto error = carve::sync::finishPreroll (preroll, engine, params.bitDepth); error.isNotEmpty())
+    {
+        std::cerr << "Render failed: " << error << "\n";
         return 1;
     }
 

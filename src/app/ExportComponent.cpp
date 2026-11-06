@@ -63,8 +63,13 @@ namespace
 class ExportComponent::RenderThread : public juce::Thread
 {
 public:
-    explicit RenderThread (te::Renderer::RenderTask& taskToRun)
-        : juce::Thread ("Carve Export"), task (taskToRun)
+    // afterRender runs here, on this thread, once the task has finished
+    // without an error or a cancel: the trim of the early start (see
+    // RenderPreroll.h), which on a long render is too much copying for the
+    // message thread. It is handed a "should I stop" to poll.
+    RenderThread (te::Renderer::RenderTask& taskToRun,
+                  std::function<juce::String (std::function<bool()>)> afterRenderToRun)
+        : juce::Thread ("Carve Export"), task (taskToRun), afterRender (std::move (afterRenderToRun))
     {
     }
 
@@ -75,17 +80,30 @@ public:
 
     bool hasFinished() const  { return finished.load(); }
 
+    // What afterRender reported. Only read once hasFinished() is true.
+    juce::String getAfterRenderError() const  { return afterRenderError; }
+
     void run() override
     {
+        bool rendered = false;
+
         while (! threadShouldExit())
             if (task.runJob() == juce::ThreadPoolJob::jobHasFinished)
+            {
+                rendered = true;
                 break;
+            }
+
+        if (rendered && task.errorMessage.isEmpty() && afterRender)
+            afterRenderError = afterRender ([this] { return threadShouldExit(); });
 
         finished = true;
     }
 
 private:
     te::Renderer::RenderTask& task;
+    std::function<juce::String (std::function<bool()>)> afterRender;
+    juce::String afterRenderError;
     std::atomic<bool> finished { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RenderThread)
@@ -568,6 +586,10 @@ bool ExportComponent::startCurrentJob()
     params.checkNodesForAudio = job.requireAudio;
     params.tracksToDo = job.tracks;
 
+    // Started early and trimmed afterwards: tracktion's first block is wrong
+    // whenever the graph has latency -- the master limiter's is enough.
+    preroll = sync::applyPreroll (params);
+
     progress = 0.0f;
 
     // Builds the playback graph, on this (the message) thread.
@@ -575,12 +597,17 @@ bool ExportComponent::startCurrentJob()
 
     if (renderTask == nullptr)
     {
+        sync::discardPreroll (preroll);
         setStatus ("Could not build a render graph for " + job.label, errorColour);
         stopRender (true);
         return false;
     }
 
-    renderThread = std::make_unique<RenderThread> (*renderTask);
+    renderThread = std::make_unique<RenderThread> (*renderTask,
+        [&engine, render = preroll, bitDepth = params.bitDepth] (std::function<bool()> shouldStop)
+        {
+            return sync::finishPreroll (render, engine, bitDepth, std::move (shouldStop));
+        });
     renderThread->startThread (juce::Thread::Priority::normal);
 
     setStatus (jobs.size() > 1
@@ -607,6 +634,10 @@ void ExportComponent::stopRender (bool deletePartialFile)
     if (deletePartialFile && currentJob < jobs.size())
         jobs[currentJob].destination.deleteFile();
 
+    // The early-started render's own file, whatever state it was left in.
+    // Gone already after a finished trim; this is for a cancel or a failure.
+    sync::discardPreroll (preroll);
+
     progressForBar = 0.0;
     refreshOptions();
 }
@@ -626,7 +657,10 @@ void ExportComponent::timerCallback()
 void ExportComponent::renderFinished()
 {
     // Read before stopRender destroys the task.
-    const auto error = renderTask != nullptr ? renderTask->errorMessage : juce::String();
+    auto error = renderTask != nullptr ? renderTask->errorMessage : juce::String();
+
+    if (error.isEmpty() && renderThread != nullptr)
+        error = renderThread->getAfterRenderError();
     const auto file = currentJob < jobs.size() ? jobs[currentJob].destination : juce::File();
     const auto label = currentJob < jobs.size() ? jobs[currentJob].label : juce::String();
 
