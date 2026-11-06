@@ -4,6 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "KnobPanel.h"
 #include "RecentMediaList.h"
 #include "model/Singing.h"
 #include "plugins/UtauPlugin.h"
@@ -85,8 +86,7 @@ public:
         const double values[] = { style.gender, style.breath, style.brightness, style.modulation };
 
         for (size_t i = 0; i < knobs.size(); ++i)
-            if (! knobs[i]->slider.isMouseButtonDown())
-                knobs[i]->slider.setValue (values[i], juce::dontSendNotification);
+            knobs[i].knob->setValue (values[i]);
     }
 
     // The pattern on screen, whose notes without a recording are counted
@@ -132,11 +132,11 @@ public:
         auto knobRow = area.removeFromTop (110);
         const auto knobWidth = knobRow.getWidth() / juce::jmax (1, (int) knobs.size());
 
-        for (auto& knob : knobs)
+        for (auto& entry : knobs)
         {
             auto cell = knobRow.removeFromLeft (knobWidth);
-            knob->label.setBounds (cell.removeFromTop (18));
-            knob->slider.setBounds (cell);
+            entry.knob->setBounds (cell.withSizeKeepingCentre (entry.knob->getPreferredWidth(),
+                                                               entry.knob->getPreferredHeight()));
         }
 
         area.removeFromTop (8);
@@ -218,11 +218,8 @@ private:
         recent.setVisible (empty);
         hintLabel.setVisible (! empty);
 
-        for (auto& knob : knobs)
-        {
-            knob->label.setVisible (! empty);
-            knob->slider.setVisible (! empty);
-        }
+        for (auto& entry : knobs)
+            entry.knob->setVisible (! empty);
 
         const auto silent = countSilentNotes (bank.get());
         silentLabel.setText (silent == 0 ? juce::String()
@@ -261,42 +258,32 @@ private:
         }
     }
 
-    struct Knob
+    // The app's own knob, the one the synth and drum editors are made of,
+    // committing on release (see ValueKnob). The ones that go both ways --
+    // Gender, Brightness -- light their ring from the top.
+    struct VoiceKnob
     {
         juce::Identifier id;
-        juce::Label label;
-        juce::Slider slider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+        std::unique_ptr<ValueKnob> knob;
     };
 
     void addKnob (const juce::Identifier& id, const juce::String& name, double low, double high,
                   double defaultValue, const juce::String& tip)
     {
-        auto knob = std::make_unique<Knob>();
-        knob->id = id;
-
-        knob->label.setText (name, juce::dontSendNotification);
-        knob->label.setJustificationType (juce::Justification::centred);
-        knob->label.setColour (juce::Label::textColourId, juce::Colour (0xffc8c8d0));
-
-        auto& slider = knob->slider;
-        slider.setRange (low, high, 1.0);
-        slider.setValue (defaultValue, juce::dontSendNotification);
-        slider.setDoubleClickReturnValue (true, defaultValue);
-        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 18);
-        slider.setTooltip (tip);
-        slider.setChangeNotificationOnlyOnRelease (true);
-        slider.onValueChange = [this, raw = knob.get()]
+        VoiceKnob entry { id, std::make_unique<ValueKnob> (name, KnobSize::large, low, high, 1.0,
+                                                           defaultValue, low < 0.0 && high > 0.0) };
+        entry.knob->setDialTooltip (tip);
+        entry.knob->onCommit = [this, id] (double value)
         {
             if (onVoiceStyleChanged)
-                onVoiceStyleChanged (raw->id, raw->slider.getValue());
+                onVoiceStyleChanged (id, value);
         };
 
-        addAndMakeVisible (knob->label);
-        addAndMakeVisible (slider);
-        knobs.push_back (std::move (knob));
+        addAndMakeVisible (*entry.knob);
+        knobs.push_back (std::move (entry));
     }
 
-    std::vector<std::unique_ptr<Knob>> knobs;
+    std::vector<VoiceKnob> knobs;
     RecentMediaList recent;
 
     // What each knob does, on hover. The app has no tooltip window of its

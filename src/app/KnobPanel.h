@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -52,6 +53,11 @@ public:
         repaint();
     }
 
+    // A hardware knob: a shaded cap with a pointer line, sitting in a ring of
+    // scale marks. The marks are the value display -- the ones the value has
+    // swept past light up in the accent colour, like an LED ring round a real
+    // synth's encoder -- so the dial still reads at a glance from across the
+    // window, which a bare pointer does not.
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
@@ -61,47 +67,74 @@ public:
         const auto proportion = (float) valueToProportionOfLength (getValue());
         const auto angle = params.startAngleRadians
                            + proportion * (params.endAngleRadians - params.startAngleRadians);
-
-        const auto trackWidth = juce::jmax (2.0f, radius * 0.14f);
-        const auto arcRadius = radius - trackWidth * 0.5f;
         const auto alpha = isEnabled() ? 1.0f : 0.4f;
-
-        // The full sweep, dim, so the value arc has something to be a part of.
-        juce::Path track;
-        track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                             params.startAngleRadians, params.endAngleRadians, true);
-        g.setColour (juce::Colour (0xff3a3a40).withMultipliedAlpha (alpha));
-        g.strokePath (track, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
 
         const auto zeroAngle = bipolar ? (params.startAngleRadians + params.endAngleRadians) * 0.5f
                                        : params.startAngleRadians;
+        const auto litFrom = juce::jmin (zeroAngle, angle);
+        const auto litTo = juce::jmax (zeroAngle, angle);
 
-        if (std::abs (angle - zeroAngle) > 0.001f)
+        // The scale: fewer marks on a small knob, where eleven would merge.
+        const int numTicks = radius < 16.0f ? 9 : (radius < 26.0f ? 11 : 15);
+        const auto tickOuter = radius - 0.5f;
+        const auto tickInner = radius * 0.80f;
+        const auto tickWidth = juce::jmax (1.2f, radius * 0.07f);
+        const auto halfStep = 0.5f * (params.endAngleRadians - params.startAngleRadians) / (float) (numTicks - 1);
+
+        for (int i = 0; i < numTicks; ++i)
         {
-            juce::Path value;
-            value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                                 juce::jmin (zeroAngle, angle), juce::jmax (zeroAngle, angle), true);
-            g.setColour (juce::Colour (0xffe0a24f).withMultipliedAlpha (alpha));
-            g.strokePath (value, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved,
-                                                       juce::PathStrokeType::rounded));
+            const auto tickAngle = params.startAngleRadians
+                                   + (float) i / (float) (numTicks - 1) * (params.endAngleRadians - params.startAngleRadians);
+
+            // Lit once the value has reached halfway to it, so the ring grows
+            // a mark at a time rather than lagging a whole mark behind.
+            const bool lit = std::abs (angle - zeroAngle) > 0.001f
+                              && tickAngle >= litFrom - halfStep && tickAngle <= litTo + halfStep;
+            const bool isZero = std::abs (tickAngle - zeroAngle) < 0.001f;
+
+            g.setColour (juce::Colour (lit ? accentColour : (isZero && bipolar ? 0xff6a6a72 : 0xff45454c))
+                             .withMultipliedAlpha (alpha));
+            g.drawLine (juce::Line<float> (centre.getPointOnCircumference (tickInner, tickAngle),
+                                           centre.getPointOnCircumference (tickOuter, tickAngle)),
+                        tickWidth);
         }
 
-        // The cap, and a pointer that is easier to read at a glance than the arc.
-        const auto capRadius = radius - trackWidth * 1.8f;
-        g.setColour (juce::Colour (0xff2c2c33).withMultipliedAlpha (alpha));
-        g.fillEllipse (juce::Rectangle<float> (capRadius * 2.0f, capRadius * 2.0f).withCentre (centre));
-        g.setColour (juce::Colour (0xff4a4a52).withMultipliedAlpha (alpha));
-        g.drawEllipse (juce::Rectangle<float> (capRadius * 2.0f, capRadius * 2.0f).withCentre (centre), 1.0f);
+        // The cap, lit from above: a soft shadow under it, a body that runs
+        // from a light top edge to a dark bottom one, and a slightly dished
+        // face inside that bevel.
+        const auto capRadius = radius * 0.66f;
+        const auto cap = juce::Rectangle<float> (capRadius * 2.0f, capRadius * 2.0f).withCentre (centre);
 
-        const auto pointerLength = capRadius * 0.55f;
-        const auto pointerStart = centre.getPointOnCircumference (capRadius - pointerLength - 2.0f, angle);
-        const auto pointerEnd = centre.getPointOnCircumference (capRadius - 2.0f, angle);
-        g.setColour (juce::Colour (0xffe8e8ec).withMultipliedAlpha (alpha));
-        g.drawLine (juce::Line<float> (pointerStart, pointerEnd), juce::jmax (1.5f, radius * 0.08f));
+        g.setColour (juce::Colours::black.withAlpha (0.45f * alpha));
+        g.fillEllipse (cap.translated (0.0f, radius * 0.08f).expanded (radius * 0.04f));
+
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff6a6a73).withMultipliedAlpha (alpha), cap.getCentreX(), cap.getY(),
+                                                 juce::Colour (0xff1e1e22).withMultipliedAlpha (alpha), cap.getCentreX(), cap.getBottom(),
+                                                 false));
+        g.fillEllipse (cap);
+
+        const auto face = cap.reduced (juce::jmax (1.5f, capRadius * 0.14f));
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2a2a30).withMultipliedAlpha (alpha), face.getCentreX(), face.getY(),
+                                                 juce::Colour (0xff3e3e46).withMultipliedAlpha (alpha), face.getCentreX(), face.getBottom(),
+                                                 false));
+        g.fillEllipse (face);
+
+        g.setColour (juce::Colours::black.withAlpha (0.6f * alpha));
+        g.drawEllipse (cap, 1.0f);
+
+        // The pointer: a line from near the middle to the bevel, white, with
+        // a dark edge under it so it stays legible over the light top.
+        const auto pointerWidth = juce::jmax (1.6f, radius * 0.09f);
+        const juce::Line<float> pointer (centre.getPointOnCircumference (capRadius * 0.28f, angle),
+                                         centre.getPointOnCircumference (capRadius * 0.92f, angle));
+        g.setColour (juce::Colours::black.withAlpha (0.5f * alpha));
+        g.drawLine (pointer, pointerWidth + 1.5f);
+        g.setColour (juce::Colour (0xfff0f0f4).withMultipliedAlpha (alpha));
+        g.drawLine (pointer, pointerWidth);
     }
 
 private:
+    static constexpr juce::uint32 accentColour = 0xffe0a24f;   // the app's orange
     bool bipolar = false;
 };
 
@@ -334,6 +367,83 @@ private:
     double defaultValue = 0.0;
     std::function<bool()> isAlive;
     bool isRefreshing = false;
+};
+
+//==============================================================================
+// A knob over a plain value that something else owns -- a model property the
+// caller writes itself. Reports only when a gesture is over: on release, on
+// a double-click back to the default, never during a drag. For the values
+// whose every change is expensive (the singer re-synthesises its whole part),
+// where a drag should be one change, not fifty.
+class ValueKnob : public Knob
+{
+public:
+    std::function<void (double)> onCommit;
+
+    ValueKnob (const juce::String& displayName, KnobSize knobSize,
+               double minimum, double maximum, double interval, double defaultValue, bool isBipolar)
+        : Knob (displayName, knobSize)
+    {
+        dial.setRange (minimum, maximum, interval);
+        dial.setDoubleClickReturnValue (true, defaultValue);
+        dial.setValue (defaultValue, juce::dontSendNotification);
+        dial.setBipolar (isBipolar);
+
+        dial.onDragStart = [this] { dragging = true; };
+        dial.onDragEnd = [this]
+        {
+            dragging = false;
+            commit();
+            updateLabel();
+        };
+        dial.onValueChange = [this]
+        {
+            updateLabel();
+
+            // A drag commits once, at its end; anything else -- the
+            // double-click reset -- is a whole gesture already.
+            if (! dragging && ! isRefreshing)
+                commit();
+        };
+    }
+
+    // Shows the owner's value, unless the dial is being turned.
+    void setValue (double value)
+    {
+        if (dragging || dial.isMouseButtonDown())
+            return;
+
+        const juce::ScopedValueSetter<bool> svs (isRefreshing, true);
+        dial.setValue (value, juce::dontSendNotification);
+        lastCommitted = value;
+    }
+
+    void setDialTooltip (const juce::String& tip)  { dial.setTooltip (tip); }
+
+    void refresh() override {}
+
+protected:
+    juce::String getValueText() override
+    {
+        return dial.getTextFromValue (dial.getValue());
+    }
+
+private:
+    void commit()
+    {
+        const auto value = dial.getValue();
+
+        if (std::abs (value - lastCommitted) < 1.0e-9)
+            return;   // a click with no movement is not an edit
+
+        lastCommitted = value;
+
+        if (onCommit)
+            onCommit (value);
+    }
+
+    bool dragging = false, isRefreshing = false;
+    double lastCommitted = std::numeric_limits<double>::quiet_NaN();
 };
 
 //==============================================================================
