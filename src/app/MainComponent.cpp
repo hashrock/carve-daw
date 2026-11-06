@@ -378,7 +378,9 @@ void MainComponent::updateAudition()
     if (editSync == nullptr)
         return;
 
-    if (! patternMode)
+    // An export in progress holds the Edit on the song, and a pattern picked
+    // meanwhile must not swap the patterns back in under the render.
+    if (! patternMode || exportingSong)
     {
         editSync->setAudition (std::nullopt);
         return;
@@ -617,6 +619,16 @@ void MainComponent::openExport()
         editSync->captureLivePluginState();
 
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
+
+    // An export is of the song, whichever mode the transport is in.
+    exportWindow->setOnRenderingChanged ([safe = juce::Component::SafePointer (this)] (bool rendering)
+    {
+        if (safe != nullptr)
+        {
+            safe->exportingSong = rendering;
+            safe->updateAudition();
+        }
+    });
 }
 
 void MainComponent::capturePlayed()

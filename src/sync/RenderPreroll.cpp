@@ -10,31 +10,33 @@ juce::int64 getPrerollSamples (int blockSize, double sampleRate)
     return (wanted + block - 1) / block * block;
 }
 
-PrerollRender applyPreroll (te::Renderer::Parameters& params)
+PrerollRender applyPreroll (te::Renderer::Parameters& params, te::Engine& engine)
 {
     PrerollRender render;
     render.destination = params.destFile;
     render.prerollSamples = getPrerollSamples (params.blockSizeForAudio, params.sampleRateForAudio);
 
-    // Beside the destination, so the copy at the end stays on one volume, and
-    // named so a crash mid-render leaves something recognisable.
+    // Beside the destination, so it is on the same volume and plainly
+    // belongs to it if a crash leaves it behind.
     render.renderFile = render.destination.getSiblingFile ("." + render.destination.getFileNameWithoutExtension()
-                                                               + ".rendering"
-                                                               + render.destination.getFileExtension())
+                                                               + ".rendering.wav")
                             .getNonexistentSibling (false);
 
     params.destFile = render.renderFile;
+    params.audioFormat = engine.getAudioFileFormatManager().getWavFormat();
+    params.bitDepth = 32;   // float
     params.time = params.time.withStart (params.time.getStart()
                                            - te::TimeDuration::fromSamples (render.prerollSamples,
                                                                             params.sampleRateForAudio));
     return render;
 }
 
-juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, int bitDepth,
+juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, const RenderOutput& output,
                             std::function<bool()> shouldStop)
 {
-    auto& formats = engine.getAudioFileFormatManager().readFormatManager;
-    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (render.renderFile));
+    auto& formats = engine.getAudioFileFormatManager();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.getWavFormat()->createReaderFor (
+        render.renderFile.createInputStream().release(), true));
 
     if (reader == nullptr)
     {
@@ -42,15 +44,12 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, int
         return "could not read the rendered audio back";
     }
 
-    const auto total = reader->lengthInSamples;
-    const auto keep = juce::jmax ((juce::int64) 0, total - render.prerollSamples);
+    const auto available = juce::jmax ((juce::int64) 0, reader->lengthInSamples - render.prerollSamples);
+    const auto keep = output.exactLength >= 0 ? output.exactLength : available;
     const auto numChannels = (int) reader->numChannels;
     const auto sampleRate = reader->sampleRate;
 
-    auto* format = engine.getAudioFileFormatManager().getFormatFromFileName (render.destination);
-
-    if (format == nullptr)
-        format = engine.getAudioFileFormatManager().getDefaultFormat();
+    auto* format = output.format != nullptr ? output.format : formats.getWavFormat();
 
     render.destination.deleteFile();
     std::unique_ptr<juce::OutputStream> out (render.destination.createOutputStream());
@@ -61,21 +60,33 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, int
         return "could not write " + render.destination.getFileName();
     }
 
+    // What the renderer stamped on its file -- the BWF chunk, with the time
+    // the render starts at -- carried over, so the destination has it as a
+    // direct render would. That start is the preroll's, earlier than the
+    // range by exactly what is being cut, so it moves forward by the same.
+    // Then whatever the caller asked for on top.
+    auto metadata = reader->metadataValues;
+
+    if (const auto key = juce::String (juce::WavAudioFormat::bwavTimeReference); metadata.containsKey (key))
+        metadata.set (key, juce::String (juce::jmax ((juce::int64) 0,
+                                                     metadata[key].getLargeIntValue() + render.prerollSamples)));
+
+    metadata.addArray (output.metadata);
+
     std::unique_ptr<juce::AudioFormatWriter> writer (
-        format->createWriterFor (out.get(), sampleRate, (unsigned int) numChannels, bitDepth, {}, 0));
+        format->createWriterFor (out.get(), sampleRate, (unsigned int) numChannels,
+                                 output.bitDepth, metadata, output.qualityIndex));
 
     if (writer == nullptr)
     {
+        out.reset();
         discardPreroll (render);
         render.destination.deleteFile();
-        return "could not write " + render.destination.getFileName();
+        return "could not write " + format->getFormatName() + " at these settings";
     }
 
     out.release();   // the writer owns it now
 
-    // Through float, which is lossless both ways for the integer depths the
-    // renderer writes: an n-bit sample read as float and written back as n
-    // bits is the same sample.
     constexpr int chunk = 65536;
     juce::AudioBuffer<float> buffer (numChannels, chunk);
     bool ok = true;
@@ -92,6 +103,10 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, int
         }
 
         const auto n = (int) juce::jmin ((juce::int64) chunk, keep - done);
+
+        // Past the end of what was rendered -- only when an exact length asks
+        // for a sample or so more than the render rounded to -- reads as
+        // silence, which is what the song has there.
         ok = reader->read (&buffer, 0, n, render.prerollSamples + done, true, true)
               && writer->writeFromAudioSampleBuffer (buffer, 0, n);
         done += n;
@@ -113,6 +128,34 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, int
 void discardPreroll (const PrerollRender& render)
 {
     render.renderFile.deleteFile();
+}
+
+//==============================================================================
+std::optional<GameLoop> getGameLoop (const model::Song& song, const te::Edit& edit, double sampleRate)
+{
+    if (! song.hasLoopRange())
+        return std::nullopt;
+
+    const auto start = edit.tempoSequence.toTime (te::BeatPosition::fromBeats (song.getLoopStart()));
+    const auto end = edit.tempoSequence.toTime (te::BeatPosition::fromBeats (song.getLoopEnd()));
+
+    GameLoop loop;
+    loop.range = { te::TimePosition(), end };
+    loop.loopStart = te::toSamples (start, sampleRate);
+    loop.loopLength = te::toSamples (end, sampleRate) - loop.loopStart;
+
+    if (loop.loopLength <= 0)
+        return std::nullopt;
+
+    return loop;
+}
+
+juce::StringPairArray gameLoopMetadata (const GameLoop& loop)
+{
+    juce::StringPairArray metadata;
+    metadata.set ("LOOPSTART", juce::String (loop.loopStart));
+    metadata.set ("LOOPLENGTH", juce::String (loop.loopLength));
+    return metadata;
 }
 
 } // namespace carve::sync

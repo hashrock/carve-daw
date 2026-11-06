@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -43,7 +44,7 @@ public:
     ~ExportComponent() override;
 
     static constexpr int preferredWidth = 400;
-    static constexpr int preferredHeight = 298;
+    static constexpr int preferredHeight = 342;
 
     // The song is where the loop range and the default file name come from;
     // the Edit only knows about seconds.
@@ -71,6 +72,13 @@ public:
     // called from inside a render; cancel first.
     std::function<void()> onFinished;
 
+    // True just before a batch takes the transport, false once it has handed
+    // it back. The owner has to make the Edit play the song for that long:
+    // in Pattern mode the live Edit holds the auditioned patterns looping
+    // instead of the playlist, and a render is of whatever the Edit holds.
+    // Not called on destruction -- nothing is left to restore by then.
+    std::function<void (bool rendering)> onRenderingChanged;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -80,7 +88,12 @@ private:
     class RenderThread;
 
     enum class Content { mixdown = 1, stems = 2 };
-    enum class Range { wholeSong = 1, loopRange = 2 };
+    enum class Format { wav = 1, ogg = 2 };
+
+    // gameLoop: from the start of the song to the end of the loop range, cut
+    // there, with the loop's start written into the file for a game to
+    // repeat from (see sync::GameLoop).
+    enum class Range { wholeSong = 1, loopRange = 2, gameLoop = 3 };
 
     // One file's worth of render. A mixdown is a batch of one; a stem export
     // is one of these per generator, run in order.
@@ -108,6 +121,19 @@ private:
     };
 
     bool isStemExport() const;
+    bool isOggExport() const;
+    bool isGameLoopExport() const;
+
+    // The chosen format, and its extension with the dot.
+    juce::AudioFormat* getSelectedFormat() const;
+    juce::String getSelectedExtension() const;
+
+    // The game loop at the chosen sample rate, when that is the range.
+    std::optional<sync::GameLoop> getSelectedGameLoop() const;
+
+    // Everything about the destination file but its name. The same for
+    // every file of a batch.
+    sync::RenderOutput getRenderOutput() const;
 
     // What a stem export would write right now: one per thing that reaches the
     // master on its own -- an ungrouped generator, or a group bus, never a
@@ -139,6 +165,11 @@ private:
 
     void setStatus (const juce::String& text, juce::Colour colour);
 
+    // Whether onRenderingChanged was last told true, so it hears each change
+    // once whichever way a batch ends.
+    bool toldRendering = false;
+    void setToldRendering (bool);
+
     static constexpr int labelColumnWidth = 92;
 
     te::Edit& edit;
@@ -150,8 +181,10 @@ private:
     std::atomic<float> progress { 0.0f };
     double progressForBar = 0.0;
 
-    juce::Label headingLabel, contentLabel, rangeLabel, sampleRateLabel, bitDepthLabel;
-    juce::ComboBox contentBox, rangeBox, sampleRateBox, bitDepthBox;
+    juce::Label headingLabel, contentLabel, formatLabel, rangeLabel, sampleRateLabel, bitDepthLabel;
+
+    // bitDepthBox and qualityBox share a row: WAV has a depth, Ogg a bitrate.
+    juce::ComboBox contentBox, formatBox, rangeBox, sampleRateBox, bitDepthBox, qualityBox;
     juce::ToggleButton tailButton { "Add a 1 second tail" };
     juce::Label summaryLabel, statusLabel;
     juce::ProgressBar progressBar { progressForBar };
