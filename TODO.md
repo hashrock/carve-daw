@@ -9,10 +9,10 @@
 - [ ] MIDI キーボード入力
       今は音のプレビューのみで、弾くことも録ることもできない。
       無効化してあるのはオーディオ入力で MIDI 入力は別系統なので、
-      EngineSetup.h の CoreAudio バグ回避 (README 参照) には当たらない
+      EngineSetup.h の CoreAudio バグ回避 (docs/DEVELOPMENT.md 参照) には当たらない
 - [ ] モディファイアの編集 UI (エンジンとモデルは実装済み・.carve 直書きで動く。
       LFO の rate/depth/wave と ASSIGN を編集するパネルが無い)
 - [ ] オートメーションのカーブベンド (PT.curve は保存・再生されるが
       レーン UI は直線描画のみ)
 - [ ] オーディオ録音
-      着手前に README の「録音に着手するときの注意」を読むこと
+      着手前に docs/DEVELOPMENT.md の「オーディオ入力を開かない理由」を読むこと

@@ -16,7 +16,7 @@ namespace
 // A constant rather than the audio device's, which is what this used to use.
 // The device rate depends on whether the GUI happens to be holding the
 // hardware, so the same song rendered twice could come out at 44.1k once and
-// 48k the next time -- and a bit-identical render (see the README) is no use
+// 48k the next time -- and a bit-identical render (see docs/DEVELOPMENT.md) is no use
 // as a regression check if the two files are not even the same length.
 constexpr double defaultSampleRate = 44100.0;
 
