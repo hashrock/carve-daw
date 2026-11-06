@@ -67,6 +67,23 @@ public:
     void setPitch (int midiNote, juce::UndoManager* um)   { state.setProperty (ids::pitch, clampPitch (midiNote), um); }
     void setVelocity (int vel, juce::UndoManager* um)     { state.setProperty (ids::velocity, clampVelocity (vel), um); }
 
+    // What a singing generator sings on this note. Empty means "not set",
+    // which sings getDefaultLyric(); only a singing generator reads it, and every
+    // other generator carries it along untouched, so a pattern copied from a
+    // vocal part to a synth and back keeps its words. Stored only when set,
+    // so a song without singing writes no lyric anywhere.
+    static juce::String getDefaultLyric()  { return juce::String (juce::CharPointer_UTF8 ("\xe3\x81\x82")); }   // あ
+
+    juce::String getLyric() const  { return state[ids::lyric].toString(); }
+
+    void setLyric (const juce::String& lyric, juce::UndoManager* um)
+    {
+        if (const auto trimmed = lyric.trim(); trimmed.isEmpty())
+            state.removeProperty (ids::lyric, um);
+        else
+            state.setProperty (ids::lyric, trimmed, um);
+    }
+
     juce::ValueTree state;
 };
 
@@ -417,12 +434,42 @@ public:
     // preset change is an ordinary model undo.
     static constexpr const char* soundFontType = "soundfont";
 
+    // A singer: a UTAU voicebank, sung from the lyrics on its notes. Like the
+    // SoundFont player, all it plays from is on disk and named by one SOUND
+    // node -- here a folder -- and the plugin keeps nothing of its own.
+    static constexpr const char* utauType = "utau";
+
     bool isDrumKit() const    { return getType() == drumKitType; }
     bool isDrumSynth() const  { return getType() == drumSynthType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType; }
     bool isSoundFont() const  { return getType() == soundFontType; }
+    bool isUtau() const       { return getType() == utauType; }
+
+    // For type "utau": the voicebank's folder (an empty File for none yet).
+    // Kept as the generator's one SOUND, the way a SoundFont's file is, so
+    // a voicebank moved with the song is found by its relative path and a
+    // missing one is listed with the rest of the missing media.
+    juce::File getVoicebankFolder() const;
+    void setVoicebankFolder (const juce::File&, juce::UndoManager*);
+
+    // For type "utau": how the voice is coloured on top of the recordings.
+    // The defaults sing the recordings as they are.
+    struct VoiceStyle
+    {
+        double gender = 0.0;        // -100..100: + a longer vocal tract (deeper, older), - shorter
+        double breath = 50.0;       //    0..100: how much breath, 50 as recorded
+        double brightness = 0.0;    // -100..100: tilt of the spectrum, 0 as recorded
+        double modulation = 0.0;    //    0..100: how much of the recording's own pitch wobble is kept
+
+        bool operator== (const VoiceStyle&) const = default;
+    };
+
+    VoiceStyle getVoiceStyle() const;
+
+    // One of the four, by its id (ids::voiceGender etc.), clamped to its range.
+    void setVoiceStyleValue (const juce::Identifier&, double value, juce::UndoManager*);
 
     // For type "soundfont": the .sf2 it plays (an empty File for none yet),
     // and which of its presets. Bank 128 is where a General MIDI font keeps

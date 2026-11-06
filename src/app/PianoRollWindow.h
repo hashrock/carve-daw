@@ -297,6 +297,17 @@ public:
         refreshFromPattern();
     }
 
+    // Lyrics on the notes, for a singing generator.
+    void setShowsLyrics (bool shouldShow)
+    {
+        pianoRoll.setShowsLyrics (shouldShow);
+    }
+
+    void setLyricCheck (PianoRollComponent::LyricCheck check)
+    {
+        pianoRoll.setLyricCheck (std::move (check));
+    }
+
     // The rows' names, for a drum generator; empty for everything else.
     void setDrumMap (std::map<int, PianoRollComponent::DrumRow> map)
     {

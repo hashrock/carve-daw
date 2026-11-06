@@ -216,7 +216,7 @@ void FileRef::resolve (juce::ValueTree state, const juce::File& songDirectory)
     if (relative.isEmpty())
         return;
 
-    if (const auto resolved = songDirectory.getChildFile (relative); resolved.existsAsFile())
+    if (const auto resolved = songDirectory.getChildFile (relative); resolved.exists())   // a file, or a voicebank's folder
         state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
 }
 
@@ -304,6 +304,48 @@ juce::File Generator::getSoundFontFile() const
 void Generator::setSoundFontFile (const juce::File& file, juce::UndoManager* um)
 {
     setSingleSound (file, um);
+}
+
+juce::File Generator::getVoicebankFolder() const
+{
+    const auto sounds = getSounds();
+    return sounds.empty() ? juce::File() : sounds.front().getFile();
+}
+
+void Generator::setVoicebankFolder (const juce::File& folder, juce::UndoManager* um)
+{
+    // setSingleSound names the sound after the file without its extension,
+    // which for a folder is its whole name.
+    setSingleSound (folder, um);
+}
+
+Generator::VoiceStyle Generator::getVoiceStyle() const
+{
+    VoiceStyle style;
+    style.gender = juce::jlimit (-100.0, 100.0, (double) state.getProperty (ids::voiceGender, style.gender));
+    style.breath = juce::jlimit (0.0, 100.0, (double) state.getProperty (ids::voiceBreath, style.breath));
+    style.brightness = juce::jlimit (-100.0, 100.0, (double) state.getProperty (ids::voiceBrightness, style.brightness));
+    style.modulation = juce::jlimit (0.0, 100.0, (double) state.getProperty (ids::voiceModulation, style.modulation));
+    return style;
+}
+
+void Generator::setVoiceStyleValue (const juce::Identifier& id, double value, juce::UndoManager* um)
+{
+    const VoiceStyle defaults;
+    double low = 0.0, high = 100.0, fallback = 0.0;
+
+    if (id == ids::voiceGender)           { low = -100.0; fallback = defaults.gender; }
+    else if (id == ids::voiceBreath)      { fallback = defaults.breath; }
+    else if (id == ids::voiceBrightness)  { low = -100.0; fallback = defaults.brightness; }
+    else if (id == ids::voiceModulation)  { fallback = defaults.modulation; }
+    else { jassertfalse; return; }
+
+    const auto clamped = juce::jlimit (low, high, value);
+
+    if (std::abs (clamped - fallback) < 1.0e-9)
+        state.removeProperty (id, um);
+    else
+        state.setProperty (id, clamped, um);
 }
 
 int Generator::getSoundFontBank() const
@@ -835,7 +877,9 @@ std::vector<juce::ValueTree> Song::findMissingMedia() const
 
     auto consider = [&missing] (const juce::ValueTree& node)
     {
-        if (FileRef::hasFile (node) && ! FileRef::getFile (node).existsAsFile())
+        // A voicebank is a folder; everything else names a file.
+        if (const auto file = FileRef::getFile (node);
+            FileRef::hasFile (node) && ! file.existsAsFile() && ! file.isDirectory())
             missing.push_back (node);
     };
 
@@ -865,7 +909,8 @@ int Song::relinkMissingMedia (const juce::File& folder, juce::UndoManager* um) c
         if (found.emplace (FileRef::getFileName (node), juce::File()).second)
             ++stillToFind;
 
-    for (const auto& entry : juce::RangedDirectoryIterator (folder, true, "*", juce::File::findFiles))
+    // Folders too: a voicebank is one.
+    for (const auto& entry : juce::RangedDirectoryIterator (folder, true, "*", juce::File::findFilesAndDirectories))
     {
         if (stillToFind == 0)
             break;

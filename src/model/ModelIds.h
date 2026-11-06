@@ -26,7 +26,7 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
-// │     │                                | "drum-sampler" | "soundfont" | "audio"
+// │     │                                | "drum-sampler" | "soundfont" | "utau" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
@@ -43,6 +43,12 @@
 // │     │        A "soundfont" generator has exactly one SOUND, its .sf2,
 // │     │        with the preset it plays in `bank` and `program` (both
 // │     │        optional, 0 = the first piano of a GM font).
+// │     │        A "utau" generator has exactly one SOUND too: its voicebank,
+// │     │        whose `file` is the voicebank's folder rather than a file.
+// │     │        Its voice settings are on the GENERATOR itself, so they
+// │     │        survive a change of voicebank: voiceGender, voiceBreath,
+// │     │        voiceBrightness, voiceModulation (see VoiceStyle). Each is
+// │     │        stored only when it differs from its default.
 // │     ├─ AUTOMATION
 // │     │  └─ AUTOCURVE {target, param}     target: "volume" | "pan" |
 // │     │     └─ PT {beat, value, curve}    "instrument" | an effect id.
@@ -68,7 +74,10 @@
 // │           │        order the pattern picker lists them. Songs written
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
-// │           └─ NOTE {start, length, pitch, velocity}   times in beats (quarter notes)
+// │           └─ NOTE {start, length, pitch, velocity, lyric}   times in beats (quarter notes)
+// │                    lyric: what a singing ("utau") generator sings on
+// │                    the note -- a kana, or a voicebank alias. Optional;
+// │                    absent is the generator's default (see Note::getDefaultLyric)
 // ├─ PLAYLIST
 // │  ├─ CLIP {generatorId, patternId, start, length, transpose}
 // │  │                               length and transpose are per-placement
@@ -177,6 +186,11 @@ CARVE_DECLARE_ID (relPath)
 CARVE_DECLARE_ID (rootNote)
 CARVE_DECLARE_ID (bank)
 CARVE_DECLARE_ID (program)
+CARVE_DECLARE_ID (lyric)
+CARVE_DECLARE_ID (voiceGender)
+CARVE_DECLARE_ID (voiceBreath)
+CARVE_DECLARE_ID (voiceBrightness)
+CARVE_DECLARE_ID (voiceModulation)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
 

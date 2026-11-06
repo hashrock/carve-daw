@@ -83,6 +83,19 @@ public:
     // synth gets.
     void setDrumMap (std::map<int, DrumRow> newMap);
 
+    // For a singing generator: each note shows its lyric, and a double-click
+    // on one types it (Tab and Shift-Tab carry on to the next and previous
+    // note). The rows grow to fit the text.
+    void setShowsLyrics (bool);
+    bool isEditingLyric() const  { return lyricEditor != nullptr; }
+
+    // Whether the singer has a recording for a lyric, sung on this pitch after
+    // this lyric (empty: at the start of a phrase). A note it says no to is
+    // silent, and is drawn struck through so it does not pass for one that
+    // sings. Unset, every note is taken to sing.
+    using LyricCheck = std::function<bool (const juce::String& lyric, const juce::String& previousLyric, int pitch)>;
+    void setLyricCheck (LyricCheck);
+
     // The rows worth looking at: the span of the drum map, or nothing at all
     // when there is no map and one row is as good as another.
     std::optional<juce::Range<int>> getDrumPitchRange() const;
@@ -243,6 +256,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void modifierKeysChanged (const juce::ModifierKeys&) override;
     bool keyPressed (const juce::KeyPress&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
 
 private:
     // A note row is as short as a note needs to be. A drum lane is not: it
@@ -250,8 +264,9 @@ private:
     // exactly the text the minimum font size exists to stop (see Fonts.h).
     static constexpr int noteRowHeight = 12;
     static constexpr int drumRowHeight = 16;
+    static constexpr int lyricRowHeight = 16;   // a lyric is text too, and the same rule holds
 
-    int getRowHeight() const  { return drumMap.empty() ? noteRowHeight : drumRowHeight; }
+    int getRowHeight() const  { return ! drumMap.empty() ? drumRowHeight : showsLyrics ? lyricRowHeight : noteRowHeight; }
 
     static constexpr int lowestPitch = 24;    // C1
     static constexpr int highestPitch = 96;   // C7
@@ -294,6 +309,24 @@ private:
     float pitchToY (int pitch) const;
     juce::Rectangle<float> noteBounds (const model::Note&) const;
     std::optional<model::Note> noteAt (juce::Point<float>) const;
+
+    // Lyric editing: a text box over the note being typed into. Committed on
+    // Return, Tab, Shift-Tab or a click elsewhere, each one undo step;
+    // abandoned on Escape.
+    class LyricEditor;
+    void beginLyricEdit (const model::Note&);
+    void endLyricEdit (bool commit);
+    void stepLyricEdit (int direction);   // commit, then edit the note after (+1) or before (-1)
+
+    bool showsLyrics = false;
+    std::unique_ptr<LyricEditor> lyricEditor;
+    juce::ValueTree lyricNote;
+    juce::String lyricNotePrevious;   // what the note being typed into follows on from
+    LyricCheck lyricCheck;
+
+    // The notes the singer has nothing to sing with, by the rule above.
+    std::vector<juce::ValueTree> findSilentNotes() const;
+    void updateLyricEditorColour();
     bool isOverResizeZone (const model::Note&, juce::Point<float>) const;
 
     // Whether a press is on one of the selected notes, counting the selection

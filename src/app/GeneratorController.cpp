@@ -2,6 +2,7 @@
 
 #include "DrumPadGrid.h"
 #include "model/MidiPatternIO.h"
+#include "voice/Voicebank.h"
 
 namespace carve::app
 {
@@ -31,9 +32,10 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     juce::PopupMenu menu;
     menu.addItem (1, "Slate (internal synth)");
     menu.addItem (6, "808 Drums (internal drum synth)");
-    menu.addItem (3, "Sampler (choose a sample)...");
+    menu.addItem (3, "Sampler");
     menu.addItem (4, "Drum Kit (16 pads)");
-    menu.addItem (7, "SoundFont (choose an .sf2)...");
+    menu.addItem (7, "SoundFont (.sf2)");
+    menu.addItem (8, "UTAU (voicebank)");
     menu.addItem (5, "Audio track");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
@@ -66,9 +68,13 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
         }
         else if (result == 3)
         {
-            // The sample comes first so the generator can be named after it;
-            // a cancelled chooser leaves no empty sampler behind.
-            launchSampleChooser ([this] (const juce::File& sample) { addSamplerGenerator (sample); });
+            // Made empty, and its Inst tab opened: the sample is chosen there,
+            // from a chooser or the history, without anything waiting on it.
+            addGenerator ("Sampler " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::samplerType, nullptr);
+
+            if (onOpenInstrumentForSetup)
+                onOpenInstrumentForSetup();
         }
         else if (result == 4)
         {
@@ -82,10 +88,15 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             addGenerator ("Drums " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::drumSynthType, nullptr);
         }
-        else if (result == 7)
+        else if (result == 8 || result == 7)
         {
-            // Like a sampler: the font first, so a cancel leaves nothing.
-            launchSoundFontChooser ([this] (const juce::File& soundFont) { addSoundFontGenerator (soundFont); });
+            // As a sampler is: empty, with its Inst tab open to fill it from.
+            const bool singer = result == 8;
+            addGenerator ((singer ? "UTAU " : "SoundFont ") + juce::String (song.getNumGenerators() + 1),
+                          singer ? model::Generator::utauType : model::Generator::soundFontType, nullptr);
+
+            if (onOpenInstrumentForSetup)
+                onOpenInstrumentForSetup();
         }
         else if (result == 5)
         {
@@ -172,6 +183,7 @@ void GeneratorController::addSamplerGenerator (const juce::File& sample)
     auto generator = addGenerator (sample.getFileNameWithoutExtension(),
                                    model::Generator::samplerType, nullptr);
     generator.setSingleSound (sample, &undoManager);
+    rememberMedia (MediaKind::sample, sample);
     refresh();
 }
 
@@ -185,8 +197,12 @@ void GeneratorController::assignSample (model::Generator generator, const juce::
     undoManager.beginNewTransaction();
 
     // One sample over the whole keyboard, replacing whatever was there. The
-    // generator's own name is left alone: it may well be the user's.
+    // generator's own name is left alone -- it may well be the user's --
+    // unless it is still the one it was made with.
+    const bool wasEmpty = generator.getSounds().empty();
     generator.setSingleSound (sample, &undoManager);
+    nameAfterFirstMedia (generator, wasEmpty, "Sampler", sample.getFileNameWithoutExtension());
+    rememberMedia (MediaKind::sample, sample);
     refresh();
 }
 
@@ -241,6 +257,7 @@ void GeneratorController::addSoundFontGenerator (const juce::File& soundFont)
     auto generator = addGenerator (soundFont.getFileNameWithoutExtension(),
                                    model::Generator::soundFontType, nullptr);
     generator.setSoundFontFile (soundFont, &undoManager);
+    rememberMedia (MediaKind::soundFont, soundFont);
     refresh();
 }
 
@@ -250,7 +267,10 @@ void GeneratorController::assignSoundFont (model::Generator generator, const juc
         return;
 
     undoManager.beginNewTransaction();
+    const bool wasEmpty = generator.getSounds().empty();
     generator.setSoundFontFile (soundFont, &undoManager);
+    nameAfterFirstMedia (generator, wasEmpty, "SoundFont", soundFont.getFileNameWithoutExtension());
+    rememberMedia (MediaKind::soundFont, soundFont);
     refresh();
 }
 
@@ -288,6 +308,188 @@ void GeneratorController::setSoundFontPresetForSelected (int bank, int program)
 
     undoManager.beginNewTransaction();
     generator->setSoundFontPreset (bank, program, &undoManager);
+}
+
+//==============================================================================
+// Voicebanks
+
+static constexpr const char* lastVoicebankDirectoryKey = "lastVoicebankDirectory";
+
+void GeneratorController::launchVoicebankChooser (std::function<void (const juce::File&)> onChosen)
+{
+    const juce::File remembered (engine.getPropertyStorage().getPropertiesFile()
+                                     .getValue (lastVoicebankDirectoryKey));
+
+    // Where voicebanks usually are: OpenUtau installs them here, and someone
+    // with UTAU voicebanks on a Mac most likely has OpenUtau.
+    const auto openUtauSingers = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                                     .getChildFile ("Library/OpenUtau/Singers");
+
+    const auto start = remembered.isDirectory()       ? remembered
+                     : openUtauSingers.isDirectory()  ? openUtauSingers
+                                                      : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+
+    sampleChooser = std::make_unique<juce::FileChooser> ("Choose a UTAU voicebank folder", start);
+
+    sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectDirectories,
+                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto folder = chooser.getResult(); folder.isDirectory())
+        {
+            engine.getPropertyStorage().getPropertiesFile()
+                .setValue (lastVoicebankDirectoryKey, folder.getParentDirectory().getFullPathName());
+            onChosen (folder);
+        }
+    });
+}
+
+void GeneratorController::addUtauGenerator (const juce::File& folder)
+{
+    auto generator = addGenerator (voice::Voicebank::readName (folder), model::Generator::utauType, nullptr);
+    generator.setVoicebankFolder (folder, &undoManager);
+    rememberMedia (MediaKind::voicebank, folder);
+    refresh();
+}
+
+void GeneratorController::assignVoicebank (model::Generator generator, const juce::File& folder)
+{
+    if (! generator.isUtau() || ! folder.isDirectory())
+        return;
+
+    undoManager.beginNewTransaction();
+    const bool wasEmpty = generator.getSounds().empty();
+    generator.setVoicebankFolder (folder, &undoManager);
+    nameAfterFirstMedia (generator, wasEmpty, "UTAU", voice::Voicebank::readName (folder));
+    rememberMedia (MediaKind::voicebank, folder);
+    refresh();
+}
+
+void GeneratorController::chooseVoicebankForSelected()
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isUtau())
+        return;
+
+    const auto generatorId = generator->getId();
+
+    launchVoicebankChooser ([this, generatorId] (const juce::File& folder)
+    {
+        if (auto target = song.findGenerator (generatorId))
+            assignVoicebank (*target, folder);
+    });
+}
+
+void GeneratorController::setVoiceStyleValueForSelected (const juce::Identifier& id, double value)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isUtau())
+        return;
+
+    undoManager.beginNewTransaction();
+    generator->setVoiceStyleValue (id, value, &undoManager);
+}
+
+void GeneratorController::voicebankDroppedOnSelected (const juce::File& folder)
+{
+    if (auto generator = getSelectedGenerator())
+        assignVoicebank (*generator, folder);
+}
+
+//==============================================================================
+// History
+
+namespace
+{
+    const char* recentKeyFor (MediaKind kind)
+    {
+        switch (kind)
+        {
+            case MediaKind::sample:     return "recentSamples";
+            case MediaKind::soundFont:  return "recentSoundFonts";
+            case MediaKind::voicebank:  return "recentVoicebanks";
+        }
+
+        return "recentSamples";
+    }
+
+    constexpr int maxRecentMedia = 10;
+}
+
+void GeneratorController::rememberMedia (MediaKind kind, const juce::File& file)
+{
+    auto& properties = engine.getPropertyStorage().getPropertiesFile();
+
+    juce::RecentlyOpenedFilesList recent;
+    recent.setMaxNumberOfItems (maxRecentMedia);
+    recent.restoreFromString (properties.getValue (recentKeyFor (kind)));
+    recent.addFile (file);
+    properties.setValue (recentKeyFor (kind), recent.toString());
+}
+
+std::vector<RecentMediaList::Item> GeneratorController::getRecentMedia (MediaKind kind) const
+{
+    juce::RecentlyOpenedFilesList recent;
+    recent.setMaxNumberOfItems (maxRecentMedia);
+    recent.restoreFromString (engine.getPropertyStorage().getPropertiesFile().getValue (recentKeyFor (kind)));
+
+    std::vector<RecentMediaList::Item> items;
+
+    for (int i = 0; i < recent.getNumFiles(); ++i)
+    {
+        const auto file = recent.getFile (i);
+
+        if (kind == MediaKind::voicebank ? ! file.isDirectory() : ! file.existsAsFile())
+            continue;   // moved or deleted since: nothing to load
+
+        items.push_back ({ file, kind == MediaKind::voicebank ? voice::Voicebank::readName (file)
+                                                              : file.getFileName() });
+    }
+
+    return items;
+}
+
+void GeneratorController::recentMediaChosen (MediaKind kind, const juce::File& file)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator)
+        return;
+
+    switch (kind)
+    {
+        case MediaKind::sample:     assignSample (*generator, file); break;
+        case MediaKind::soundFont:  assignSoundFont (*generator, file); break;
+        case MediaKind::voicebank:  assignVoicebank (*generator, file); break;
+    }
+}
+
+void GeneratorController::nameAfterFirstMedia (model::Generator& generator, bool wasEmpty,
+                                               const juce::String& placeholderStem, const juce::String& newName)
+{
+    if (! wasEmpty || newName.isEmpty())
+        return;
+
+    const auto name = generator.getName();
+    const auto number = name.fromFirstOccurrenceOf (placeholderStem + " ", false, false);
+    const bool isPlaceholder = name.startsWith (placeholderStem + " ") && number.isNotEmpty()
+                                && number.containsOnly ("0123456789");
+
+    if (! isPlaceholder)
+        return;
+
+    // Its first pattern was named from the placeholder too ("UT1" for
+    // "UTAU 1"); while that one is still empty and still so named, it
+    // follows the generator's new name the way it would have been named
+    // from it. A pattern with notes in it is the user's by now.
+    for (auto pattern : generator.getPatterns())
+        if (pattern.getNumNotes() == 0
+             && pattern.getName() == model::patternStemForGenerator (name) + "1")
+            pattern.setName (model::patternStemForGenerator (newName) + "1", &undoManager);
+
+    generator.setName (newName, &undoManager);
 }
 
 bool GeneratorController::canImportAudioFiles (const juce::StringArray& files) const

@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 #include "PianoRollComponent.h"
 #include "Fonts.h"
 
 #include "NoteGestures.h"
+#include "model/Singing.h"
 #include "TimelineView.h"
 
 namespace carve::app
@@ -123,6 +125,209 @@ void PianoRollComponent::setDrumMap (std::map<int, DrumRow> newMap)
     repaint();
 }
 
+//==============================================================================
+// Lyrics
+
+class PianoRollComponent::LyricEditor : public juce::TextEditor
+{
+public:
+    std::function<void (int direction)> onTab;
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() == juce::KeyPress::tabKey)
+        {
+            if (onTab)
+                onTab (key.getModifiers().isShiftDown() ? -1 : 1);
+
+            return true;
+        }
+
+        return juce::TextEditor::keyPressed (key);
+    }
+};
+
+void PianoRollComponent::setShowsLyrics (bool shouldShow)
+{
+    if (showsLyrics == shouldShow)
+        return;
+
+    endLyricEdit (true);
+
+    const auto rowHeightBefore = getRowHeight();
+    showsLyrics = shouldShow;
+
+    if (getRowHeight() != rowHeightBefore)
+        updateSize();
+
+    repaint();
+}
+
+void PianoRollComponent::setLyricCheck (LyricCheck check)
+{
+    lyricCheck = std::move (check);
+    updateLyricEditorColour();
+    repaint();
+}
+
+std::vector<juce::ValueTree> PianoRollComponent::findSilentNotes() const
+{
+    std::vector<juce::ValueTree> silent;
+
+    if (! showsLyrics || ! lyricCheck || ! pattern)
+        return silent;
+
+    const auto ordered = model::singing::inSingingOrder (pattern->getNotes());
+
+    for (size_t i = 0; i < ordered.size(); ++i)
+    {
+        const auto& note = ordered[i];
+        const auto lyric = note.getLyric();
+
+        if (! lyricCheck (lyric.isNotEmpty() ? lyric : model::Note::getDefaultLyric(),
+                          model::singing::previousLyricOf (ordered, i), note.getPitch()))
+            silent.push_back (note.state);
+    }
+
+    return silent;
+}
+
+// Red while what is typed has no recording, so a lyric is found wanting
+// before it is committed rather than after.
+void PianoRollComponent::updateLyricEditorColour()
+{
+    if (lyricEditor == nullptr || ! lyricNote.isValid())
+        return;
+
+    const auto text = lyricEditor->getText().trim();
+    const auto sings = ! lyricCheck
+                        || lyricCheck (text.isNotEmpty() ? text : model::Note::getDefaultLyric(),
+                                       lyricNotePrevious, model::Note (lyricNote).getPitch());
+
+    lyricEditor->applyColourToAllText (sings ? juce::Colours::white : juce::Colour (0xffff8a7a));
+    lyricEditor->setColour (juce::TextEditor::focusedOutlineColourId,
+                            sings ? juce::Colours::white : juce::Colour (0xffe0604f));
+    lyricEditor->setColour (juce::TextEditor::textColourId, sings ? juce::Colours::white : juce::Colour (0xffff8a7a));
+    lyricEditor->repaint();
+}
+
+void PianoRollComponent::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (! showsLyrics)
+        return;
+
+    if (auto note = noteAt (e.position))
+        beginLyricEdit (*note);
+}
+
+void PianoRollComponent::beginLyricEdit (const model::Note& note)
+{
+    endLyricEdit (true);
+
+    lyricNote = note.state;
+    lyricNotePrevious = {};
+
+    if (pattern)
+    {
+        const auto ordered = model::singing::inSingingOrder (pattern->getNotes());
+
+        for (size_t i = 0; i < ordered.size(); ++i)
+            if (ordered[i].state == note.state)
+                lyricNotePrevious = model::singing::previousLyricOf (ordered, i);
+    }
+
+    lyricEditor = std::make_unique<LyricEditor>();
+    lyricEditor->setFont (uiFont (fonts::small));
+    lyricEditor->setText (note.getLyric(), juce::dontSendNotification);
+    lyricEditor->setTextToShowWhenEmpty (model::Note::getDefaultLyric(), juce::Colour (0xff6e6e78));
+    lyricEditor->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xff1c1c20));
+    lyricEditor->setColour (juce::TextEditor::outlineColourId, juce::Colours::white);
+    lyricEditor->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::white);
+    lyricEditor->setIndents (3, 0);
+    lyricEditor->setSelectAllWhenFocused (true);
+
+    lyricEditor->onReturnKey = [this] { endLyricEdit (true); };
+    lyricEditor->onEscapeKey = [this] { endLyricEdit (false); };
+    lyricEditor->onTab = [this] (int direction) { stepLyricEdit (direction); };
+    lyricEditor->onTextChange = [this] { updateLyricEditorColour(); };
+
+    // A click elsewhere commits; deferred, because losing focus is reported
+    // from inside the focus change, and the editor cannot be deleted there.
+    lyricEditor->onFocusLost = [safe = juce::Component::SafePointer<PianoRollComponent> (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr && safe->lyricEditor != nullptr && ! safe->lyricEditor->hasKeyboardFocus (true))
+                safe->endLyricEdit (true);
+        });
+    };
+
+    // Wide enough to type a few kana into even on a short note, and as tall
+    // as a row, laid over the note.
+    const auto bounds = noteBounds (note);
+    lyricEditor->setBounds (juce::Rectangle<float> (bounds.getX(), bounds.getY(),
+                                                    juce::jmax (bounds.getWidth(), 64.0f), (float) getRowHeight())
+                                .getSmallestIntegerContainer());
+
+    addAndMakeVisible (*lyricEditor);
+    updateLyricEditorColour();
+    lyricEditor->grabKeyboardFocus();
+}
+
+void PianoRollComponent::endLyricEdit (bool commit)
+{
+    if (lyricEditor == nullptr)
+        return;
+
+    // Out of the way first: committing changes the tree, whose listeners can
+    // come back round to here.
+    auto editor = std::move (lyricEditor);
+    const auto noteState = std::exchange (lyricNote, {});
+
+    if (commit && noteState.isValid() && noteState.getParent().isValid())
+    {
+        model::Note note (noteState);
+
+        if (editor->getText().trim() != note.getLyric())
+        {
+            undoManager.beginNewTransaction();
+            note.setLyric (editor->getText(), &undoManager);
+        }
+    }
+
+    removeChildComponent (editor.get());
+    editor.reset();
+    grabKeyboardFocus();
+    repaint();
+}
+
+void PianoRollComponent::stepLyricEdit (int direction)
+{
+    const auto current = lyricNote;
+    endLyricEdit (true);
+
+    if (! pattern || ! current.isValid())
+        return;
+
+    // In time order, which is the order a line of lyrics is sung in; a chord's
+    // notes go bottom up.
+    const auto notes = model::singing::inSingingOrder (pattern->getNotes());
+
+    for (size_t i = 0; i < notes.size(); ++i)
+        if (notes[i].state == current)
+        {
+            const auto next = (int) i + direction;
+
+            if (next >= 0 && next < (int) notes.size())
+            {
+                selectedNotes = { notes[(size_t) next].state };
+                beginLyricEdit (notes[(size_t) next]);
+            }
+
+            return;
+        }
+}
+
 int PianoRollComponent::getKeyboardWidth() const
 {
     return drumMap.empty() ? noteKeyboardWidth : drumKeyboardWidth;
@@ -153,6 +358,9 @@ void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
 
     if (pattern)
         pattern->state.removeListener (this);
+
+    // A lyric half typed into the pattern being left still belongs to it.
+    endLyricEdit (true);
 
     pattern = std::move (newPattern);
     dragMode = DragMode::none;
@@ -539,6 +747,7 @@ bool PianoRollComponent::duplicateSelectionForDrag()
         const model::Note note (state);
         auto copy = pattern->addNote (note.getStart(), note.getLength(),
                                       note.getPitch(), note.getVelocity(), &undoManager);
+        copy.setLyric (note.getLyric(), &undoManager);   // a copy sings the same word
 
         // The copy of the note the pointer grabbed carries the drag from here,
         // so the block keeps moving relative to where it was picked up.
@@ -572,9 +781,10 @@ void PianoRollComponent::syncDragDuplicate (const juce::ModifierKeys& mods)
         for (size_t i = 0; i < notes.size(); ++i)
         {
             const model::Note note (notes[i]);
-            originCopies.push_back (pattern->addNote (dragOriginStarts[i], note.getLength(),
-                                                      dragOriginPitches[i], note.getVelocity(),
-                                                      &undoManager).state);
+            auto copy = pattern->addNote (dragOriginStarts[i], note.getLength(),
+                                          dragOriginPitches[i], note.getVelocity(), &undoManager);
+            copy.setLyric (note.getLyric(), &undoManager);
+            originCopies.push_back (copy.state);
         }
     }
     else if (! wantCopies && ! originCopies.empty())
@@ -834,7 +1044,7 @@ void PianoRollComponent::pasteNotes()
 
     // .start/.length/.pitch so that gestures::boundsOf can read these
     // directly, the same way it reads a selection being dragged.
-    struct PastedNote : gestures::NoteSpan { int velocity = 0; };
+    struct PastedNote : gestures::NoteSpan { int velocity = 0; juce::String lyric; };
     std::vector<PastedNote> notes;
 
     const auto noteTag = model::ids::NOTE.toString();
@@ -853,7 +1063,8 @@ void PianoRollComponent::pasteNotes()
                                            child->getIntAttribute (model::ids::pitch.toString())) },
                            model::Note::clampVelocity (
                                child->getIntAttribute (model::ids::velocity.toString(),
-                                                       defaultNoteVelocity)) });
+                                                       defaultNoteVelocity)),
+                           child->getStringAttribute (model::ids::lyric.toString()) });
     }
 
     if (notes.empty())
@@ -873,8 +1084,11 @@ void PianoRollComponent::pasteNotes()
     std::vector<juce::ValueTree> pasted;
 
     for (const auto& note : notes)
-        pasted.push_back (pattern->addNote (note.start + offset, note.length,
-                                            note.pitch, note.velocity, &undoManager).state);
+    {
+        auto added = pattern->addNote (note.start + offset, note.length, note.pitch, note.velocity, &undoManager);
+        added.setLyric (note.lyric, &undoManager);
+        pasted.push_back (added.state);
+    }
 
     // The paste becomes the selection, so it can be dragged somewhere else or
     // deleted again without having to be found first.
@@ -970,15 +1184,55 @@ void PianoRollComponent::paint (juce::Graphics& g)
     // notes
     if (pattern)
     {
+        const auto silentNotes = findSilentNotes();
+
         for (const auto& note : pattern->getNotes())
         {
             auto r = noteBounds (note).reduced (0.0f, 1.0f);
             const bool selected = isSelected (note.state);
+            const bool silent = std::find (silentNotes.begin(), silentNotes.end(), note.state) != silentNotes.end();
 
-            g.setColour (noteColourFor (note.getVelocity()).brighter (selected ? 0.4f : 0.0f));
-            g.fillRoundedRectangle (r, 2.0f);
-            g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.4f));
-            g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.0f);
+            if (silent)
+            {
+                // Nothing to sing it with: dark, hatched, and outlined in red,
+                // so it reads as a hole in the line rather than a note.
+                g.setColour (juce::Colour (0xff3a2e31));
+                g.fillRoundedRectangle (r, 2.0f);
+
+                {
+                    juce::Graphics::ScopedSaveState clip (g);
+                    g.reduceClipRegion (r.getSmallestIntegerContainer());
+                    g.setColour (juce::Colour (0xffe0604f).withAlpha (0.45f));
+
+                    for (auto x = r.getX() - r.getHeight(); x < r.getRight(); x += 6.0f)
+                        g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), 1.0f);
+                }
+
+                g.setColour (selected ? juce::Colours::white : juce::Colour (0xffe0604f));
+                g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.2f);
+            }
+            else
+            {
+                g.setColour (noteColourFor (note.getVelocity()).brighter (selected ? 0.4f : 0.0f));
+                g.fillRoundedRectangle (r, 2.0f);
+                g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.4f));
+                g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.0f);
+            }
+
+            // The lyric, or the default one dimmed: a note with nothing typed
+            // still sings, and should say what.
+            if (showsLyrics && r.getWidth() > 6.0f)
+            {
+                const auto lyric = note.getLyric();
+                g.setFont (uiFont (fonts::small));
+
+                if (silent)
+                    g.setColour (juce::Colour (0xffff8a7a).withAlpha (lyric.isNotEmpty() ? 1.0f : 0.6f));
+                else
+                    g.setColour (juce::Colours::black.withAlpha (lyric.isNotEmpty() ? 0.85f : 0.35f));
+                g.drawText (lyric.isNotEmpty() ? lyric : model::Note::getDefaultLyric(),
+                            r.reduced (3.0f, 0.0f), juce::Justification::centredLeft, false);
+            }
         }
     }
 
