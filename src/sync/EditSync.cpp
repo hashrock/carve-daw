@@ -1561,9 +1561,10 @@ namespace
     }
 
     // A break slicer's clips: its notes, with every roll (Note::getRetrigger)
-    // written out as the notes it plays -- so a roll lands on the song's
+    // written out as the notes it plays, louder or softer along a crescendo -- so a roll lands on the song's
     // beats at any tempo, exactly as drawn ones would -- and a trigger in
-    // front of each note that plays its slice some way other than forwards.
+    // front of each note that plays its slice some way other than forwards,
+    // or tuned up or down.
     // The trigger names the mode, the note it is for, and how long that note
     // lasts in seconds, which a tape stop and a scratch need from the start
     // and a note-on cannot say (see BreakPlugin::PlayTrigger).
@@ -1602,13 +1603,19 @@ namespace
                 const auto mode = note.getPlayMode();
                 const auto division = note.getRetrigger();
                 const auto step = division > 0 ? 1.0 / division : noteEnd - noteStart;
+                const auto tune = note.getTune();
 
-                for (auto start = noteStart; start < noteEnd - 1.0e-9 && notes.size() < maxNotes; start += step)
+                // How many restarts the roll makes, for its dynamics.
+                const auto count = juce::jmax (1, (int) std::ceil ((noteEnd - noteStart) / step - 1.0e-9));
+                int index = 0;
+
+                for (auto start = noteStart; start < noteEnd - 1.0e-9 && notes.size() < maxNotes; start += step, ++index)
                 {
                     const auto length = std::min (step, noteEnd - start);
-                    notes.push_back ({ pitch, start, length, note.getVelocity() });
+                    notes.push_back ({ pitch, start, length,
+                                       model::Note::rollVelocity (note.getVelocity(), note.getRollDynamics(), index, count) });
 
-                    if (mode != model::Note::PlayMode::forward)
+                    if (mode != model::Note::PlayMode::forward || tune != 0)
                     {
                         const auto ms = juce::jlimit (1, (1 << 21) - 1,
                                                       juce::roundToInt ((secondsAt (start + length) - secondsAt (start)) * 1000.0));
@@ -1618,7 +1625,7 @@ namespace
                                            plugins::BreakPlugin::sysexId[2],
                                            (uint8_t) mode, (uint8_t) pitch,
                                            (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f),
-                                           (uint8_t) (ms & 0x7f) })
+                                           (uint8_t) (ms & 0x7f), (uint8_t) (64 + tune) })
                             payload.append (&byte, 1);
 
                         // A buzz says what it sounds and where it starts

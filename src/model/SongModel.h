@@ -89,7 +89,9 @@ public:
     // carries it along untouched, and it is stored only when it is not the
     // plain forward play.
     // The numbers are what the sync sends the slicer (BreakPlugin::Mode).
-    enum class PlayMode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5, buzz = 6 };
+    // 3 was a scratch, since removed; a song that still says "scratch"
+    // plays the note forward.
+    enum class PlayMode { forward = 0, reverse = 1, tapeStop = 2, fadeIn = 4, fadeOut = 5, buzz = 6 };
 
     PlayMode getPlayMode() const;
     void setPlayMode (PlayMode, juce::UndoManager*);
@@ -117,7 +119,26 @@ public:
     bool isBuzzRamped() const  { return state.getProperty (ids::buzzRamp, false); }
     void setBuzzRamped (bool, juce::UndoManager*);
 
-    // The lyric, the play mode, the retrigger and the buzz -- everything about a note
+    // Tune: the slice played higher or lower by this many semitones, faster
+    // or slower as a sampler would -- this note only. -12..12, 0 as recorded.
+    static constexpr int maxTune = 12;
+
+    int getTune() const;
+    void setTune (int semitones, juce::UndoManager*);
+
+    // A roll's dynamics: every restart as loud as the note, or rising to the
+    // note's velocity from near silence (crescendo), or falling from it
+    // (decrescendo). Nothing without a roll.
+    enum class RollDynamics { flat, crescendo, decrescendo };
+
+    RollDynamics getRollDynamics() const;
+    void setRollDynamics (RollDynamics, juce::UndoManager*);
+
+    // How loud restart `index` of `count` of this note's roll is.
+    static int rollVelocity (int velocity, RollDynamics, int index, int count);
+
+    // The lyric, the play mode, the retrigger, the buzz, the tune and the
+    // roll's dynamics -- everything about a note
     // beyond where it is and how loud -- taken from another one. What every
     // copy of a note goes through, so a duplicated roll stays a roll.
     void copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager*);

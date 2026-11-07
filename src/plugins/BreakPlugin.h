@@ -26,8 +26,8 @@ namespace carve::plugins
 //     at the slice's end rather than running on into the next hit.
 //
 // A note can also play its slice backwards, slow it to a halt like a tape
-// machine losing power, fade it in or out over the note, or scratch it
-// forwards and back like a record
+// machine losing power, fade it in or out over the note, buzz it at a
+// pitch, or play it tuned up or down
 // (model::Note::PlayMode). A note-on cannot say any of that, so the sync
 // puts a SysEx trigger beside such a note naming the mode and how long the
 // note lasts (see PlayTrigger); a roll needs nothing here, since the sync
@@ -54,12 +54,13 @@ public:
     // The start of every SysEx this plugin reads: the non-commercial
     // manufacturer id, then "CB". After it come the mode (the number of a
     // model::Note::PlayMode), the note it is for, and the note's length in
-    // milliseconds as three 7-bit bytes, most significant first. A buzz adds
+    // milliseconds as three 7-bit bytes, most significant first, then the
+    // tune in semitones plus 64. A buzz adds
     // the MIDI note it sounds and the rate it starts from, in tenths of a
     // hertz, three bytes the same way.
     static constexpr uint8_t sysexId[3] = { 0x7d, 0x43, 0x42 };
 
-    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5, buzz = 6 };
+    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, fadeIn = 4, fadeOut = 5, buzz = 6 };
 
     juce::String getName() const override             { return "Break Slicer"; }
     juce::String getPluginType() override             { return xmlTypeName; }
@@ -136,6 +137,7 @@ private:
         double duration = 0.0;   // output samples the note lasts, when a trigger said
         double buzzFrom = 0.0, buzzTo = 0.0;   // restarts a second, at the start and the end
         double cycle = 0.0;      // output samples into the current restart
+        double tuneRate = 1.0;   // the note's tune, as a playback speed
         float gain = 1.0f;
         float envelope = 0.0f;
         float envelopeStep = 0.0f;   // per output sample; negative while fading out
@@ -156,6 +158,7 @@ private:
         Mode mode = Mode::forward;
         double seconds = 0.0;
         double buzzFrom = 0.0, buzzTo = 0.0;
+        int tune = 0;
         double age = 0.0;   // output samples since it arrived
     };
 

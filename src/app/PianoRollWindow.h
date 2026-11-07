@@ -140,6 +140,8 @@ public:
     std::function<void (int divisionsPerBeat)> onRetriggerChosen;
     std::function<void (int midiNote)> onBuzzPitchChosen;
     std::function<void (bool)> onBuzzRampChosen;
+    std::function<void (int semitones)> onTuneChosen;
+    std::function<void (model::Note::RollDynamics)> onRollDynamicsChosen;
 
     PlayModeBar()
     {
@@ -148,13 +150,11 @@ public:
         addAndMakeVisible (playHeader);
 
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut,
-                               Mode::buzz };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::fadeIn, Mode::fadeOut, Mode::buzz };
         const char* tips[] = {
             "Play the slice as recorded",
             "Play the slice backwards, from the next cut to its own",
             "Slow the slice to a halt over the note, like a tape machine losing power",
-            "Push the slice forward for half the note and pull it straight back for the other half",
             "Rise from silence to full over the note",
             "Fall from full to silence over the note",
             "Restart the slice's head so fast it sounds as a note -- the pitch beside it",
@@ -211,6 +211,37 @@ public:
         buzzRampToggle.onClick = [this] { if (onBuzzRampChosen) onBuzzRampChosen (buzzRampToggle.getToggleState()); };
         addAndMakeVisible (buzzRampToggle);
 
+        tuneHeader.setText ("Tune", juce::dontSendNotification);
+        tuneHeader.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (tuneHeader);
+
+        // Ids offset so that 0 -- "nothing selected" to a ComboBox -- is free
+        // to mean a selection that differs.
+        for (int semitones = model::Note::maxTune; semitones >= -model::Note::maxTune; --semitones)
+            tuneBox.addItem ((semitones > 0 ? "+" : "") + juce::String (semitones), tuneIdFor (semitones));
+
+        tuneBox.setTooltip ("Play this note's slice higher or lower, in semitones -- faster or slower, as a sampler would");
+        tuneBox.setWantsKeyboardFocus (false);
+        tuneBox.onChange = [this]
+        {
+            if (onTuneChosen && tuneBox.getSelectedId() > 0)
+                onTuneChosen (tuneBox.getSelectedId() - tuneIdFor (0));
+        };
+        addAndMakeVisible (tuneBox);
+
+        using Dynamics = model::Note::RollDynamics;
+        dynamicsBox.addItem ("Flat", 1 + (int) Dynamics::flat);
+        dynamicsBox.addItem ("Cresc.", 1 + (int) Dynamics::crescendo);
+        dynamicsBox.addItem ("Decresc.", 1 + (int) Dynamics::decrescendo);
+        dynamicsBox.setTooltip ("A roll every restart as loud, rising out of silence (crescendo), or dying away (decrescendo)");
+        dynamicsBox.setWantsKeyboardFocus (false);
+        dynamicsBox.onChange = [this]
+        {
+            if (onRollDynamicsChosen && dynamicsBox.getSelectedId() > 0)
+                onRollDynamicsChosen ((Dynamics) (dynamicsBox.getSelectedId() - 1));
+        };
+        addAndMakeVisible (dynamicsBox);
+
         hint.setText ("applies to the selected notes, or to the next note drawn", juce::dontSendNotification);
         hint.setFont (uiFont (fonts::small));
         hint.setColour (juce::Label::textColourId, juce::Colour (0xff6e6e78));
@@ -219,8 +250,15 @@ public:
 
     // What the roll says is shown: nothing lit for a selection that differs.
     void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger,
-               std::optional<int> buzzPitch, std::optional<bool> buzzRamped)
+               std::optional<int> buzzPitch, std::optional<bool> buzzRamped,
+               std::optional<int> tune, std::optional<model::Note::RollDynamics> dynamics)
     {
+        tuneBox.setSelectedId (tune ? tuneIdFor (*tune) : 0, juce::dontSendNotification);
+        dynamicsBox.setSelectedId (dynamics ? 1 + (int) *dynamics : 0, juce::dontSendNotification);
+
+        // Dynamics are a roll's; without one there is nothing to shape.
+        dynamicsBox.setEnabled (! retrigger || *retrigger != 0);
+
         // The buzz's settings only mean something on a buzz.
         const bool buzz = mode && *mode == model::Note::PlayMode::buzz;
         buzzPitchBox.setEnabled (buzz);
@@ -229,8 +267,7 @@ public:
         buzzRampToggle.setToggleState (buzzRamped.value_or (false), juce::dontSendNotification);
 
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut,
-                               Mode::buzz };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::fadeIn, Mode::fadeOut, Mode::buzz };
 
         for (size_t i = 0; i < modeButtons.size(); ++i)
             modeButtons[i].setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
@@ -260,10 +297,17 @@ public:
         area.removeFromLeft (4);
         buzzRampToggle.setBounds (area.removeFromLeft (60));
 
-        area.removeFromLeft (14);
+        area.removeFromLeft (12);
+        tuneHeader.setBounds (area.removeFromLeft (36));
+        area.removeFromLeft (4);
+        tuneBox.setBounds (area.removeFromLeft (58));
+
+        area.removeFromLeft (12);
         rollHeader.setBounds (area.removeFromLeft (32));
         area.removeFromLeft (4);
         rollBox.setBounds (area.removeFromLeft (72));
+        area.removeFromLeft (4);
+        dynamicsBox.setBounds (area.removeFromLeft (86));
         area.removeFromLeft (12);
 
         // Said only where there is room to say it.
@@ -272,11 +316,15 @@ public:
     }
 
 private:
+    static int tuneIdFor (int semitones)  { return semitones + model::Note::maxTune + 1; }
+
     // Combo ids are 1-based; division + 1 keeps "Off" (0) addressable.
     static int rollIdFor (int divisionsPerBeat)  { return divisionsPerBeat + 1; }
 
     juce::Label playHeader, rollHeader, hint;
-    std::array<juce::TextButton, 7> modeButtons;
+    std::array<juce::TextButton, 6> modeButtons;
+    juce::Label tuneHeader;
+    juce::ComboBox tuneBox, dynamicsBox;
     juce::ComboBox buzzPitchBox;
     juce::ToggleButton buzzRampToggle { "Ramp" };
     juce::ComboBox rollBox;
@@ -408,6 +456,18 @@ public:
         playModeBar.onBuzzRampChosen = [this] (bool ramped)
         {
             pianoRoll.setBuzzRamped (ramped);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onTuneChosen = [this] (int semitones)
+        {
+            pianoRoll.setTune (semitones);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onRollDynamicsChosen = [this] (model::Note::RollDynamics dynamics)
+        {
+            pianoRoll.setRollDynamics (dynamics);
             refreshPlayModeBar();
             pianoRoll.grabKeyboardFocus();
         };
@@ -910,7 +970,8 @@ private:
     {
         if (playModeBar.isVisible())
             playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger(),
-                              pianoRoll.getShownBuzzPitch(), pianoRoll.getShownBuzzRamped());
+                              pianoRoll.getShownBuzzPitch(), pianoRoll.getShownBuzzRamped(),
+                              pianoRoll.getShownTune(), pianoRoll.getShownRollDynamics());
     }
 
     juce::UndoManager& undoManager;

@@ -179,7 +179,6 @@ namespace
         {
             case Note::PlayMode::reverse:   return "reverse";
             case Note::PlayMode::tapeStop:  return "stop";
-            case Note::PlayMode::scratch:   return "scratch";
             case Note::PlayMode::fadeIn:    return "fadein";
             case Note::PlayMode::fadeOut:   return "fadeout";
             case Note::PlayMode::buzz:      return "buzz";
@@ -194,7 +193,7 @@ Note::PlayMode Note::getPlayMode() const
 {
     const auto key = state[ids::play].toString();
 
-    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch, PlayMode::fadeIn, PlayMode::fadeOut, PlayMode::buzz })
+    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::fadeIn, PlayMode::fadeOut, PlayMode::buzz })
         if (key == playModeKey (mode))
             return mode;
 
@@ -215,7 +214,6 @@ juce::String Note::getPlayModeName (PlayMode mode)
     {
         case PlayMode::reverse:   return "Reverse";
         case PlayMode::tapeStop:  return "Tape Stop";
-        case PlayMode::scratch:   return "Scratch";
         case PlayMode::fadeIn:    return "Fade In";
         case PlayMode::fadeOut:   return "Fade Out";
         case PlayMode::buzz:      return "Buzz";
@@ -280,6 +278,55 @@ void Note::setBuzzRamped (bool ramped, juce::UndoManager* um)
         state.removeProperty (ids::buzzRamp, um);
 }
 
+int Note::getTune() const
+{
+    return juce::jlimit (-maxTune, maxTune, (int) state.getProperty (ids::tune, 0));
+}
+
+void Note::setTune (int semitones, juce::UndoManager* um)
+{
+    const auto clamped = juce::jlimit (-maxTune, maxTune, semitones);
+
+    if (clamped == 0)
+        state.removeProperty (ids::tune, um);
+    else
+        state.setProperty (ids::tune, clamped, um);
+}
+
+Note::RollDynamics Note::getRollDynamics() const
+{
+    const auto key = state[ids::rollDyn].toString();
+
+    if (key == "cresc")    return RollDynamics::crescendo;
+    if (key == "decresc")  return RollDynamics::decrescendo;
+    return RollDynamics::flat;
+}
+
+void Note::setRollDynamics (RollDynamics dynamics, juce::UndoManager* um)
+{
+    if (dynamics == RollDynamics::flat)
+        state.removeProperty (ids::rollDyn, um);
+    else
+        state.setProperty (ids::rollDyn, dynamics == RollDynamics::crescendo ? "cresc" : "decresc", um);
+}
+
+int Note::rollVelocity (int velocity, RollDynamics dynamics, int index, int count)
+{
+    if (dynamics == RollDynamics::flat || count <= 1)
+        return clampVelocity (velocity);
+
+    // From a tenth of the note's velocity to all of it, evenly, over the
+    // roll: quiet enough at the bottom that a crescendo comes up out of
+    // nothing, loud enough that its first hits are still hits.
+    constexpr double floor = 0.1;
+    auto t = (double) index / (count - 1);
+
+    if (dynamics == RollDynamics::decrescendo)
+        t = 1.0 - t;
+
+    return clampVelocity (juce::roundToInt (velocity * (floor + (1.0 - floor) * t)));
+}
+
 void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
 {
     const Note from (source);
@@ -288,6 +335,8 @@ void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
     setRetrigger (from.getRetrigger(), um);
     setBuzzPitch (from.getBuzzPitch(), um);
     setBuzzRamped (from.isBuzzRamped(), um);
+    setTune (from.getTune(), um);
+    setRollDynamics (from.getRollDynamics(), um);
 }
 
 //==============================================================================

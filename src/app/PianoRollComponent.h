@@ -97,8 +97,9 @@ public:
     void setLyricCheck (LyricCheck);
 
     // For a break slicer: each note shows how it plays (an arrow back for
-    // reverse, a slope for a tape stop, a wave for a scratch) and its roll
-    // as ticks where the slice restarts.
+    // reverse, a slope for a tape stop, a wedge for a fade, a saw for a
+    // buzz), its tune, and its roll as ticks where the slice restarts --
+    // as tall as each restart is loud, so a crescendo reads as one.
     void setShowsPlayModes (bool);
     bool showsPlayModes() const  { return showsPlayModesFlag; }
 
@@ -110,6 +111,8 @@ public:
     void setRetrigger (int divisionsPerBeat);
     void setBuzzPitch (int midiNote);
     void setBuzzRamped (bool);
+    void setTune (int semitones);
+    void setRollDynamics (model::Note::RollDynamics);
 
     // The selection's setting when every selected note agrees, nothing when
     // they differ; the brush's when nothing is selected.
@@ -117,6 +120,8 @@ public:
     std::optional<int> getShownRetrigger() const;
     std::optional<int> getShownBuzzPitch() const;
     std::optional<bool> getShownBuzzRamped() const;
+    std::optional<int> getShownTune() const;
+    std::optional<model::Note::RollDynamics> getShownRollDynamics() const;
 
     // The rows worth looking at: the span of the drum map, or nothing at all
     // when there is no map and one row is as good as another.
@@ -346,6 +351,8 @@ private:
     inline static int retriggerBrush = 0;
     inline static int buzzPitchBrush = model::Note::defaultBuzzPitch;
     inline static bool buzzRampBrush = false;
+    inline static int tuneBrush = 0;
+    inline static model::Note::RollDynamics rollDynamicsBrush = model::Note::RollDynamics::flat;
 
     // The selection's value of one note setting when all agree, nothing
     // when they differ, the brush's when nothing is selected; and the same

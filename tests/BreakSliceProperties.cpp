@@ -348,17 +348,17 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
 
     juce::UndoManager undo;
     undo.beginNewTransaction();
-    note.setPlayMode (Note::PlayMode::scratch, &undo);
+    note.setPlayMode (Note::PlayMode::tapeStop, &undo);
     note.setRetrigger (5, &undo);   // not offered: the nearest one is
 
-    REQUIRE (note.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (note.getPlayMode() == Note::PlayMode::tapeStop);
     REQUIRE (note.getRetrigger() == 4);
 
     // Through a file.
     auto loaded = Song::fromXml (song.toXmlString());
     REQUIRE (loaded.has_value());
     const auto restored = loaded->findGenerator (generator.getId())->getPatterns().front().getNote (0);
-    REQUIRE (restored.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (restored.getPlayMode() == Note::PlayMode::tapeStop);
     REQUIRE (restored.getRetrigger() == 4);
 
     // A buzz's note and ramp: stored only when not the default, clamped.
@@ -368,13 +368,21 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
     note.setBuzzPitch (57, nullptr);
     note.setBuzzRamped (true, nullptr);
 
+    // Tune and a roll's dynamics, clamped and stored the same way.
+    note.setTune (-20, nullptr);
+    REQUIRE (note.getTune() == -Note::maxTune);
+    note.setTune (5, nullptr);
+    note.setRollDynamics (Note::RollDynamics::decrescendo, nullptr);
+
     // A copy plays the same, and a cloned pattern too.
     auto copy = pattern.addNote (2.0, 1.0, 37, 100, nullptr);
     copy.copyExtrasFrom (note.state, nullptr);
-    REQUIRE (copy.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (copy.getPlayMode() == Note::PlayMode::tapeStop);
     REQUIRE (copy.getRetrigger() == 4);
     REQUIRE (copy.getBuzzPitch() == 57);
     REQUIRE (copy.isBuzzRamped());
+    REQUIRE (copy.getTune() == 5);
+    REQUIRE (copy.getRollDynamics() == Note::RollDynamics::decrescendo);
 
     auto reloaded = Song::fromXml (song.toXmlString());
     const auto buzzed = reloaded->findGenerator (generator.getId())->getPatterns().front().getNote (0);
@@ -382,10 +390,10 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
     REQUIRE (buzzed.isBuzzRamped());
 
     auto clone = generator.duplicatePattern (pattern, nullptr);
-    REQUIRE (clone.getNote (0).getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (clone.getNote (0).getPlayMode() == Note::PlayMode::tapeStop);
 
     // Every mode by name, and back to forward removes it again.
-    for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop, Note::PlayMode::scratch,
+    for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop,
                        Note::PlayMode::fadeIn, Note::PlayMode::fadeOut, Note::PlayMode::buzz })
     {
         note.setPlayMode (mode, nullptr);
@@ -399,8 +407,42 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
     note.setRetrigger (0, nullptr);
     note.setBuzzPitch (Note::defaultBuzzPitch, nullptr);
     note.setBuzzRamped (false, nullptr);
+    note.setTune (0, nullptr);
+    note.setRollDynamics (Note::RollDynamics::flat, nullptr);
+    REQUIRE (! note.state.hasProperty (ids::tune));
+    REQUIRE (! note.state.hasProperty (ids::rollDyn));
     REQUIRE (! note.state.hasProperty (ids::play));
     REQUIRE (! note.state.hasProperty (ids::retrig));
     REQUIRE (! note.state.hasProperty (ids::buzz));
     REQUIRE (! note.state.hasProperty (ids::buzzRamp));
+}
+
+TEST_CASE ("A roll's dynamics ramp its restarts evenly, and a removed mode plays forward", "[break][note]")
+{
+    using D = Note::RollDynamics;
+
+    for (int i = 0; i < 8; ++i)
+        REQUIRE (Note::rollVelocity (100, D::flat, i, 8) == 100);
+
+    // Rising from a tenth to all of it, and back down the same steps.
+    REQUIRE (Note::rollVelocity (100, D::crescendo, 0, 8) == 10);
+    REQUIRE (Note::rollVelocity (100, D::crescendo, 7, 8) == 100);
+    REQUIRE (Note::rollVelocity (100, D::decrescendo, 0, 8) == 100);
+    REQUIRE (Note::rollVelocity (100, D::decrescendo, 7, 8) == 10);
+
+    for (int i = 1; i < 8; ++i)
+    {
+        REQUIRE (Note::rollVelocity (100, D::crescendo, i, 8) > Note::rollVelocity (100, D::crescendo, i - 1, 8));
+        REQUIRE (Note::rollVelocity (100, D::decrescendo, i, 8) == Note::rollVelocity (100, D::crescendo, 7 - i, 8));
+    }
+
+    // Never a note-off in disguise.
+    REQUIRE (Note::rollVelocity (1, D::crescendo, 0, 8) >= Note::quietestVelocity);
+
+    // A song saved while there was a scratch.
+    auto loaded = Song::fromXml (R"(<SONG name="Old" tempo="120"><GENERATORS><GENERATOR id="g" name="B" type="break">
+        <PATTERNS><PATTERN id="p" name="B1" lengthBeats="4"><NOTE start="0" length="1" pitch="36" velocity="100" play="scratch"/>
+        </PATTERN></PATTERNS></GENERATOR></GENERATORS><PLAYLIST/></SONG>)");
+    REQUIRE (loaded.has_value());
+    REQUIRE (loaded->findGenerator ("g")->getPatterns().front().getNote (0).getPlayMode() == Note::PlayMode::forward);
 }

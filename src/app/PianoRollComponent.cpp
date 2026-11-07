@@ -226,6 +226,28 @@ void PianoRollComponent::setBuzzRamped (bool ramped)
     applyToSelection ([&] (model::Note& note) { note.setBuzzRamped (ramped, &undoManager); });
 }
 
+void PianoRollComponent::setTune (int semitones)
+{
+    tuneBrush = semitones;
+    applyToSelection ([&] (model::Note& note) { note.setTune (semitones, &undoManager); });
+}
+
+void PianoRollComponent::setRollDynamics (model::Note::RollDynamics dynamics)
+{
+    rollDynamicsBrush = dynamics;
+    applyToSelection ([&] (model::Note& note) { note.setRollDynamics (dynamics, &undoManager); });
+}
+
+std::optional<int> PianoRollComponent::getShownTune() const
+{
+    return shownSetting (tuneBrush, [] (const model::Note& n) { return n.getTune(); });
+}
+
+std::optional<model::Note::RollDynamics> PianoRollComponent::getShownRollDynamics() const
+{
+    return shownSetting (rollDynamicsBrush, [] (const model::Note& n) { return n.getRollDynamics(); });
+}
+
 std::optional<model::Note::PlayMode> PianoRollComponent::getShownPlayMode() const
 {
     return shownSetting (playModeBrush, [] (const model::Note& n) { return n.getPlayMode(); });
@@ -251,19 +273,34 @@ void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& no
     const auto ink = juce::Colours::black.withAlpha (0.7f);
 
     // The roll's restarts: a tick at each, after the first, which is the
-    // note's own start.
+    // note's own start -- rising from the bottom as far as that restart is
+    // loud, so a crescendo is a ramp of ticks.
     if (const auto division = note.getRetrigger(); division > 0)
     {
         g.setColour (ink);
 
-        for (auto beat = note.getStart() + 1.0 / division; beat < note.getStart() + note.getLength() - 1.0e-9;
-             beat += 1.0 / division)
+        const auto step = 1.0 / division;
+        const auto count = juce::jmax (1, (int) std::ceil (note.getLength() / step - 1.0e-9));
+        const auto velocity = juce::jmax (1, note.getVelocity());
+        const auto full = r.getHeight() - 4.0f;
+
+        for (int index = 1; index < count; ++index)
         {
-            const auto x = beatToX (beat);
+            const auto x = beatToX (note.getStart() + index * step);
+            const auto loudness = (float) model::Note::rollVelocity (velocity, note.getRollDynamics(), index, count) / (float) velocity;
 
             if (x > r.getX() + 1.0f && x < r.getRight() - 1.0f)
-                g.drawVerticalLine ((int) x, r.getY() + 2.0f, r.getBottom() - 2.0f);
+                g.drawVerticalLine ((int) x, r.getBottom() - 2.0f - full * loudness, r.getBottom() - 2.0f);
         }
+    }
+
+    // The tune, at the tail where it does not cover the mode's mark.
+    if (const auto tune = note.getTune(); tune != 0 && r.getWidth() > 26.0f)
+    {
+        g.setColour (ink);
+        g.setFont (uiFont (fonts::small));
+        g.drawText ((tune > 0 ? "+" : "") + juce::String (tune), r.reduced (3.0f, 0.0f),
+                    juce::Justification::centredRight, false);
     }
 
     const auto mode = note.getPlayMode();
@@ -290,13 +327,6 @@ void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& no
         case model::Note::PlayMode::tapeStop:
             glyph.startNewSubPath (box.getX(), box.getY());
             glyph.quadraticTo (box.getX() + box.getWidth() * 0.4f, box.getBottom(), box.getRight(), box.getBottom());
-            break;
-
-        case model::Note::PlayMode::scratch:
-            // There and back: a peak.
-            glyph.startNewSubPath (box.getX(), box.getBottom());
-            glyph.lineTo (box.getCentreX(), box.getY());
-            glyph.lineTo (box.getRight(), box.getBottom());
             break;
 
         case model::Note::PlayMode::buzz:
@@ -1723,6 +1753,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         draggedNote->setRetrigger (retriggerBrush, &undoManager);
         draggedNote->setBuzzPitch (buzzPitchBrush, &undoManager);
         draggedNote->setBuzzRamped (buzzRampBrush, &undoManager);
+        draggedNote->setTune (tuneBrush, &undoManager);
+        draggedNote->setRollDynamics (rollDynamicsBrush, &undoManager);
     }
     previewNote (pitch, lastNoteVelocity);
 
