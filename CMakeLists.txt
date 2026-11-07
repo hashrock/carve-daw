@@ -104,6 +104,10 @@ set(CARVE_CORE_SOURCES
     src/plugins/DrumSynthPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
+    src/plugins/BreakPlugin.h
+    src/plugins/BreakPlugin.cpp
+    src/plugins/BreakAnalysis.h
+    src/plugins/BreakAnalysis.cpp
     src/plugins/UtauPlugin.h
     src/plugins/UtauPlugin.cpp
     src/voice/Voicebank.h
@@ -307,6 +311,8 @@ if(CARVE_BUILD_TESTS)
         src/model/SongModel.cpp
         src/model/Capture.cpp
         src/voice/Voicebank.cpp
+        src/plugins/BreakAnalysis.cpp
+        tests/BreakSliceProperties.cpp
         tests/CaptureProperties.cpp
         tests/VoicebankTests.cpp
         tests/NoteGestureProperties.cpp

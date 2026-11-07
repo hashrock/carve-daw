@@ -55,6 +55,7 @@ namespace
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
     }
@@ -341,6 +342,36 @@ namespace
                            generator.getSoundFontBank(), generator.getSoundFontProgram());
     }
 
+    // The break slicer, likewise: its loop, its cuts and whether it follows
+    // the song's tempo all come from the model.
+    void ensureBreakInstrument (te::Edit& edit, te::AudioTrack& track, const model::Song& song,
+                                const model::Generator& generator)
+    {
+        auto slicer = dynamic_cast<plugins::BreakPlugin*> (findInstrument (track));
+
+        if (slicer == nullptr)
+        {
+            removeInstruments (track);
+
+            auto plugin = edit.getPluginCache().createNewPlugin (plugins::BreakPlugin::xmlTypeName, {});
+            slicer = dynamic_cast<plugins::BreakPlugin*> (plugin.get());
+
+            if (slicer == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        // Repitched to the song's opening tempo. A tempo change later in the
+        // song moves where the slices start, as it moves every note, but does
+        // not retune a loop already playing.
+        const auto loopBeats = generator.isBreakRepitched()
+                                   ? generator.getBreakBars() * song.getTimeSigAt (0.0).getBeatsPerBar()
+                                   : 0.0;
+
+        slicer->setSource (generator.getBreakFile(), generator.getBreakSlices(), loopBeats, song.getTempo());
+    }
+
     // The singer, likewise: the voicebank is all it keeps, and the model's.
     void ensureUtauInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
@@ -404,7 +435,8 @@ namespace
         }
     }
 
-    void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
+    void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Song& song,
+                           const model::Generator& generator)
     {
         if (generator.isAudio())
         {
@@ -424,6 +456,10 @@ namespace
         else if (generator.isUtau())
         {
             ensureUtauInstrument (edit, track, generator);
+        }
+        else if (generator.isBreak())
+        {
+            ensureBreakInstrument (edit, track, song, generator);
         }
         else if (generator.getType() == "plugin")
         {
@@ -1941,7 +1977,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         if (rebuildInstruments)
             removeInstruments (track);
 
-        ensureInstrument (edit, track, generator);
+        ensureInstrument (edit, track, song, generator);
         syncEffects (edit, track, generator);
         syncSends (song, edit, track, generator);
         applyMixerState (song, generator, track);
@@ -2112,7 +2148,9 @@ void EditSync::applyTempoOnly()
 
         // A singer's notes are synthesised to their length in seconds, which
         // a tempo change moves: only a full sync prepares them again.
-        if (generator.isUtau())
+        // A repitched break plays at a rate the tempo sets, and only the full
+        // sync hands the slicer a new one.
+        if (generator.isUtau() || (generator.isBreak() && generator.isBreakRepitched()))
         {
             triggerAsyncUpdate();
             return;

@@ -561,6 +561,50 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->setVoiceStyleValueForSelected (id, value);
         };
+        inst.onLoadBreak = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->generatorController->chooseBreakForSelected();
+        };
+        inst.onBreakDropped = [safe = juce::Component::SafePointer (this)] (const juce::File& file)
+        {
+            if (safe != nullptr)
+                safe->generatorController->breakDroppedOnSelected (file);
+        };
+        inst.onBreakCutsReplaced = [safe = juce::Component::SafePointer (this)] (const std::vector<double>& cuts)
+        {
+            if (safe != nullptr)
+                safe->generatorController->setBreakCutsForSelected (cuts);
+        };
+        inst.onBreakCutMoved = [safe = juce::Component::SafePointer (this)] (int index, double seconds)
+        {
+            if (safe != nullptr)
+                safe->generatorController->moveBreakCutForSelected (index, seconds);
+        };
+        inst.onBreakCutAdded = [safe = juce::Component::SafePointer (this)] (double seconds)
+        {
+            if (safe != nullptr)
+                safe->generatorController->addBreakCutForSelected (seconds);
+        };
+        inst.onBreakCutRemoved = [safe = juce::Component::SafePointer (this)] (int index)
+        {
+            if (safe != nullptr)
+                safe->generatorController->removeBreakCutForSelected (index);
+        };
+        inst.onBreakBarsChanged = [safe = juce::Component::SafePointer (this)] (int bars)
+        {
+            if (safe != nullptr)
+                safe->generatorController->setBreakBarsForSelected (bars);
+        };
+        inst.onBreakRepitchChanged = [safe = juce::Component::SafePointer (this)] (bool repitch)
+        {
+            if (safe != nullptr)
+                safe->generatorController->setBreakRepitchForSelected (repitch);
+        };
+        inst.getBeatsPerBar = [safe = juce::Component::SafePointer (this)]
+        {
+            return safe != nullptr ? safe->song.getTimeSigAt (0.0).getBeatsPerBar() : 4.0;
+        };
         inst.getRecentMedia = [safe = juce::Component::SafePointer (this)] (MediaKind kind)
         {
             return safe != nullptr ? safe->generatorController->getRecentMedia (kind)

@@ -135,6 +135,18 @@ public:
     void chooseVoicebankForSelected();
     void voicebankDroppedOnSelected (const juce::File& folder);
 
+    // The break slicer's Inst tab. A loop comes from the Load button, a drop
+    // or the browser; each edit of its cuts, bars or repitch is one undo
+    // step. All are ignored unless the selected generator is a slicer.
+    void chooseBreakForSelected();
+    void breakDroppedOnSelected (const juce::File& loop);
+    void setBreakCutsForSelected (const std::vector<double>& cuts);
+    void moveBreakCutForSelected (int index, double seconds);
+    void addBreakCutForSelected (double seconds);
+    void removeBreakCutForSelected (int index);
+    void setBreakBarsForSelected (int bars);
+    void setBreakRepitchForSelected (bool repitch);
+
     // One of the singer's voice knobs, let go of: one undo step.
     void setVoiceStyleValueForSelected (const juce::Identifier&, double value);
 
@@ -178,6 +190,25 @@ private:
     void launchVoicebankChooser (std::function<void (const juce::File&)> onChosen);
     void addUtauGenerator (const juce::File& folder);
     void assignVoicebank (model::Generator, const juce::File& folder);
+
+    // The slicer's: a loop chooser that remembers its own folder (loops are
+    // a library of their own), and the load, which cuts the loop evenly and
+    // gives the slicer a pattern that plays it as recorded.
+    void launchBreakChooser (std::function<void (const juce::File&)> onChosen);
+    void assignBreak (model::Generator, const juce::File& loop);
+
+    // How long the selected slicer's loop is, which every edit of its cuts
+    // is bounded by. Read from the file once per file.
+    double getBreakLoopSeconds (const model::Generator&);
+
+    // One edit of a slicer's cuts or bars, as one undo step, with every
+    // pattern that played the loop as recorded before it rewritten to play
+    // it as recorded after (see Generator::playsBreakAsRecorded).
+    void editBreak (const std::function<void (model::Generator&, double loopSeconds)>& edit);
+    juce::File breakLengthFile;
+    juce::Time breakLengthStamp;
+    double breakLengthSeconds = 0.0;
+
     void assignSoundFont (model::Generator, const juce::File& soundFont);
     void assignSample (model::Generator, const juce::File& sample);
 

@@ -26,7 +26,7 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
-// │     │                                | "drum-sampler" | "soundfont" | "utau" | "audio"
+// │     │                                | "drum-sampler" | "soundfont" | "utau" | "break" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
@@ -49,6 +49,14 @@
 // │     │        survive a change of voicebank: voiceGender, voiceBreath,
 // │     │        voiceBrightness, voiceModulation (see VoiceStyle). Each is
 // │     │        stored only when it differs from its default.
+// │     ├─ SLICES                           "break" generators only
+// │     │  └─ SLICE {start}                 seconds into the loop (its one SOUND).
+// │     │        Kept in order. Slice i plays from its start up to the next
+// │     │        one's (the last to the end of the file) on note 36 + i.
+// │     │        The GENERATOR carries breakBars (how many bars the loop is,
+// │     │        for its tempo) and breakRepitch (play the whole loop faster
+// │     │        or slower with the song's tempo, pitch and all). Both are
+// │     │        optional; see Generator::getBreakBars.
 // │     ├─ AUTOMATION
 // │     │  └─ AUTOCURVE {target, param}     target: "volume" | "pan" |
 // │     │     └─ PT {beat, value, curve}    "instrument" | an effect id.
@@ -136,6 +144,8 @@ CARVE_DECLARE_ID (TEMPO)
 CARVE_DECLARE_ID (TIMESIGS)
 CARVE_DECLARE_ID (TIMESIG)
 CARVE_DECLARE_ID (AUTOMATION)
+CARVE_DECLARE_ID (SLICES)
+CARVE_DECLARE_ID (SLICE)
 
 CARVE_DECLARE_ID (id)
 CARVE_DECLARE_ID (name)
@@ -193,6 +203,8 @@ CARVE_DECLARE_ID (voiceBrightness)
 CARVE_DECLARE_ID (voiceModulation)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
+CARVE_DECLARE_ID (breakBars)
+CARVE_DECLARE_ID (breakRepitch)
 
 #undef CARVE_DECLARE_ID
 

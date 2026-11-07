@@ -36,6 +36,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (4, "Drum Kit (16 pads)");
     menu.addItem (7, "SoundFont (.sf2)");
     menu.addItem (8, "UTAU (voicebank)");
+    menu.addItem (9, "Break Slicer (drum loop)");
     menu.addItem (5, "Audio track");
 
     const auto types = engine.getPluginManager().knownPluginList.getTypes();
@@ -94,6 +95,14 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             const bool singer = result == 8;
             addGenerator ((singer ? "UTAU " : "SoundFont ") + juce::String (song.getNumGenerators() + 1),
                           singer ? model::Generator::utauType : model::Generator::soundFontType, nullptr);
+
+            if (onOpenInstrumentForSetup)
+                onOpenInstrumentForSetup();
+        }
+        else if (result == 9)
+        {
+            addGenerator ("Break " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::breakType, nullptr);
 
             if (onOpenInstrumentForSetup)
                 onOpenInstrumentForSetup();
@@ -399,6 +408,195 @@ void GeneratorController::voicebankDroppedOnSelected (const juce::File& folder)
 }
 
 //==============================================================================
+// Break slicer
+
+static constexpr const char* lastBreakDirectoryKey = "lastBreakDirectory";
+
+void GeneratorController::launchBreakChooser (std::function<void (const juce::File&)> onChosen)
+{
+    const juce::File remembered (engine.getPropertyStorage().getPropertiesFile()
+                                     .getValue (lastBreakDirectoryKey));
+
+    sampleChooser = std::make_unique<juce::FileChooser> (
+        "Choose a drum loop",
+        remembered.isDirectory() ? remembered : getSampleBrowseDirectory(),
+        engine.getAudioFileFormatManager().readFormatManager.getWildcardForAllFormats());
+
+    sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto loop = chooser.getResult(); loop.existsAsFile())
+        {
+            engine.getPropertyStorage().getPropertiesFile()
+                .setValue (lastBreakDirectoryKey, loop.getParentDirectory().getFullPathName());
+            onChosen (loop);
+        }
+    });
+}
+
+double GeneratorController::getBreakLoopSeconds (const model::Generator& generator)
+{
+    const auto file = generator.getBreakFile();
+
+    if (file != breakLengthFile || file.getLastModificationTime() != breakLengthStamp)
+    {
+        breakLengthFile = file;
+        breakLengthStamp = file.getLastModificationTime();
+        breakLengthSeconds = model::readAudioFileLengthSeconds (file);
+    }
+
+    return breakLengthSeconds;
+}
+
+void GeneratorController::assignBreak (model::Generator generator, const juce::File& loop)
+{
+    if (! generator.isBreak() || ! engine.getAudioFileFormatManager().canOpen (loop))
+        return;
+
+    const auto seconds = model::readAudioFileLengthSeconds (loop);
+
+    if (seconds <= 0.0)
+        return;
+
+    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
+
+    // The patterns that played the old loop as recorded play the new one as
+    // recorded too; found before the old cuts are replaced, since that is
+    // what they are compared with.
+    std::vector<model::Pattern> asRecorded;
+
+    if (const auto oldSeconds = getBreakLoopSeconds (generator); oldSeconds > 0.0)
+        for (const auto& pattern : generator.getPatterns())
+            if (generator.playsBreakAsRecorded (pattern, oldSeconds, beatsPerBar))
+                asRecorded.push_back (pattern);
+
+    undoManager.beginNewTransaction();
+
+    const bool wasEmpty = generator.getSounds().empty();
+    generator.setBreakFile (loop, seconds, beatsPerBar, &undoManager);
+    nameAfterFirstMedia (generator, wasEmpty, "Break", loop.getFileNameWithoutExtension());
+    rememberMedia (MediaKind::breakLoop, loop);
+
+    // Otherwise the loop as recorded goes in the pattern the slicer was made
+    // with, while that one is still empty, or in a new one beside the user's
+    // own. Either way the first thing a loaded break does is sound like
+    // itself.
+    if (asRecorded.empty())
+        for (const auto& pattern : generator.getPatterns())
+            if (pattern.getId() == selectedPatternId && pattern.isEmpty())
+                asRecorded.push_back (pattern);
+
+    if (asRecorded.empty())
+        selectedPatternId = generator.createBreakPattern (seconds, beatsPerBar, &undoManager).getId();
+
+    for (auto& pattern : asRecorded)
+        generator.fillBreakAsRecorded (pattern, seconds, beatsPerBar, &undoManager);
+
+    selectedGeneratorId = generator.getId();
+    refresh();
+    fireSelectionChanged();
+}
+
+void GeneratorController::chooseBreakForSelected()
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isBreak())
+        return;
+
+    const auto generatorId = generator->getId();
+
+    launchBreakChooser ([this, generatorId] (const juce::File& loop)
+    {
+        if (auto target = song.findGenerator (generatorId))
+            assignBreak (*target, loop);
+    });
+}
+
+void GeneratorController::breakDroppedOnSelected (const juce::File& loop)
+{
+    if (auto generator = getSelectedGenerator())
+        assignBreak (*generator, loop);
+}
+
+void GeneratorController::editBreak (const std::function<void (model::Generator&, double)>& edit)
+{
+    auto generator = getSelectedGenerator();
+
+    if (! generator || ! generator->isBreak())
+        return;
+
+    const auto seconds = getBreakLoopSeconds (*generator);
+    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
+
+    std::vector<model::Pattern> asRecorded;
+
+    for (const auto& pattern : generator->getPatterns())
+        if (generator->playsBreakAsRecorded (pattern, seconds, beatsPerBar))
+            asRecorded.push_back (pattern);
+
+    undoManager.beginNewTransaction();
+    edit (*generator, seconds);
+
+    for (auto& pattern : asRecorded)
+        generator->fillBreakAsRecorded (pattern, seconds, beatsPerBar, &undoManager);
+}
+
+void GeneratorController::setBreakCutsForSelected (const std::vector<double>& cuts)
+{
+    editBreak ([&] (model::Generator& generator, double seconds)
+    {
+        generator.setBreakSlices (cuts, seconds, &undoManager);
+    });
+}
+
+void GeneratorController::moveBreakCutForSelected (int index, double seconds)
+{
+    editBreak ([&] (model::Generator& generator, double loopSeconds)
+    {
+        generator.moveBreakSlice (index, seconds, loopSeconds, &undoManager);
+    });
+}
+
+void GeneratorController::addBreakCutForSelected (double seconds)
+{
+    editBreak ([&] (model::Generator& generator, double loopSeconds)
+    {
+        generator.insertBreakSlice (seconds, loopSeconds, &undoManager);
+    });
+}
+
+void GeneratorController::removeBreakCutForSelected (int index)
+{
+    editBreak ([&] (model::Generator& generator, double)
+    {
+        generator.removeBreakSlice (index, &undoManager);
+    });
+}
+
+void GeneratorController::setBreakBarsForSelected (int bars)
+{
+    if (auto generator = getSelectedGenerator(); ! generator || generator->getBreakBars() == bars)
+        return;
+
+    editBreak ([&] (model::Generator& generator, double)
+    {
+        generator.setBreakBars (bars, &undoManager);
+    });
+}
+
+void GeneratorController::setBreakRepitchForSelected (bool repitch)
+{
+    if (auto generator = getSelectedGenerator(); generator && generator->isBreak()
+                                                 && generator->isBreakRepitched() != repitch)
+    {
+        undoManager.beginNewTransaction();
+        generator->setBreakRepitched (repitch, &undoManager);
+    }
+}
+
+//==============================================================================
 // History
 
 namespace
@@ -410,6 +608,7 @@ namespace
             case MediaKind::sample:     return "recentSamples";
             case MediaKind::soundFont:  return "recentSoundFonts";
             case MediaKind::voicebank:  return "recentVoicebanks";
+            case MediaKind::breakLoop:  return "recentBreaks";
         }
 
         return "recentSamples";
@@ -463,6 +662,7 @@ void GeneratorController::recentMediaChosen (MediaKind kind, const juce::File& f
         case MediaKind::sample:     assignSample (*generator, file); break;
         case MediaKind::soundFont:  assignSoundFont (*generator, file); break;
         case MediaKind::voicebank:  assignVoicebank (*generator, file); break;
+        case MediaKind::breakLoop:  assignBreak (*generator, file); break;
     }
 }
 
@@ -524,6 +724,13 @@ void GeneratorController::loadSampleIntoSelected (const juce::File& sample)
         return;
 
     auto generator = getSelectedGenerator();
+
+    // A slicer takes the file as its loop.
+    if (generator && generator->isBreak())
+    {
+        assignBreak (*generator, sample);
+        return;
+    }
 
     if (generator && generator->isDrumKit())
     {

@@ -447,6 +447,100 @@ public:
     bool isSoundFont() const  { return getType() == soundFontType; }
     bool isUtau() const       { return getType() == utauType; }
 
+    // A breakbeat slicer: one loop (an Amen, a Think) cut into slices, slice
+    // i on note breakFirstNote + i. The loop is the generator's one SOUND,
+    // the way a SoundFont's file is; where it is cut is SLICES, in the model,
+    // so moving a cut is an ordinary undoable edit and nothing about it lives
+    // in the plugin.
+    static constexpr const char* breakType = "break";
+    bool isBreak() const      { return getType() == breakType; }
+
+    // The kick's note, as on a drum kit: a slicer is played like one, and its
+    // slices sit where a kit's pads would in any other DAW's piano roll.
+    static constexpr int breakFirstNote = 36;
+    static constexpr int maxBreakSlices = 64;
+
+    // How close two cuts may be. A slice shorter than this is a click.
+    static constexpr double minBreakSliceSeconds = 0.005;
+
+    // What a fresh loop is cut into: sixteenths of a one-bar loop, eighths
+    // of a two-bar one -- either way the grid the drummer played on, which
+    // for a straight break is most of the way to the right cuts.
+    static constexpr int defaultBreakSlices = 16;
+
+    // For type "break": the loop (an empty File for none yet).
+    juce::File getBreakFile() const;
+
+    // A new loop, cut into defaultBreakSlices even slices, with its length in
+    // bars guessed from its length in seconds (see guessBreakBars). What a
+    // load does; the user's cuts on the old loop mean nothing on a new one.
+    void setBreakFile (const juce::File&, double loopSeconds, double beatsPerBar, juce::UndoManager*);
+
+    // How many bars the loop is. With the time signature that is its tempo,
+    // which only matters to repitching -- slices played from a pattern land
+    // on the song's beats whatever the loop's tempo was.
+    int getBreakBars() const;
+    void setBreakBars (int bars, juce::UndoManager*);
+
+    // The loop's own tempo, from its length and its bars.
+    double getBreakBpm (double loopSeconds, double beatsPerBar) const;
+
+    // How many bars a loop of this length is. A file named with its tempo
+    // ("amen_175.wav", "think 92bpm.wav") is taken at its word: a number from
+    // 60 to 250 in the name is the BPM, and the bars are whatever that makes
+    // of the length. Otherwise 1, 2, 4, 8 or 16 bars, whichever lands closest
+    // to 140 BPM -- an Amen (4 bars, about 7 s) comes out at 4.
+    static int guessBreakBars (double loopSeconds, double beatsPerBar, const juce::String& fileName = {});
+
+    // Repitch: the whole loop sped up or slowed down with the song, pitch and
+    // all, the way a sampler played at a faster tempo sounds. Off, each slice
+    // plays at its own speed and the song's tempo only moves where they start.
+    bool isBreakRepitched() const  { return state.getProperty (ids::breakRepitch, false); }
+    void setBreakRepitched (bool, juce::UndoManager*);
+
+    // Where each slice starts, in seconds into the loop, in order. Empty with
+    // no loop.
+    std::vector<double> getBreakSlices() const;
+
+    // Every cut at once, replacing what was there: an even division, or
+    // what transient detection found. Sorted, with cuts closer than
+    // minBreakSliceSeconds and past loopSeconds dropped, and at most
+    // maxBreakSlices kept. Notes are left alone -- a re-slice is a new set of
+    // slices, and slice 3 is still the third.
+    void setBreakSlices (std::vector<double> starts, double loopSeconds, juce::UndoManager*);
+    void divideBreakEvenly (int count, double loopSeconds, juce::UndoManager*);
+
+    // One cut moved, kept between its neighbours. Slice numbers don't change,
+    // so no note does either.
+    void moveBreakSlice (int index, double start, double loopSeconds, juce::UndoManager*);
+
+    // A new cut at `start`, splitting the slice it lands in. The new slice is
+    // the back half, so every note on a later slice moves up a key to keep
+    // playing the sound it did, and notes on the slice that was split stay on
+    // its front half. Returns the new slice's index, or -1 when no cut fits
+    // there (too close to another, past the end, or the slicer is full).
+    int insertBreakSlice (double start, double loopSeconds, juce::UndoManager*);
+
+    // A cut removed: the slice before it grows over it, and the notes follow
+    // -- those on the removed slice to that grown one, those after it down a
+    // key. The first slice's removal hands its notes to the slice that is
+    // first after it. The last remaining slice is never removed.
+    bool removeBreakSlice (int index, juce::UndoManager*);
+
+    // A new pattern that plays the loop as it was recorded: each slice on
+    // the beat it came from, as long as it lasts. What a loaded break opens
+    // on, so the first thing it does is sound like itself.
+    Pattern createBreakPattern (double loopSeconds, double beatsPerBar, juce::UndoManager*);
+
+    // Whether a pattern is exactly what createBreakPattern would write for
+    // the cuts as they are now, and writing that into one. Together they let
+    // an edit of the cuts carry the as-recorded pattern along: one that
+    // played the loop as recorded before the edit is rewritten to play it
+    // as recorded after it, rather than playing the old cuts' rhythm on the
+    // new ones. A pattern the user has changed is theirs and is left alone.
+    bool playsBreakAsRecorded (const Pattern&, double loopSeconds, double beatsPerBar) const;
+    void fillBreakAsRecorded (Pattern&, double loopSeconds, double beatsPerBar, juce::UndoManager*) const;
+
     // For type "utau": the voicebank's folder (an empty File for none yet).
     // Kept as the generator's one SOUND, the way a SoundFont's file is, so
     // a voicebank moved with the song is found by its relative path and a
