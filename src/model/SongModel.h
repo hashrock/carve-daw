@@ -84,6 +84,31 @@ public:
             state.setProperty (ids::lyric, trimmed, um);
     }
 
+    // How a break slicer plays the note's slice: forwards as recorded, or one
+    // of the turntable and tape tricks. Like a lyric, every other generator
+    // carries it along untouched, and it is stored only when it is not the
+    // plain forward play.
+    enum class PlayMode { forward, reverse, tapeStop, scratch };
+
+    PlayMode getPlayMode() const;
+    void setPlayMode (PlayMode, juce::UndoManager*);
+
+    static juce::String getPlayModeName (PlayMode);
+
+    // Retrigger: the slice restarted every 1/n of a beat for as long as the
+    // note lasts -- a roll. 0 is off; otherwise n is one of
+    // retriggerDivisions (2 = eighths, 3 = eighth triplets, 4 = sixteenths
+    // ... 16 = sixty-fourths). A break slicer reads it; others carry it.
+    static constexpr int retriggerDivisions[] = { 2, 3, 4, 6, 8, 12, 16 };
+
+    int getRetrigger() const;
+    void setRetrigger (int divisionsPerBeat, juce::UndoManager*);
+
+    // The lyric, the play mode and the retrigger -- everything about a note
+    // beyond where it is and how loud -- taken from another one. What every
+    // copy of a note goes through, so a duplicated roll stays a roll.
+    void copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager*);
+
     juce::ValueTree state;
 };
 

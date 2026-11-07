@@ -965,6 +965,7 @@ public:
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
         rollContent.setShowsLyrics (generator && generator->isUtau());
+        rollContent.setShowsPlayModes (generator && generator->isBreak());
         rollContent.setLyricCheck (lyricCheckFor (generator));
     }
 

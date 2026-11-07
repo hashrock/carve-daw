@@ -332,3 +332,56 @@ TEST_CASE ("An untouched as-recorded pattern can follow the cuts, and a touched 
 
     REQUIRE (ok);
 }
+
+TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[break][note]")
+{
+    auto song = Song::create ("Break");
+    auto generator = song.addGenerator ("Amen", Generator::breakType, nullptr);
+    auto pattern = generator.createPattern (nullptr, 4.0);
+    auto note = pattern.addNote (0.0, 1.0, 36, 100, nullptr);
+
+    // Plain notes write nothing extra.
+    REQUIRE (note.getPlayMode() == Note::PlayMode::forward);
+    REQUIRE (note.getRetrigger() == 0);
+    REQUIRE (! note.state.hasProperty (ids::play));
+    REQUIRE (! note.state.hasProperty (ids::retrig));
+
+    juce::UndoManager undo;
+    undo.beginNewTransaction();
+    note.setPlayMode (Note::PlayMode::scratch, &undo);
+    note.setRetrigger (5, &undo);   // not offered: the nearest one is
+
+    REQUIRE (note.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (note.getRetrigger() == 4);
+
+    // Through a file.
+    auto loaded = Song::fromXml (song.toXmlString());
+    REQUIRE (loaded.has_value());
+    const auto restored = loaded->findGenerator (generator.getId())->getPatterns().front().getNote (0);
+    REQUIRE (restored.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (restored.getRetrigger() == 4);
+
+    // A copy plays the same, and a cloned pattern too.
+    auto copy = pattern.addNote (2.0, 1.0, 37, 100, nullptr);
+    copy.copyExtrasFrom (note.state, nullptr);
+    REQUIRE (copy.getPlayMode() == Note::PlayMode::scratch);
+    REQUIRE (copy.getRetrigger() == 4);
+
+    auto clone = generator.duplicatePattern (pattern, nullptr);
+    REQUIRE (clone.getNote (0).getPlayMode() == Note::PlayMode::scratch);
+
+    // Every mode by name, and back to forward removes it again.
+    for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop, Note::PlayMode::scratch })
+    {
+        note.setPlayMode (mode, nullptr);
+        REQUIRE (note.getPlayMode() == mode);
+    }
+
+    REQUIRE (undo.undo());
+    REQUIRE (note.getRetrigger() == 0);
+
+    note.setPlayMode (Note::PlayMode::forward, nullptr);
+    note.setRetrigger (0, nullptr);
+    REQUIRE (! note.state.hasProperty (ids::play));
+    REQUIRE (! note.state.hasProperty (ids::retrig));
+}

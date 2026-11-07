@@ -25,6 +25,13 @@ namespace carve::plugins
 //   * up to the next cut and no further. A note longer than its slice stops
 //     at the slice's end rather than running on into the next hit.
 //
+// A note can also play its slice backwards, slow it to a halt like a tape
+// machine losing power, or scratch it forwards and back like a record
+// (model::Note::PlayMode). A note-on cannot say any of that, so the sync
+// puts a SysEx trigger beside such a note naming the mode and how long the
+// note lasts (see PlayTrigger); a roll needs nothing here, since the sync
+// writes it out as the notes it plays.
+//
 // What it plays is set from outside, like the SoundFont player: EditSync
 // hands it the model's file, cuts and playback rate on every sync, and
 // nothing of it is kept in its own tree.
@@ -42,6 +49,14 @@ public:
     static const char* xmlTypeName;
 
     static constexpr int firstNote = 36;   // Generator::breakFirstNote
+
+    // The start of every SysEx this plugin reads: the non-commercial
+    // manufacturer id, then "CB". After it come the mode (the number of a
+    // model::Note::PlayMode), the note it is for, and the note's length in
+    // milliseconds as three 7-bit bytes, most significant first.
+    static constexpr uint8_t sysexId[3] = { 0x7d, 0x43, 0x42 };
+
+    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3 };
 
     juce::String getName() const override             { return "Break Slicer"; }
     juce::String getPluginType() override             { return xmlTypeName; }
@@ -110,14 +125,31 @@ private:
         bool active = false;
         int note = -1;
         int slice = -1;
+        Mode mode = Mode::forward;
         double position = 0.0;   // file frames
+        double start = 0.0;      // file frames: this slice's cut
         double end = 0.0;        // file frames: the next cut
+        double elapsed = 0.0;    // output samples since the note-on
+        double duration = 0.0;   // output samples the note lasts, when a trigger said
         float gain = 1.0f;
         float envelope = 0.0f;
         float envelopeStep = 0.0f;   // per output sample; negative while fading out
     };
 
+    // A trigger read before its note-on, at the same instant: the two can
+    // arrive in either order, so whichever comes second finds the first.
+    // Only good until any audio is rendered -- a trigger is for a note at
+    // its own moment, never a later one.
+    struct PendingTrigger
+    {
+        bool set = false;
+        Mode mode = Mode::forward;
+        double seconds = 0.0;
+    };
+
     void handleMidi (const juce::MidiMessage&);
+    void handleTrigger (const juce::MidiMessage&);
+    void applyMode (Voice&, Mode, double seconds);
     void startSlice (int note, float velocity);
     void releaseNote (int note);
     void releaseAll();
@@ -132,6 +164,8 @@ private:
     // One sounding, the rest fading out from being choked. More than two
     // because a roll at 1/64 can choke faster than a fade finishes.
     std::array<Voice, 4> voices;
+    std::array<PendingTrigger, 128> pending;
+    bool anyPending = false;
     float attackStep = 1.0f, releaseStep = 1.0f;
 
     std::atomic<int> playingSlice { -1 };

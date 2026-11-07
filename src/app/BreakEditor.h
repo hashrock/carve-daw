@@ -24,15 +24,34 @@ namespace carve::app
 // drawn where the mouse has it and handed over on release -- so a drag is one
 // undo step, and the sync is not asked to re-cut the loop sixty times a
 // second.
-class BreakSliceView : public juce::Component
+class BreakSliceView : public juce::Component,
+                       private juce::ScrollBar::Listener
 {
 public:
-    BreakSliceView() = default;
+    BreakSliceView()
+    {
+        scrollBar.setAutoHide (false);
+        scrollBar.addListener (this);
+        addAndMakeVisible (scrollBar);
+    }
+
+    ~BreakSliceView() override
+    {
+        scrollBar.removeListener (this);
+    }
+
+    // The view: which stretch of the loop is on screen. Cmd (or Ctrl) and
+    // the wheel, or a pinch, zoom about the pointer; the wheel alone scrolls;
+    // the scrollbar under the waveform does both the usual way.
+    void zoomBy (double factor)  { zoomAbout (factor, getWidth() * 0.5f); }
+    void zoomToFit()             { setView (0.0, getLengthSeconds()); }
+    bool isZoomedIn() const      { return getLengthSeconds() > 0.0 && visibleLength() < getLengthSeconds() - 1.0e-9; }
 
     std::function<void (int index, double seconds)> onCutMoved;
     std::function<void (double seconds)> onCutAdded;
     std::function<void (int index)> onCutRemoved;
     std::function<void (int slice)> onSliceClicked;
+    std::function<void()> onViewChanged;
 
     void setAudio (std::shared_ptr<const plugins::BreakPlugin::Audio> newAudio)
     {
@@ -41,7 +60,7 @@ public:
 
         audio = std::move (newAudio);
         peaksWidth = -1;
-        repaint();
+        setView (0.0, getLengthSeconds());
     }
 
     void setCuts (std::vector<double> newCuts)
@@ -74,12 +93,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds();
+        const auto bounds = contentArea();
         g.setColour (juce::Colour (0xff1c1c20));
-        g.fillRect (bounds);
+        g.fillRect (getLocalBounds());
 
         if (audio == nullptr || getLengthSeconds() <= 0.0)
             return;
+
+        g.reduceClipRegion (bounds);
 
         const auto shown = shownCuts();
         const auto waveArea = bounds.withTrimmedTop (numberRowHeight);
@@ -89,7 +110,11 @@ public:
         for (int i = 0; i < (int) shown.size(); ++i)
         {
             const auto x0 = xFor (shown[(size_t) i]);
-            const auto x1 = i + 1 < (int) shown.size() ? xFor (shown[(size_t) i + 1]) : (float) getWidth();
+            const auto x1 = i + 1 < (int) shown.size() ? xFor (shown[(size_t) i + 1]) : xFor (getLengthSeconds());
+
+            if (x1 < 0.0f || x0 > (float) getWidth())
+                continue;
+
             auto block = juce::Rectangle<float> (x0, (float) waveArea.getY(), x1 - x0, (float) waveArea.getHeight());
 
             if (i == playingSlice)
@@ -103,7 +128,9 @@ public:
 
             g.setColour (juce::Colour (i == playingSlice ? 0xffffc070 : 0xff8a8a94));
             g.setFont (juce::FontOptions (11.0f));
-            g.drawText (juce::String (i + 1), juce::Rectangle<float> (x0 + 3.0f, 0.0f, juce::jmax (0.0f, x1 - x0 - 4.0f),
+            // Kept on screen while the slice's start is scrolled off it.
+            const auto labelX = juce::jmax (x0, 0.0f);
+            g.drawText (juce::String (i + 1), juce::Rectangle<float> (labelX + 3.0f, 0.0f, juce::jmax (0.0f, x1 - labelX - 4.0f),
                                                                     (float) numberRowHeight),
                         juce::Justification::centredLeft, false);
         }
@@ -124,7 +151,7 @@ public:
             const auto x = xFor (shown[(size_t) i]);
             const bool active = i == draggingCut || i == hoverCut;
             g.setColour (active ? juce::Colours::white : juce::Colour (0xffe0a24f));
-            g.drawLine (x, 0.0f, x, (float) getHeight(), active ? 2.0f : 1.0f);
+            g.drawLine (x, 0.0f, x, (float) bounds.getBottom(), active ? 2.0f : 1.0f);
 
             // A handle at the top, so a cut reads as something to grab.
             juce::Path handle;
@@ -141,7 +168,33 @@ public:
         }
     }
 
-    void resized() override  { peaksWidth = -1; }
+    void resized() override
+    {
+        peaksWidth = -1;
+        scrollBar.setBounds (getLocalBounds().removeFromBottom (scrollBarHeight));
+        updateScrollBar();
+    }
+
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (audio == nullptr)
+            return;
+
+        if (e.mods.isCommandDown() || e.mods.isCtrlDown())
+        {
+            zoomAbout (std::pow (2.0, wheel.deltaY * (wheel.isReversed ? -2.0 : 2.0)), e.position.x);
+            return;
+        }
+
+        // Sideways on a trackpad, or the plain wheel turned into sideways.
+        const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+        setView (viewStart - (wheel.isReversed ? -delta : delta) * visibleLength() * 0.5, visibleLength());
+    }
+
+    void mouseMagnify (const juce::MouseEvent& e, float scale) override
+    {
+        zoomAbout (scale, e.position.x);
+    }
 
     void mouseMove (const juce::MouseEvent& e) override
     {
@@ -248,7 +301,60 @@ public:
 
 private:
     static constexpr int numberRowHeight = 18;
+    static constexpr int scrollBarHeight = 10;
     static constexpr double minGap = 0.005;   // Generator::minBreakSliceSeconds
+
+    // As close as the view goes: a few hundred frames across, where single
+    // cycles of a hat are wide enough to put a cut between.
+    static constexpr double minVisibleSeconds = 0.01;
+
+    juce::Rectangle<int> contentArea() const  { return getLocalBounds().withTrimmedBottom (scrollBarHeight); }
+
+    double visibleLength() const  { return viewLength > 0.0 ? viewLength : getLengthSeconds(); }
+
+    void setView (double start, double length)
+    {
+        const auto total = getLengthSeconds();
+        length = total > 0.0 ? juce::jlimit (juce::jmin (minVisibleSeconds, total), total, length) : 0.0;
+        start = juce::jlimit (0.0, juce::jmax (0.0, total - length), start);
+
+        if (std::abs (start - viewStart) < 1.0e-12 && std::abs (length - viewLength) < 1.0e-12)
+        {
+            updateScrollBar();
+            return;
+        }
+
+        viewStart = start;
+        viewLength = length;
+        updateScrollBar();
+        repaint();
+
+        if (onViewChanged)
+            onViewChanged();
+    }
+
+    // Keeps the moment under the pointer under the pointer.
+    void zoomAbout (double factor, float x)
+    {
+        if (audio == nullptr || factor <= 0.0)
+            return;
+
+        const auto anchor = secondsFor (x);
+        const auto length = visibleLength() / factor;
+        const auto fraction = (double) x / juce::jmax (1, getWidth());
+        setView (anchor - fraction * length, length);
+    }
+
+    void updateScrollBar()
+    {
+        scrollBar.setRangeLimits (0.0, juce::jmax (1.0e-6, getLengthSeconds()), juce::dontSendNotification);
+        scrollBar.setCurrentRange (viewStart, juce::jmax (1.0e-6, visibleLength()), juce::dontSendNotification);
+    }
+
+    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override
+    {
+        setView (newRangeStart, visibleLength());
+    }
 
     // The model's cuts, with the one being dragged where the mouse has it.
     std::vector<double> shownCuts() const
@@ -263,13 +369,14 @@ private:
 
     float xFor (double seconds) const
     {
-        const auto length = getLengthSeconds();
-        return length > 0.0 ? (float) (seconds / length * getWidth()) : 0.0f;
+        const auto length = visibleLength();
+        return length > 0.0 ? (float) ((seconds - viewStart) / length * getWidth()) : 0.0f;
     }
 
     double secondsFor (float x) const
     {
-        return juce::jlimit (0.0, getLengthSeconds(), (double) x / juce::jmax (1, getWidth()) * getLengthSeconds());
+        return juce::jlimit (0.0, getLengthSeconds(),
+                             viewStart + (double) x / juce::jmax (1, getWidth()) * visibleLength());
     }
 
     // To the nearest zero crossing, unless Alt is held.
@@ -314,20 +421,25 @@ private:
         if (width <= 0)
             return;
 
-        // The peaks per column, computed again only when the width or the
-        // loop changes: a few hundred columns of a few hundred frames each.
-        if (peaksWidth != width)
+        // The peaks per column, computed again only when the width, the view
+        // or the loop changes: a few hundred columns of a few frames each.
+        if (peaksWidth != width || std::abs (peaksStart - viewStart) > 1.0e-12
+             || std::abs (peaksLength - visibleLength()) > 1.0e-12)
         {
             peaksWidth = width;
+            peaksStart = viewStart;
+            peaksLength = visibleLength();
             peaks.assign ((size_t) width, { 0.0f, 0.0f });
 
             const auto& buffer = audio->buffer;
             const int frames = buffer.getNumSamples();
+            const double firstFrame = viewStart * audio->sampleRate;
+            const double framesPerColumn = visibleLength() * audio->sampleRate / width;
 
             for (int x = 0; x < width; ++x)
             {
-                const int from = (int) ((juce::int64) x * frames / width);
-                const int to = juce::jmax (from + 1, (int) ((juce::int64) (x + 1) * frames / width));
+                const int from = juce::jlimit (0, juce::jmax (0, frames - 1), (int) (firstFrame + x * framesPerColumn));
+                const int to = juce::jlimit (from + 1, frames, (int) (firstFrame + (x + 1) * framesPerColumn));
                 float low = 0.0f, high = 0.0f;
 
                 for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -357,6 +469,10 @@ private:
     std::vector<double> cuts;
     std::vector<std::pair<float, float>> peaks;
     int peaksWidth = -1;
+    double peaksStart = 0.0, peaksLength = 0.0;
+
+    double viewStart = 0.0, viewLength = 0.0;
+    juce::ScrollBar scrollBar { false };
 
     int hoverCut = -1, draggingCut = -1, selectedSlice = -1;
     double dragSeconds = 0.0;
@@ -459,6 +575,22 @@ public:
         sensitivity.setColour (juce::Slider::trackColourId, juce::Colour (0xffe0a24f));
         addAndMakeVisible (sensitivity);
 
+        zoomOutButton.setTooltip ("Zoom out (cmd-scroll or pinch on the waveform)");
+        zoomInButton.setTooltip ("Zoom in (cmd-scroll or pinch on the waveform)");
+        fitButton.setTooltip ("Show the whole loop");
+        zoomOutButton.onClick = [this] { slices.zoomBy (0.5); };
+        zoomInButton.onClick = [this] { slices.zoomBy (2.0); };
+        fitButton.onClick = [this] { slices.zoomToFit(); };
+        zoomOutButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+        zoomInButton.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+        fitButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+
+        for (auto* button : { &zoomOutButton, &zoomInButton, &fitButton })
+            addAndMakeVisible (button);
+
+        slices.onViewChanged = [this] { fitButton.setEnabled (slices.isZoomedIn()); };
+        fitButton.setEnabled (false);
+
         countLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
         countLabel.setJustificationType (juce::Justification::centredRight);
         addAndMakeVisible (countLabel);
@@ -474,7 +606,7 @@ public:
         addAndMakeVisible (slices);
 
         hint.setText ("Click a slice to hear it.  Double-click to cut, drag a cut to move it (Alt: no snap), "
-                      "right-click a cut to remove it.  Slice 1 is on C1 (note 36).",
+                      "right-click to remove.  Cmd-scroll or pinch to zoom, scroll to move.",
                       juce::dontSendNotification);
         hint.setColour (juce::Label::textColourId, juce::Colour (0xff5e5e68));
         hint.setJustificationType (juce::Justification::centred);
@@ -549,6 +681,10 @@ public:
         detectButton.setBounds (row.removeFromLeft (64));
         row.removeFromLeft (6);
         sensitivity.setBounds (row.removeFromLeft (110));
+        fitButton.setBounds (row.removeFromRight (40));
+        zoomInButton.setBounds (row.removeFromRight (28));
+        zoomOutButton.setBounds (row.removeFromRight (28));
+        row.removeFromRight (10);
         countLabel.setBounds (row);
 
         area.removeFromTop (8);
@@ -618,6 +754,9 @@ private:
 
             detectButton.setEnabled (! empty);
             sensitivity.setEnabled (! empty);
+            zoomOutButton.setEnabled (! empty);
+            zoomInButton.setEnabled (! empty);
+            fitButton.setEnabled (slices.isZoomedIn());
             updateLabels();
         }
 
@@ -698,6 +837,7 @@ private:
     juce::ToggleButton repitchToggle { "Repitch" };
     std::array<juce::TextButton, 4> divideButtons;
     juce::TextButton detectButton { "Detect" };
+    juce::TextButton zoomOutButton { "-" }, zoomInButton { "+" }, fitButton { "Fit" };
     juce::Slider sensitivity;
     BreakSliceView slices;
     RecentMediaList recent;

@@ -1560,6 +1560,70 @@ namespace
         return wanted;
     }
 
+    // A break slicer's clips: its notes, with every roll (Note::getRetrigger)
+    // written out as the notes it plays -- so a roll lands on the song's
+    // beats at any tempo, exactly as drawn ones would -- and a trigger in
+    // front of each note that plays its slice some way other than forwards.
+    // The trigger names the mode, the note it is for, and how long that note
+    // lasts in seconds, which a tape stop and a scratch need from the start
+    // and a note-on cannot say (see BreakPlugin::PlayTrigger).
+    void wantedBreakContentFor (const model::Pattern& pattern, double patternLength, double clipLength,
+                                int transpose, double clipStartBeat, const te::TempoSequence& tempo,
+                                std::vector<WantedNote>& notes, std::vector<WantedTrigger>& triggers)
+    {
+        auto secondsAt = [&] (double clipBeat)
+        {
+            return tempo.toTime (te::BeatPosition::fromBeats (clipStartBeat + clipBeat)).inSeconds();
+        };
+
+        constexpr int maxRepeats = 512;
+
+        // A roll at 1/64 over a long note in a long loop is a lot of notes;
+        // past this the rest of the clip plays without them rather than the
+        // sync grinding.
+        constexpr size_t maxNotes = 20000;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            for (const auto& note : pattern.getNotes())
+            {
+                const auto noteStart = offset + note.getStart();
+
+                if (noteStart >= clipLength - 1.0e-9)
+                    continue;
+
+                const auto noteEnd = std::min (noteStart + note.getLength(), clipLength);
+                const auto pitch = model::Note::clampPitch (note.getPitch() + transpose);
+                const auto mode = note.getPlayMode();
+                const auto division = note.getRetrigger();
+                const auto step = division > 0 ? 1.0 / division : noteEnd - noteStart;
+
+                for (auto start = noteStart; start < noteEnd - 1.0e-9 && notes.size() < maxNotes; start += step)
+                {
+                    const auto length = std::min (step, noteEnd - start);
+                    notes.push_back ({ pitch, start, length, note.getVelocity() });
+
+                    if (mode != model::Note::PlayMode::forward)
+                    {
+                        const auto ms = juce::jlimit (1, (1 << 21) - 1,
+                                                      juce::roundToInt ((secondsAt (start + length) - secondsAt (start)) * 1000.0));
+                        const uint8_t payload[] = { plugins::BreakPlugin::sysexId[0], plugins::BreakPlugin::sysexId[1],
+                                                    plugins::BreakPlugin::sysexId[2],
+                                                    (uint8_t) mode, (uint8_t) pitch,
+                                                    (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f),
+                                                    (uint8_t) (ms & 0x7f) };
+                        triggers.push_back ({ start, juce::MemoryBlock (payload, sizeof (payload)) });
+                    }
+                }
+            }
+        }
+    }
+
     bool triggersMatch (const te::MidiClip& clip, const std::vector<WantedTrigger>& wanted)
     {
         const auto& live = clip.getSequence().getSysexEvents();
@@ -1668,6 +1732,11 @@ namespace
                 if (singer != nullptr)
                     want.triggers = wantedTriggersFor (*singer, pattern, patternLength, clipLength, transpose,
                                                        clipStartBeat, edit.tempoSequence);
+            }
+            else if (generator.isBreak())
+            {
+                wantedBreakContentFor (pattern, patternLength, clipLength, transpose, clipStartBeat,
+                                       edit.tempoSequence, want.notes, want.triggers);
             }
             else
             {
@@ -2148,9 +2217,10 @@ void EditSync::applyTempoOnly()
 
         // A singer's notes are synthesised to their length in seconds, which
         // a tempo change moves: only a full sync prepares them again.
-        // A repitched break plays at a rate the tempo sets, and only the full
-        // sync hands the slicer a new one.
-        if (generator.isUtau() || (generator.isBreak() && generator.isBreakRepitched()))
+        // A break's triggers carry note lengths in seconds, and a repitched
+        // one plays at a rate the tempo sets: only the full sync rewrites
+        // either.
+        if (generator.isUtau() || generator.isBreak())
         {
             triggerAsyncUpdate();
             return;

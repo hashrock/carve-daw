@@ -82,10 +82,15 @@
 // │           │        order the pattern picker lists them. Songs written
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
-// │           └─ NOTE {start, length, pitch, velocity, lyric}   times in beats (quarter notes)
+// │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig}   times in beats (quarter notes)
 // │                    lyric: what a singing ("utau") generator sings on
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
+// │                    play: how a "break" generator plays the slice --
+// │                    "reverse" | "stop" | "scratch", absent = forward.
+// │                    retrig: restart the slice every 1/retrig of a beat,
+// │                    absent = once. Both optional, both carried by any
+// │                    generator (see Note::getPlayMode)
 // ├─ PLAYLIST
 // │  ├─ CLIP {generatorId, patternId, start, length, transpose}
 // │  │                               length and transpose are per-placement
@@ -205,6 +210,8 @@ CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
 CARVE_DECLARE_ID (breakBars)
 CARVE_DECLARE_ID (breakRepitch)
+CARVE_DECLARE_ID (play)
+CARVE_DECLARE_ID (retrig)
 
 #undef CARVE_DECLARE_ID
 

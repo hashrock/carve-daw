@@ -174,7 +174,27 @@ void BreakPlugin::reset()
     for (auto& voice : voices)
         voice.active = false;
 
+    for (auto& trigger : pending)
+        trigger.set = false;
+
+    anyPending = false;
     playingSlice.store (-1, std::memory_order_relaxed);
+}
+
+void BreakPlugin::applyMode (Voice& voice, Mode mode, double seconds)
+{
+    voice.mode = mode;
+    voice.duration = seconds > 0.0 ? seconds * sampleRate : 0.0;
+
+    // Backwards starts from the far end of the slice; everything else from
+    // its cut.
+    voice.position = mode == Mode::reverse ? juce::jmax (voice.start, voice.end - 1.0) : voice.start;
+
+    // A tape stop coasts on past the next cut: slowing to a halt over a
+    // whole note takes more tape than one slice holds, and stopping dead at
+    // the cut would be a stop of a different kind.
+    if (mode == Mode::tapeStop && program != nullptr && program->audio != nullptr)
+        voice.end = (double) program->audio->buffer.getNumSamples();
 }
 
 void BreakPlugin::startSlice (int note, float velocity)
@@ -207,12 +227,40 @@ void BreakPlugin::startSlice (int note, float velocity)
     voice.active = true;
     voice.note = note;
     voice.slice = slice;
-    voice.position = starts[(size_t) slice];
+    voice.start = starts[(size_t) slice];
     voice.end = slice + 1 < (int) starts.size() ? starts[(size_t) slice + 1]
                                                 : (double) program->audio->buffer.getNumSamples();
+    voice.elapsed = 0.0;
     voice.gain = velocity;
     voice.envelope = 0.0f;
     voice.envelopeStep = attackStep;
+
+    auto& trigger = pending[(size_t) note];
+    applyMode (voice, trigger.set ? trigger.mode : Mode::forward, trigger.set ? trigger.seconds : 0.0);
+    trigger.set = false;
+}
+
+void BreakPlugin::handleTrigger (const juce::MidiMessage& m)
+{
+    const auto* data = m.getSysExData();
+
+    if (m.getSysExDataSize() != 8 || data[0] != sysexId[0] || data[1] != sysexId[1] || data[2] != sysexId[2])
+        return;
+
+    const auto mode = (Mode) juce::jlimit (0, 3, (int) data[3]);
+    const int note = data[4] & 0x7f;
+    const double seconds = (((data[5] & 0x7f) << 14) | ((data[6] & 0x7f) << 7) | (data[7] & 0x7f)) / 1000.0;
+
+    // After its note-on: the voice it is for has not played a sample yet.
+    for (auto& voice : voices)
+        if (voice.active && voice.note == note && voice.elapsed < 0.5 && voice.envelopeStep > 0.0f)
+        {
+            applyMode (voice, mode, seconds);
+            return;
+        }
+
+    pending[(size_t) note] = { true, mode, seconds };
+    anyPending = true;
 }
 
 void BreakPlugin::releaseNote (int note)
@@ -235,12 +283,60 @@ void BreakPlugin::handleMidi (const juce::MidiMessage& m)
         startSlice (m.getNoteNumber(), m.getFloatVelocity());
     else if (m.isNoteOff())
         releaseNote (m.getNoteNumber());
+    else if (m.isSysEx())
+        handleTrigger (m);
     else if (m.isAllNotesOff() || m.isAllSoundOff())
         releaseAll();
 }
 
+namespace
+{
+    // How fast a voice moves through its slice, as a multiple of normal
+    // speed, `progress` of the way through its note (0..1).
+    double speedFor (BreakPlugin::Mode mode, double progress)
+    {
+        switch (mode)
+        {
+            case BreakPlugin::Mode::reverse:
+                return -1.0;
+
+            case BreakPlugin::Mode::tapeStop:
+                // The motor losing power: slowing all the way to nothing by
+                // the note's end, faster at first, the way a platter coasts.
+                return std::pow (juce::jmax (0.0, 1.0 - progress), 1.6);
+
+            case BreakPlugin::Mode::scratch:
+                // One stroke a note: pushed forward, pulled back to where it
+                // started. A roll of short scratch notes is a run of strokes.
+                return 2.4 * std::cos (2.0 * juce::MathConstants<double>::pi * progress);
+
+            case BreakPlugin::Mode::forward:
+                break;
+        }
+
+        return 1.0;
+    }
+
+    // A tape stop or a scratch whose note length no trigger gave: what a
+    // sixteenth at a breakbeat tempo lasts, give or take.
+    constexpr double defaultEffectSeconds = 0.25;
+}
+
 void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
 {
+    if (numSamples <= 0)
+        return;
+
+    // Audio is about to move on: a trigger nothing claimed was for a note
+    // that never came.
+    if (anyPending)
+    {
+        for (auto& trigger : pending)
+            trigger.set = false;
+
+        anyPending = false;
+    }
+
     const auto& source = program->audio->buffer;
     const int sourceFrames = source.getNumSamples();
     const float* inL = source.getReadPointer (0);
@@ -251,20 +347,42 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
 
     const double step = program->audio->sampleRate / sampleRate * program->rate;
 
-    // How many output samples the fade at a slice's end takes, in file frames:
-    // the slice starts fading that far before the next cut, so it reaches
-    // silence on it rather than being cut off there.
-    const double endFadeFrames = step / juce::jmax (1.0e-6, (double) releaseStep);
-
     for (auto& voice : voices)
     {
         if (! voice.active)
             continue;
 
+        const double duration = voice.duration > 0.0 ? voice.duration : defaultEffectSeconds * sampleRate;
+
         for (int i = 0; i < numSamples; ++i)
         {
-            if (voice.envelopeStep > 0.0f && voice.position >= voice.end - endFadeFrames)
-                voice.envelopeStep = -releaseStep;
+            const double progress = juce::jmin (1.0, voice.elapsed / duration);
+            const double speed = speedFor (voice.mode, progress);
+            const double move = step * speed;
+
+            // Fade out in time to reach silence at the slice's edge in the
+            // direction of travel -- the next cut going forwards, this one
+            // going backwards -- rather than being cut off there. A scratch
+            // turns round inside its slice, so it fades only at its note's
+            // end; a tape stop fades as it comes to rest.
+            if (voice.envelopeStep > 0.0f)
+            {
+                const double fadeSamples = 1.0 / juce::jmax (1.0e-6, (double) releaseStep);
+                bool fade = false;
+
+                if (voice.mode == Mode::scratch)
+                    fade = voice.elapsed >= duration - fadeSamples;
+                else if (move > 0.0)
+                    fade = voice.position + move * fadeSamples >= voice.end;
+                else if (move < 0.0)
+                    fade = voice.position + move * fadeSamples <= voice.start;
+
+                if (voice.mode == Mode::tapeStop && progress >= 1.0 - 1.0e-3)
+                    fade = true;
+
+                if (fade)
+                    voice.envelopeStep = -releaseStep;
+            }
 
             voice.envelope += voice.envelopeStep;
 
@@ -274,7 +392,11 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
                 voice.envelopeStep = 0.0f;
             }
 
-            if (voice.envelope <= 0.0f || voice.position >= voice.end || voice.position >= sourceFrames - 1)
+            const bool outside = voice.mode == Mode::scratch
+                                    ? false
+                                    : (voice.position >= voice.end || voice.position < voice.start);
+
+            if (voice.envelope <= 0.0f || outside || voice.position >= sourceFrames - 1 || voice.position < 0.0)
             {
                 voice.active = false;
                 break;
@@ -297,7 +419,13 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
                 outL[i] += 0.5f * (left + right) * gain;
             }
 
-            voice.position += step;
+            voice.position += move;
+            voice.elapsed += 1.0;
+
+            // A scratch stays on its slice: pushed past either edge, the
+            // record just stops there until the hand turns it round.
+            if (voice.mode == Mode::scratch)
+                voice.position = juce::jlimit (voice.start, juce::jmax (voice.start, voice.end - 1.0), voice.position);
         }
     }
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -127,6 +128,120 @@ private:
 // spinner names the signature it counts in -- the roll's, i.e. the one the song
 // opens in -- the beat count is always spelled out beside it, and a song that
 // does change signature says that its bars vary.
+// A break slicer's strip under the toolbar: how the selected notes play
+// their slices (or the next note drawn, with nothing selected), and how fast
+// they roll. Reports choices; the roll applies them.
+class PlayModeBar : public juce::Component
+{
+public:
+    static constexpr int preferredHeight = 30;
+
+    std::function<void (model::Note::PlayMode)> onPlayModeChosen;
+    std::function<void (int divisionsPerBeat)> onRetriggerChosen;
+
+    PlayModeBar()
+    {
+        playHeader.setText ("Play", juce::dontSendNotification);
+        playHeader.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (playHeader);
+
+        using Mode = model::Note::PlayMode;
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch };
+        const char* tips[] = {
+            "Play the slice as recorded",
+            "Play the slice backwards, from the next cut to its own",
+            "Slow the slice to a halt over the note, like a tape machine losing power",
+            "Push the slice forward and pull it back over the note, like a record under a hand",
+        };
+
+        for (size_t i = 0; i < modeButtons.size(); ++i)
+        {
+            auto& button = modeButtons[i];
+            button.setButtonText (model::Note::getPlayModeName (modes[i]));
+            button.setTooltip (tips[i]);
+            button.setClickingTogglesState (false);
+            button.setWantsKeyboardFocus (false);
+            button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
+            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            button.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0)
+                                      | (i + 1 < modeButtons.size() ? juce::Button::ConnectedOnRight : 0));
+            button.onClick = [this, mode = modes[i]] { if (onPlayModeChosen) onPlayModeChosen (mode); };
+            addAndMakeVisible (button);
+        }
+
+        rollHeader.setText ("Roll", juce::dontSendNotification);
+        rollHeader.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (rollHeader);
+
+        rollBox.addItem ("Off", rollIdFor (0));
+        const char* names[] = { "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/64" };
+
+        for (size_t i = 0; i < std::size (model::Note::retriggerDivisions); ++i)
+            rollBox.addItem (names[i], rollIdFor (model::Note::retriggerDivisions[i]));
+
+        rollBox.setTooltip ("Restart the slice at this rate for as long as the note lasts");
+        rollBox.setWantsKeyboardFocus (false);
+        rollBox.onChange = [this]
+        {
+            if (onRetriggerChosen && rollBox.getSelectedId() > 0)
+                onRetriggerChosen (rollBox.getSelectedId() - 1);
+        };
+        addAndMakeVisible (rollBox);
+
+        hint.setText ("applies to the selected notes, or to the next note drawn", juce::dontSendNotification);
+        hint.setFont (uiFont (fonts::small));
+        hint.setColour (juce::Label::textColourId, juce::Colour (0xff6e6e78));
+        addAndMakeVisible (hint);
+    }
+
+    // What the roll says is shown: nothing lit for a selection that differs.
+    void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger)
+    {
+        using Mode = model::Note::PlayMode;
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch };
+
+        for (size_t i = 0; i < modeButtons.size(); ++i)
+            modeButtons[i].setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
+
+        if (retrigger)
+            rollBox.setSelectedId (rollIdFor (*retrigger), juce::dontSendNotification);
+        else
+            rollBox.setSelectedId (0, juce::dontSendNotification);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff26262b));
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (6, 4);
+        playHeader.setBounds (area.removeFromLeft (40));
+        area.removeFromLeft (6);
+
+        for (auto& button : modeButtons)
+            button.setBounds (area.removeFromLeft (button.getButtonText().length() > 7 ? 80 : 68));
+
+        area.removeFromLeft (18);
+        rollHeader.setBounds (area.removeFromLeft (36));
+        area.removeFromLeft (4);
+        rollBox.setBounds (area.removeFromLeft (80));
+        area.removeFromLeft (12);
+        hint.setBounds (area);
+    }
+
+private:
+    // Combo ids are 1-based; division + 1 keeps "Off" (0) addressable.
+    static int rollIdFor (int divisionsPerBeat)  { return divisionsPerBeat + 1; }
+
+    juce::Label playHeader, rollHeader, hint;
+    std::array<juce::TextButton, 4> modeButtons;
+    juce::ComboBox rollBox;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayModeBar)
+};
+
 class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
@@ -215,6 +330,7 @@ public:
         // touch, and it says so by dimming the rest, so it redraws from here too.
         pianoRoll.onShortcutContextChanged = [this]
         {
+            refreshPlayModeBar();
             updateToolStrip();
             updateShortcutBar();
             velocityLane.repaint();
@@ -233,7 +349,21 @@ public:
 
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
-        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); };
+        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); };
+
+        playModeBar.onPlayModeChosen = [this] (model::Note::PlayMode mode)
+        {
+            pianoRoll.setPlayMode (mode);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onRetriggerChosen = [this] (int divisions)
+        {
+            pianoRoll.setRetrigger (divisions);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        addChildComponent (playModeBar);
 
         // A signature change moves what a bar means, so the spinner's value,
         // its unit and the beat count beside it all have to be rewritten.
@@ -306,6 +436,18 @@ public:
     void setLyricCheck (PianoRollComponent::LyricCheck check)
     {
         pianoRoll.setLyricCheck (std::move (check));
+    }
+
+    // The play-mode bar and the notes' play-mode marks, for a break slicer.
+    void setShowsPlayModes (bool shouldShow)
+    {
+        if (pianoRoll.showsPlayModes() == shouldShow)
+            return;
+
+        pianoRoll.setShowsPlayModes (shouldShow);
+        playModeBar.setVisible (shouldShow);
+        refreshPlayModeBar();
+        resized();
     }
 
     // The rows' names, for a drum generator; empty for everything else.
@@ -381,6 +523,9 @@ public:
         auto area = getLocalBounds();
         auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, toolStrip::verticalPadding);
         shortcutBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
+
+        if (playModeBar.isVisible())
+            playModeBar.setBounds (area.removeFromTop (PlayModeBar::preferredHeight));
 
         // The ruler and the lane are placed by updateStrips(), which has to
         // keep them to the viewport's *visible* width; here they only reserve
@@ -707,6 +852,12 @@ private:
         refreshFromPattern();
     }
 
+    void refreshPlayModeBar()
+    {
+        if (playModeBar.isVisible())
+            playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger());
+    }
+
     juce::UndoManager& undoManager;
     std::unique_ptr<juce::PropertiesFile> settings;   // flushes itself on destruction
     std::optional<model::Pattern> pattern;
@@ -725,6 +876,7 @@ private:
     PianoRollRuler ruler { pianoRoll };
     PianoRollVelocityLane velocityLane { pianoRoll };
     ShortcutHelpBar shortcutBar;
+    PlayModeBar playModeBar;
 };
 
 } // namespace carve::app

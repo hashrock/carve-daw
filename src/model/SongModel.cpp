@@ -169,6 +169,97 @@ void Pattern::copyNotesFrom (const Pattern& source, juce::UndoManager* um)
 
 
 //==============================================================================
+// Note extras
+
+namespace
+{
+    const char* playModeKey (Note::PlayMode mode)
+    {
+        switch (mode)
+        {
+            case Note::PlayMode::reverse:   return "reverse";
+            case Note::PlayMode::tapeStop:  return "stop";
+            case Note::PlayMode::scratch:   return "scratch";
+            case Note::PlayMode::forward:   break;
+        }
+
+        return "";
+    }
+}
+
+Note::PlayMode Note::getPlayMode() const
+{
+    const auto key = state[ids::play].toString();
+
+    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch })
+        if (key == playModeKey (mode))
+            return mode;
+
+    return PlayMode::forward;
+}
+
+void Note::setPlayMode (PlayMode mode, juce::UndoManager* um)
+{
+    if (mode == PlayMode::forward)
+        state.removeProperty (ids::play, um);
+    else
+        state.setProperty (ids::play, playModeKey (mode), um);
+}
+
+juce::String Note::getPlayModeName (PlayMode mode)
+{
+    switch (mode)
+    {
+        case PlayMode::reverse:   return "Reverse";
+        case PlayMode::tapeStop:  return "Tape Stop";
+        case PlayMode::scratch:   return "Scratch";
+        case PlayMode::forward:   break;
+    }
+
+    return "Forward";
+}
+
+int Note::getRetrigger() const
+{
+    const int value = state.getProperty (ids::retrig, 0);
+
+    for (auto division : retriggerDivisions)
+        if (value == division)
+            return value;
+
+    return 0;
+}
+
+void Note::setRetrigger (int divisionsPerBeat, juce::UndoManager* um)
+{
+    // Snapped to the nearest one offered, so a hand-written 5 is a 4 rather
+    // than a roll nothing else can show.
+    int best = 0;
+
+    if (divisionsPerBeat > 0)
+    {
+        best = retriggerDivisions[0];
+
+        for (auto division : retriggerDivisions)
+            if (std::abs (division - divisionsPerBeat) < std::abs (best - divisionsPerBeat))
+                best = division;
+    }
+
+    if (best == 0)
+        state.removeProperty (ids::retrig, um);
+    else
+        state.setProperty (ids::retrig, best, um);
+}
+
+void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
+{
+    const Note from (source);
+    setLyric (from.getLyric(), um);
+    setPlayMode (from.getPlayMode(), um);
+    setRetrigger (from.getRetrigger(), um);
+}
+
+//==============================================================================
 // FileRef
 
 juce::File FileRef::getFile (const juce::ValueTree& state)

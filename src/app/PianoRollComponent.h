@@ -96,6 +96,24 @@ public:
     using LyricCheck = std::function<bool (const juce::String& lyric, const juce::String& previousLyric, int pitch)>;
     void setLyricCheck (LyricCheck);
 
+    // For a break slicer: each note shows how it plays (an arrow back for
+    // reverse, a slope for a tape stop, a wave for a scratch) and its roll
+    // as ticks where the slice restarts.
+    void setShowsPlayModes (bool);
+    bool showsPlayModes() const  { return showsPlayModesFlag; }
+
+    // What a new note is drawn with, and what the selection plays: set from
+    // the roll's play-mode bar. Setting one with notes selected changes them,
+    // as one undo step, and makes it what the next note is drawn with too --
+    // the bar shows one setting, and it should be the one that is used.
+    void setPlayMode (model::Note::PlayMode);
+    void setRetrigger (int divisionsPerBeat);
+
+    // The selection's setting when every selected note agrees, nothing when
+    // they differ; the brush's when nothing is selected.
+    std::optional<model::Note::PlayMode> getShownPlayMode() const;
+    std::optional<int> getShownRetrigger() const;
+
     // The rows worth looking at: the span of the drum map, or nothing at all
     // when there is no map and one row is as good as another.
     std::optional<juce::Range<int>> getDrumPitchRange() const;
@@ -319,6 +337,11 @@ private:
     void stepLyricEdit (int direction);   // commit, then edit the note after (+1) or before (-1)
 
     bool showsLyrics = false;
+    bool showsPlayModesFlag = false;
+    inline static model::Note::PlayMode playModeBrush = model::Note::PlayMode::forward;
+    inline static int retriggerBrush = 0;
+
+    void paintPlayMode (juce::Graphics&, const model::Note&, juce::Rectangle<float> bounds) const;
     std::unique_ptr<LyricEditor> lyricEditor;
     juce::ValueTree lyricNote;
     juce::String lyricNotePrevious;   // what the note being typed into follows on from
