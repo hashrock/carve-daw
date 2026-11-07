@@ -247,6 +247,67 @@ void PlaylistComponent::setPlayheadBeats (double beats)
     }
 }
 
+void PlaylistComponent::setRack (bool shouldShowRack, std::map<juce::String, juce::String> currentPatterns,
+                                 double loopBeats)
+{
+    const bool switching = shouldShowRack != rackMode;
+    const auto loop = juce::jmax (1.0, loopBeats);
+
+    if (! switching && rackPatterns == currentPatterns && std::abs (loop - rackLoopBeats) < 1.0e-9)
+        return;
+
+    const bool loopChanged = std::abs (loop - rackLoopBeats) > 1.0e-9;
+
+    if (switching)
+    {
+        if (shouldShowRack)
+            songPixelsPerBeat = pixelsPerBeat;
+        else
+            pixelsPerBeat = songPixelsPerBeat;
+    }
+
+    rackMode = shouldShowRack;
+    rackPatterns = std::move (currentPatterns);
+    rackLoopBeats = loop;
+
+    if (rackMode && (switching || loopChanged))
+        fitRackToView();
+
+    if (switching)
+    {
+        // Whatever was half done on the other view is abandoned with it.
+        dragMode = DragMode::none;
+        rubberBand = {};
+        fileDropTarget.reset();
+        clearSelection();
+
+        paintToolButton.setVisible (! rackMode);
+        selectToolButton.setVisible (! rackMode);
+    }
+
+    updateSize();
+
+    // The loop starts at beat zero; a view left scrolled into bar 40 of the
+    // song would open on nothing.
+    if (switching)
+        if (auto* viewport = getViewport())
+            viewport->setViewPosition (0, viewport->getViewPositionY());
+
+    updateShortcutHelp();
+    repaint();
+}
+
+void PlaylistComponent::fitRackToView()
+{
+    auto available = 800.0;
+
+    if (auto* viewport = getViewport())
+        available = (double) viewport->getMaximumVisibleWidth();
+
+    available -= labelWidth + 16;
+    pixelsPerBeat = juce::jlimit (minPixelsPerBeat, maxRackPixelsPerBeat, available / juce::jmax (1.0, rackLoopBeats));
+}
+
 void PlaylistComponent::refresh()
 {
     pruneSelection();
@@ -257,6 +318,11 @@ void PlaylistComponent::refresh()
 
 double PlaylistComponent::getContentLengthBeats() const
 {
+    // The rack is as long as the loop it shows, and no longer: past it there
+    // is nothing that plays.
+    if (rackMode)
+        return rackLoopBeats;
+
     // Always a few bars past the last placement, so there is empty grid to
     // paint or drop into without scrolling to the very end first.
     const auto length = std::max (32.0, song.getLengthBeats() + 16.0);
@@ -350,7 +416,8 @@ juce::Viewport* PlaylistComponent::getViewport() const
 
 void PlaylistComponent::setPixelsPerBeat (double newPixelsPerBeat, float anchorX)
 {
-    newPixelsPerBeat = juce::jlimit (minPixelsPerBeat, maxPixelsPerBeat, newPixelsPerBeat);
+    newPixelsPerBeat = juce::jlimit (minPixelsPerBeat, rackMode ? maxRackPixelsPerBeat : maxPixelsPerBeat,
+                                     newPixelsPerBeat);
     if (std::abs (newPixelsPerBeat - pixelsPerBeat) < 1.0e-6)
         return;
 
@@ -397,7 +464,9 @@ void PlaylistComponent::layOutToolStrip()
     const auto h = toolStrip::buttonHeight;
     paintToolButton.setBounds (origin.x + 6, y, toolStrip::toolWidth, h);
     selectToolButton.setBounds (paintToolButton.getRight(), y, toolStrip::toolWidth, h);
-    zoomOutButton.setBounds (selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
+
+    // The rack has no tools to pick, so zoom takes their place.
+    zoomOutButton.setBounds (rackMode ? origin.x + 6 : selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
     zoomInButton.setBounds (zoomOutButton.getRight(), y, toolStrip::zoomWidth, h);
 
     // "+ Generator" sits under the last row rather than in the toolbar: the row
@@ -729,6 +798,19 @@ void PlaylistComponent::updateShortcutHelp()
     std::vector<ShortcutHelpBar::Entry> entries;
     const auto mods = juce::ModifierKeys::getCurrentModifiers();
 
+    if (rackMode)
+    {
+        entries.push_back ({ "click", "select generator" });
+        entries.push_back ({ "click pattern name", "play another pattern" });
+        entries.push_back ({ "double click", "edit pattern" });
+        entries.push_back ({ "click ruler", "move playhead" });
+
+        if (onShortcutHelpChanged)
+            onShortcutHelpChanged (std::move (entries));
+
+        return;
+    }
+
     // Over the tempo lane nothing the tools offer applies, so it gets the bar
     // to itself: none of these gestures exist anywhere else.
     if (hoverMarkerLane)
@@ -1020,7 +1102,8 @@ void PlaylistComponent::paintRowLabels (juce::Graphics& g)
                     juce::Justification::centredLeft);
 
         // Disclosure for the row's automation lane: a chevron pointing right
-        // when closed and down at the lane when open.
+        // when closed and down at the lane when open. The rack has no lanes.
+        if (! rackMode)
         {
             const auto d = disclosureBounds (row).getCentre();
             juce::Path tri;
@@ -1168,8 +1251,9 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
     g.fillRect (ruler);
 
     // The loop range, as a bar with a grab handle at each end. An empty range
-    // means "loop the whole song", so there is nothing to draw for it.
-    if (song.hasLoopRange())
+    // means "loop the whole song", so there is nothing to draw for it -- and
+    // the rack loops its patterns whatever the song's range says.
+    if (song.hasLoopRange() && ! rackMode)
     {
         const auto x1 = beatToX (song.getLoopStart());
         const auto x2 = beatToX (song.getLoopEnd());
@@ -1221,6 +1305,12 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
 
 void PlaylistComponent::paint (juce::Graphics& g)
 {
+    if (rackMode)
+    {
+        paintRack (g);
+        return;
+    }
+
     g.fillAll (juce::Colour (0xff232327));
 
     const auto lengthBeats = getContentLengthBeats();
@@ -1467,6 +1557,292 @@ void PlaylistComponent::paint (juce::Graphics& g)
             g.drawText (generator->getName() + " / " + pattern->getName(),
                         statusArea, juce::Justification::centredLeft);
         }
+}
+
+//==============================================================================
+// Rack (Pattern mode)
+
+std::optional<model::Pattern> PlaylistComponent::rackPatternFor (const model::Generator& generator) const
+{
+    if (const auto it = rackPatterns.find (generator.getId()); it != rackPatterns.end())
+        return generator.findPattern (it->second);
+
+    return std::nullopt;
+}
+
+juce::Rectangle<float> PlaylistComponent::rackBandBounds (int row) const
+{
+    return slotBounds (row, 0.0, rackLoopBeats);
+}
+
+juce::Rectangle<float> PlaylistComponent::rackPillBounds (int row, const juce::String& patternName) const
+{
+    const auto band = rackBandBounds (row);
+    const auto textWidth = juce::GlyphArrangement::getStringWidth (juce::Font (uiFont (timelineTextHeight)), patternName);
+
+    // At the visible head of the band rather than its true one, so it stays
+    // in reach when the start of the loop is scrolled under the labels.
+    const auto left = juce::jmax (band.getX(), labelBandRight()) + 4.0f;
+    return { left, band.getY() + 4.0f, juce::jmin (textWidth + 26.0f, juce::jmax (0.0f, band.getRight() - left - 4.0f)), 17.0f };
+}
+
+void PlaylistComponent::paintRack (juce::Graphics& g)
+{
+    g.fillAll (juce::Colour (0xff1f1f23));
+
+    const int numRows = song.getNumGenerators();
+    const auto gridTop = (float) headerHeight;
+    const auto loopRight = beatToX (rackLoopBeats);
+
+    // The loop's bars and beats, and nothing past its end: the rack is only
+    // as long as what plays.
+    g.setColour (juce::Colour (0xff232327));
+    g.fillRect (beatToX (0.0), gridTop, loopRight - beatToX (0.0), (float) getHeight() - gridTop);
+
+    forEachBar (rackLoopBeats, [&] (int, double barStart, double barLength)
+    {
+        g.setColour (juce::Colour (0xff4a4a52));
+        g.drawVerticalLine ((int) beatToX (barStart), gridTop, (float) getHeight());
+
+        if (pixelsPerBeat >= 7.0)
+        {
+            g.setColour (juce::Colour (0xff2c2c31));
+            for (double beat = 1.0; beat < barLength - beatTolerance; beat += 1.0)
+                g.drawVerticalLine ((int) beatToX (barStart + beat), gridTop, (float) getHeight());
+        }
+    });
+
+    g.setColour (juce::Colour (0xff6a6a74));
+    g.drawVerticalLine ((int) loopRight, gridTop, (float) getHeight());
+
+    for (int row = 0; row < numRows; ++row)
+    {
+        auto generator = song.getGenerator (row);
+        const auto y = rowY (row);
+
+        g.setColour (juce::Colour (0xff3a3a40));
+        g.drawHorizontalLine ((int) y, 0.0f, (float) getWidth());
+
+        const auto band = rackBandBounds (row);
+        const auto pattern = rackPatternFor (generator);
+        const bool selectedRow = generator.getId() == selectedGeneratorId;
+
+        // Nothing of this generator plays in this mode: say why, quietly.
+        if (! pattern)
+        {
+            g.setColour (juce::Colour (0xff6e6e78));
+            g.setFont (uiFont (timelineTextHeight));
+            g.drawText (generator.isAudio() ? "Audio track: plays in Song mode" : "No pattern",
+                        band.withLeft (juce::jmax (band.getX(), labelBandRight()) + 8.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+            continue;
+        }
+
+        const auto rowColour = juce::Colour::fromHSV (0.08f + 0.13f * (float) row, 0.55f, 0.75f, 1.0f)
+                                   .withMultipliedSaturation (generator.isMuted() ? 0.2f : 1.0f)
+                                   .withMultipliedBrightness (generator.isMuted() ? 0.6f : 1.0f);
+
+        g.setColour (rowColour.withMultipliedAlpha (selectedRow ? 1.0f : 0.85f));
+        g.fillRoundedRectangle (band, 3.0f);
+
+        // The pattern's notes, in each repeat across the loop, pitch upwards
+        // over the band: enough to tell a bassline from a beat at a glance.
+        const auto notes = pattern->getNotes();
+        const auto patternLength = pattern->getLengthBeats();
+
+        if (! notes.empty() && patternLength > 0.0)
+        {
+            int lowest = 127, highest = 0;
+
+            for (const auto& note : notes)
+            {
+                lowest = juce::jmin (lowest, note.getPitch());
+                highest = juce::jmax (highest, note.getPitch());
+            }
+
+            // A floor on the span, so three notes a semitone apart do not
+            // fill the band like a chord chart.
+            const int span = juce::jmax (12, highest - lowest + 1);
+            const auto noteArea = band.reduced (2.0f, 4.0f).withTrimmedTop (16.0f);
+            const auto noteHeight = juce::jmax (1.5f, noteArea.getHeight() / (float) span);
+
+            juce::Graphics::ScopedSaveState clip (g);
+            g.reduceClipRegion (band.toNearestInt());
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+
+            for (double offset = 0.0; offset < rackLoopBeats - beatTolerance; offset += patternLength)
+                for (const auto& note : notes)
+                {
+                    const auto start = offset + note.getStart();
+
+                    if (start >= rackLoopBeats - beatTolerance)
+                        continue;
+
+                    const auto x = beatToX (start);
+                    const auto w = juce::jmax (1.5f, (float) (juce::jmin (note.getLength(), rackLoopBeats - start) * pixelsPerBeat) - 1.0f);
+                    const auto yNote = noteArea.getBottom() - (float) (note.getPitch() - lowest + 1) * noteArea.getHeight() / (float) span;
+                    g.fillRect (x, yNote, w, noteHeight);
+                }
+        }
+
+        // Where each repeat starts, as on a clip that loops its pattern.
+        if (patternLength > 0.0 && patternLength < rackLoopBeats - beatTolerance)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+
+            for (double beat = patternLength; beat < rackLoopBeats - beatTolerance; beat += patternLength)
+                g.fillRect (beatToX (beat), band.getY() + 2.0f, 1.0f, band.getHeight() - 4.0f);
+        }
+
+        g.setColour (selectedRow ? juce::Colours::white : juce::Colours::black.withAlpha (0.5f));
+        g.drawRoundedRectangle (band, 3.0f, selectedRow ? 1.6f : 1.0f);
+
+        // The pill: which pattern, and the way to another.
+        const auto pill = rackPillBounds (row, pattern->getName());
+
+        if (pill.getWidth() > 20.0f)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.3f));
+            g.fillRoundedRectangle (pill, 3.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.92f));
+            g.setFont (uiFont (timelineTextHeight));
+            g.drawText (pattern->getName(), pill.reduced (6.0f, 0.0f).withTrimmedRight (12.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+
+            juce::Path chevron;
+            const auto c = juce::Point<float> (pill.getRight() - 9.0f, pill.getCentreY());
+            chevron.startNewSubPath (c.x - 3.0f, c.y - 1.5f);
+            chevron.lineTo (c.x, c.y + 2.0f);
+            chevron.lineTo (c.x + 3.0f, c.y - 1.5f);
+            g.strokePath (chevron, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+        }
+    }
+
+    // The playhead goes round the loop.
+    g.setColour (juce::Colours::orangered);
+    g.drawVerticalLine ((int) beatToX (playheadBeats), gridTop, (float) getHeight());
+
+    paintRowLabels (g);
+
+    // The header: what this view is, the loop's ruler, and where input goes.
+    const auto header = headerBounds();
+    g.setColour (juce::Colour (0xff1b1b1f));
+    g.fillRect (toolbarBounds());
+
+    const auto lane = markerLaneBounds();
+    g.setColour (juce::Colour (0xff1b1b1f));
+    g.fillRect (lane);
+    g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.85f));
+    g.setFont (uiFont (timelineTextHeight));
+    g.drawText ("PATTERN MODE  -  every generator's current pattern, looping together. Song shows the playlist.",
+                lane.withTrimmedLeft ((float) labelWidth + 8.0f).toNearestInt(), juce::Justification::centredLeft);
+
+    paintRuler (g);
+    g.setColour (juce::Colour (0xff3a3a40));
+    g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
+
+    const auto statusX = zoomInButton.getRight() + 16;
+    const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
+                                                  juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
+    // Bars that start inside the loop: the line at its end opens none.
+    const auto bars = [this]
+    {
+        int count = 0;
+        forEachBar (rackLoopBeats, [&count, this] (int, double start, double)
+        {
+            if (start < rackLoopBeats - beatTolerance)
+                ++count;
+        });
+        return count;
+    }();
+
+    juce::String status = "Loop " + juce::String (bars) + (bars == 1 ? " bar" : " bars");
+
+    // Where a played or captured phrase goes: the selected generator's
+    // current pattern, which is the row outlined in white.
+    if (auto generator = song.findGenerator (selectedGeneratorId))
+        if (auto pattern = rackPatternFor (*generator))
+            status << "   |   input -> " << generator->getName() << " / " << pattern->getName();
+
+    g.setColour (juce::Colour (0xff9a9aa4));
+    g.drawText (status, statusArea, juce::Justification::centredLeft);
+}
+
+void PlaylistComponent::rackMouseDown (const juce::MouseEvent& e)
+{
+    // The ruler moves the playhead round the loop; nothing else in the header
+    // is the rack's (the buttons take their own clicks).
+    if (rulerBounds().contains (e.position))
+    {
+        if (onSeek && ! e.mods.isPopupMenu())
+            onSeek (juce::jlimit (0.0, rackLoopBeats, nearestBar (xToBeat (e.position.x))));
+
+        return;
+    }
+
+    if (headerBounds().contains (e.position))
+        return;
+
+    const int row = clipRowAt (e.position.y);
+
+    if (row < 0 || row >= song.getNumGenerators())
+        return;
+
+    auto generator = song.getGenerator (row);
+
+    if (onSelectGenerator)
+        onSelectGenerator (generator.getId());
+
+    if (inLabelBand (e.position))
+    {
+        if (e.mods.isPopupMenu() && onGeneratorMenu)
+        {
+            const juce::Rectangle<int> label ((int) labelBandLeft(), (int) rowY (row), labelWidth, rowHeight);
+            onGeneratorMenu (generator.getId(), localAreaToGlobal (label));
+        }
+
+        return;
+    }
+
+    // The pill, or a right click anywhere on the band: another pattern.
+    if (auto pattern = rackPatternFor (generator))
+    {
+        const auto pill = rackPillBounds (row, pattern->getName());
+
+        if (pill.contains (e.position) || e.mods.isPopupMenu())
+            showRackPatternMenu (generator, pill);
+    }
+}
+
+void PlaylistComponent::showRackPatternMenu (const model::Generator& generator, juce::Rectangle<float> pill)
+{
+    const auto patterns = generator.getPatterns();
+    const auto current = rackPatternFor (generator);
+
+    if (patterns.empty())
+        return;
+
+    juce::PopupMenu menu;
+
+    for (int i = 0; i < (int) patterns.size(); ++i)
+        menu.addItem (i + 1, patterns[(size_t) i].getName(), true,
+                      current && patterns[(size_t) i].getId() == current->getId());
+
+    juce::Component::SafePointer<PlaylistComponent> safeThis (this);
+    const auto generatorId = generator.getId();
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                                                  .withTargetScreenArea (localAreaToGlobal (pill.toNearestInt())),
+                        [safeThis, generatorId, patterns] (int result)
+    {
+        if (safeThis == nullptr || result <= 0 || result > (int) patterns.size())
+            return;
+
+        // Choosing a generator's pattern is choosing what it plays here.
+        if (safeThis->onSelectPattern)
+            safeThis->onSelectPattern (generatorId, patterns[(size_t) (result - 1)].getId());
+    });
 }
 
 //==============================================================================
@@ -2392,7 +2768,8 @@ bool PlaylistComponent::isGeneratorExpanded (const juce::String& generatorId) co
 
 bool PlaylistComponent::isRowExpanded (int row) const
 {
-    return row >= 0 && row < song.getNumGenerators()
+    // Automation is the song's; the rack has no timeline to draw it against.
+    return ! rackMode && row >= 0 && row < song.getNumGenerators()
                && isGeneratorExpanded (song.getGenerator (row).getId());
 }
 
@@ -2768,6 +3145,14 @@ void PlaylistComponent::updateHover (juce::Point<float> position)
 void PlaylistComponent::mouseMove (const juce::MouseEvent& e)
 {
     mouseIsOver = true;
+    lastMousePosition = e.position;
+
+    if (rackMode)
+    {
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        return;
+    }
+
     updateHover (e.position);
 }
 
@@ -2806,6 +3191,12 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     dragMode = DragMode::none;
     pendingToggleClip = {};
+
+    if (rackMode)
+    {
+        rackMouseDown (e);
+        return;
+    }
 
     if (markerLaneBounds().contains (e.position))
     {
@@ -3133,6 +3524,9 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 {
     lastMousePosition = e.position;
 
+    if (rackMode)
+        return;
+
     const int row = clipRowAt (e.position.y);
     const auto beat = xToBeat (e.position.x);
     const bool insideGrid = ! inLabelBand (e.position)
@@ -3213,6 +3607,9 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 
 void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 {
+    if (rackMode)
+        return;
+
     // A ruler click that never grew into a drag moves the transport to the bar
     // it landed on. Clearing the loop moved to the ruler's right click.
     if (dragMode == DragMode::loopRange && ! loopDragMoved && onSeek)
@@ -3257,6 +3654,33 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu())
         return;   // the press already opened a menu
+
+    // In the rack a double click opens what was double clicked: a label its
+    // generator, a band the pattern it is playing.
+    if (rackMode)
+    {
+        if (headerBounds().contains (e.position))
+            return;
+
+        const int row = clipRowAt (e.position.y);
+
+        if (row < 0 || row >= song.getNumGenerators())
+            return;
+
+        auto generator = song.getGenerator (row);
+
+        if (inLabelBand (e.position))
+        {
+            if (onOpenGenerator)
+                onOpenGenerator (generator.getId());
+        }
+        else if (auto pattern = rackPatternFor (generator); pattern && onEditPattern)
+        {
+            onEditPattern (generator.getId(), pattern->getId());
+        }
+
+        return;
+    }
 
     if (markerLaneBounds().contains (e.position))
     {
@@ -3339,6 +3763,11 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
 bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
 {
+    // The rack has no clips to copy, delete or paint, and its ⌘D is the
+    // host's: clone the pattern being worked on.
+    if (rackMode)
+        return false;
+
     if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
     {
         duplicateSelection();
@@ -3397,6 +3826,10 @@ bool PlaylistComponent::keyPressed (const juce::KeyPress& key)
 
 bool PlaylistComponent::isInterestedInFileDrag (const juce::StringArray& files)
 {
+    // A file lands at a point in the song, and the rack is not the song.
+    if (rackMode)
+        return false;
+
     for (const auto& path : files)
         if (isAudioFile (path))
             return true;
