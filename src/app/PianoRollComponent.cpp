@@ -3,6 +3,7 @@
 #include <tuple>
 
 #include "PianoRollComponent.h"
+#include "PlayModeGlyphs.h"
 #include "Fonts.h"
 
 #include "NoteGestures.h"
@@ -226,6 +227,26 @@ void PianoRollComponent::setBuzzRamped (bool ramped)
     applyToSelection ([&] (model::Note& note) { note.setBuzzRamped (ramped, &undoManager); });
 }
 
+void PianoRollComponent::resetPlayModes()
+{
+    playModeBrush = model::Note::PlayMode::forward;
+    retriggerBrush = 0;
+    buzzPitchBrush = model::Note::defaultBuzzPitch;
+    buzzRampBrush = false;
+    tuneBrush = 0;
+    rollDynamicsBrush = model::Note::RollDynamics::flat;
+
+    applyToSelection ([&] (model::Note& note)
+    {
+        note.setPlayMode (model::Note::PlayMode::forward, &undoManager);
+        note.setRetrigger (0, &undoManager);
+        note.setBuzzPitch (model::Note::defaultBuzzPitch, &undoManager);
+        note.setBuzzRamped (false, &undoManager);
+        note.setTune (0, &undoManager);
+        note.setRollDynamics (model::Note::RollDynamics::flat, &undoManager);
+    });
+}
+
 void PianoRollComponent::setTune (int semitones)
 {
     tuneBrush = semitones;
@@ -314,73 +335,33 @@ void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& no
     auto box = r.withWidth (juce::jmin (firstSpan, 14.0f)).reduced (2.0f, 2.0f);
     box = box.withSizeKeepingCentre (box.getWidth(), juce::jmin (box.getHeight(), 10.0f));
 
-    juce::Path glyph;
-
-    switch (mode)
+    // A fade is drawn across the whole note -- the level at each moment, the
+    // way a clip's fade is -- every other mode as its mark at the head.
+    if (mode == model::Note::PlayMode::fadeIn || mode == model::Note::PlayMode::fadeOut)
     {
-        case model::Note::PlayMode::reverse:
-            glyph.addTriangle (box.getX(), box.getCentreY(), box.getRight(), box.getY(), box.getRight(), box.getBottom());
-            g.setColour (ink);
-            g.fillPath (glyph);
-            return;
-
-        case model::Note::PlayMode::tapeStop:
-            glyph.startNewSubPath (box.getX(), box.getY());
-            glyph.quadraticTo (box.getX() + box.getWidth() * 0.4f, box.getBottom(), box.getRight(), box.getBottom());
-            break;
-
-        case model::Note::PlayMode::buzz:
-        {
-            // A saw that tightens for a ramp, even for a fixed buzz, and the
-            // note it sounds where there is room for it.
-            const bool ramped = note.isBuzzRamped();
-            juce::Path saw;
-            auto x = box.getX();
-            saw.startNewSubPath (x, box.getBottom());
-
-            for (int i = 0; i < 4 && x < box.getRight(); ++i)
-            {
-                const auto width = box.getWidth() * (ramped ? 0.4f / (float) (i + 1) : 0.25f);
-                saw.lineTo (x + width, box.getY());
-                saw.lineTo (x + width, box.getBottom());
-                x += width;
-            }
-
-            g.setColour (ink);
-            g.strokePath (saw, juce::PathStrokeType (1.2f));
-
-            if (r.getWidth() > 40.0f)
-            {
-                g.setFont (uiFont (fonts::small));
-                g.drawText (juce::MidiMessage::getMidiNoteName (note.getBuzzPitch(), true, true, 3),
-                            r.withTrimmedLeft (box.getRight() - r.getX() + 3.0f).reduced (0.0f, 0.0f),
-                            juce::Justification::centredLeft, false);
-            }
-
-            return;
-        }
-
-        case model::Note::PlayMode::fadeIn:
-        case model::Note::PlayMode::fadeOut:
-        {
-            // A wedge across the whole note, the way a fade is drawn on a
-            // clip: the level it is at, at each moment.
-            const auto wedge = r.reduced (1.0f, 2.0f);
-            const bool in = mode == model::Note::PlayMode::fadeIn;
-            juce::Path fade;
-            fade.startNewSubPath (wedge.getX(), in ? wedge.getBottom() : wedge.getY());
-            fade.lineTo (wedge.getRight(), in ? wedge.getY() : wedge.getBottom());
-            g.setColour (ink);
-            g.strokePath (fade, juce::PathStrokeType (1.2f));
-            return;
-        }
-
-        case model::Note::PlayMode::forward:
-            return;
+        const auto wedge = r.reduced (1.0f, 2.0f);
+        const bool in = mode == model::Note::PlayMode::fadeIn;
+        juce::Path fade;
+        fade.startNewSubPath (wedge.getX(), wedge.getBottom());
+        fade.lineTo (in ? wedge.getRight() : wedge.getX(), wedge.getY());
+        fade.lineTo (wedge.getRight(), wedge.getBottom());
+        fade.closeSubPath();
+        g.setColour (ink.withMultipliedAlpha (0.25f));
+        g.fillPath (fade);
+        return;
     }
 
-    g.setColour (ink);
-    g.strokePath (glyph, juce::PathStrokeType (1.4f));
+    playmode::drawGlyph (g, mode, box, note.isBuzzRamped(), ink);
+
+    // A buzz says which note, where there is room for it.
+    if (mode == model::Note::PlayMode::buzz && r.getWidth() > 40.0f)
+    {
+        g.setColour (ink);
+        g.setFont (uiFont (fonts::small));
+        g.drawText (juce::MidiMessage::getMidiNoteName (note.getBuzzPitch(), true, true, 3),
+                    r.withTrimmedLeft (box.getRight() - r.getX() + 3.0f),
+                    juce::Justification::centredLeft, false);
+    }
 }
 
 void PianoRollComponent::setLyricCheck (LyricCheck check)

@@ -12,6 +12,7 @@
 #include "Fonts.h"
 #include "IconButton.h"
 #include "PianoRollComponent.h"
+#include "PlayModeGlyphs.h"
 #include "ShortcutHelpBar.h"
 
 namespace carve::app
@@ -128,62 +129,97 @@ private:
 // spinner names the signature it counts in -- the roll's, i.e. the one the song
 // opens in -- the beat count is always spelled out beside it, and a song that
 // does change signature says that its bars vary.
-// A break slicer's strip under the toolbar: how the selected notes play
-// their slices (or the next note drawn, with nothing selected), and how fast
-// they roll. Reports choices; the roll applies them.
+// A break slicer's strip under the toolbar: how notes play their slices.
+// Three groups, left to right, in the order a note is shaped:
+//
+//   Play  how the slice sounds -- one button per mode, each showing the
+//         mark the note will carry; a buzz's note and ramp beside it,
+//         shown only while a buzz is what is chosen
+//   Roll  restarting it -- the rate, and the hairpin, shown only when
+//         there is a roll to shape
+//   Tune  up or down, in semitones
+//
+// and at the right, what all of it applies to: the selected notes, or with
+// nothing selected the next note drawn, plus a reset back to a plain note.
+// Reports choices; the roll applies them.
 class PlayModeBar : public juce::Component
 {
 public:
     static constexpr int preferredHeight = 30;
 
-    std::function<void (model::Note::PlayMode)> onPlayModeChosen;
+    using Mode = model::Note::PlayMode;
+    using Dynamics = model::Note::RollDynamics;
+
+    std::function<void (Mode)> onPlayModeChosen;
     std::function<void (int divisionsPerBeat)> onRetriggerChosen;
     std::function<void (int midiNote)> onBuzzPitchChosen;
     std::function<void (bool)> onBuzzRampChosen;
     std::function<void (int semitones)> onTuneChosen;
-    std::function<void (model::Note::RollDynamics)> onRollDynamicsChosen;
+    std::function<void (Dynamics)> onRollDynamicsChosen;
+    std::function<void()> onReset;
 
     PlayModeBar()
     {
-        playHeader.setText ("Play", juce::dontSendNotification);
-        playHeader.setJustificationType (juce::Justification::centredRight);
-        addAndMakeVisible (playHeader);
-
-        using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::fadeIn, Mode::fadeOut, Mode::buzz };
-        const char* tips[] = {
-            "Play the slice as recorded",
-            "Play the slice backwards, from the next cut to its own",
-            "Slow the slice to a halt over the note, like a tape machine losing power",
-            "Rise from silence to full over the note",
-            "Fall from full to silence over the note",
-            "Restart the slice's head so fast it sounds as a note -- the pitch beside it",
-        };
-
-        for (size_t i = 0; i < modeButtons.size(); ++i)
+        for (auto* header : { &playHeader, &rollHeader, &tuneHeader })
         {
-            auto& button = modeButtons[i];
-            button.setButtonText (model::Note::getPlayModeName (modes[i]));
-            button.setTooltip (tips[i]);
-            button.setClickingTogglesState (false);
-            button.setWantsKeyboardFocus (false);
-            button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
-            button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            button.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0)
-                                      | (i + 1 < modeButtons.size() ? juce::Button::ConnectedOnRight : 0));
-            button.onClick = [this, mode = modes[i]] { if (onPlayModeChosen) onPlayModeChosen (mode); };
-            addAndMakeVisible (button);
+            header->setFont (uiFont (fonts::small));
+            header->setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+            header->setJustificationType (juce::Justification::centredRight);
+            addAndMakeVisible (header);
         }
 
+        playHeader.setText ("Play", juce::dontSendNotification);
         rollHeader.setText ("Roll", juce::dontSendNotification);
-        rollHeader.setJustificationType (juce::Justification::centredRight);
-        addAndMakeVisible (rollHeader);
+        tuneHeader.setText ("Tune", juce::dontSendNotification);
 
+        // Play: the modes, as the marks they leave on a note.
+        const char* modeTips[] = {
+            "Forward: the slice as recorded",
+            "Reverse: the slice backwards, from the next cut to its own",
+            "Tape Stop: slowing to a halt over the note, like a tape machine losing power",
+            "Fade In: rising from silence to full over the note",
+            "Fade Out: falling from full to silence over the note",
+            "Buzz: the slice's head restarted so fast it sounds as a note",
+        };
+
+        for (size_t i = 0; i < modes.size(); ++i)
+        {
+            const auto mode = modes[i];
+            auto button = std::make_unique<playmode::GlyphButton> (modeTips[i],
+                [this, mode] (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour ink)
+                {
+                    playmode::drawGlyph (g, mode, box, mode == Mode::buzz && buzzRampToggle.getToggleState(), ink);
+                });
+            styleSegment (*button, i, modes.size());
+            button->onClick = [this, mode] { if (onPlayModeChosen) onPlayModeChosen (mode); };
+            addAndMakeVisible (*button);
+            modeButtons.push_back (std::move (button));
+        }
+
+        // The buzz's own settings, beside it.
+        for (int note = model::Note::lowestBuzzPitch; note <= model::Note::highestBuzzPitch; ++note)
+            buzzPitchBox.addItem (juce::MidiMessage::getMidiNoteName (note, true, true, 3), note);
+
+        buzzPitchBox.setTooltip ("The note the buzz sounds, the same at any tempo");
+        buzzPitchBox.setWantsKeyboardFocus (false);
+        buzzPitchBox.onChange = [this]
+        {
+            if (onBuzzPitchChosen && buzzPitchBox.getSelectedId() > 0)
+                onBuzzPitchChosen (buzzPitchBox.getSelectedId());
+        };
+        addChildComponent (buzzPitchBox);
+
+        buzzRampToggle.setTooltip ("Start as a sixteenth-note roll and speed up into the note over its length");
+        buzzRampToggle.setWantsKeyboardFocus (false);
+        buzzRampToggle.onClick = [this] { if (onBuzzRampChosen) onBuzzRampChosen (buzzRampToggle.getToggleState()); };
+        addChildComponent (buzzRampToggle);
+
+        // Roll: the rate, then the hairpin.
         rollBox.addItem ("Off", rollIdFor (0));
-        const char* names[] = { "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/64" };
+        const char* rollNames[] = { "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/64" };
 
         for (size_t i = 0; i < std::size (model::Note::retriggerDivisions); ++i)
-            rollBox.addItem (names[i], rollIdFor (model::Note::retriggerDivisions[i]));
+            rollBox.addItem (rollNames[i], rollIdFor (model::Note::retriggerDivisions[i]));
 
         rollBox.setTooltip ("Restart the slice at this rate for as long as the note lasts");
         rollBox.setWantsKeyboardFocus (false);
@@ -194,140 +230,188 @@ public:
         };
         addAndMakeVisible (rollBox);
 
-        for (int note = model::Note::lowestBuzzPitch; note <= model::Note::highestBuzzPitch; ++note)
-            buzzPitchBox.addItem (juce::MidiMessage::getMidiNoteName (note, true, true, 3), note);
+        const char* dynamicsTips[] = { "Every restart as loud", "Crescendo: rising out of near silence",
+                                       "Decrescendo: dying away" };
 
-        buzzPitchBox.setTooltip ("The note a buzz sounds");
-        buzzPitchBox.setWantsKeyboardFocus (false);
-        buzzPitchBox.onChange = [this]
+        for (size_t i = 0; i < dynamics.size(); ++i)
         {
-            if (onBuzzPitchChosen && buzzPitchBox.getSelectedId() > 0)
-                onBuzzPitchChosen (buzzPitchBox.getSelectedId());
-        };
-        addAndMakeVisible (buzzPitchBox);
+            const auto shape = dynamics[i];
+            auto button = std::make_unique<playmode::GlyphButton> (dynamicsTips[i],
+                [shape] (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour ink)
+                {
+                    playmode::drawDynamicsGlyph (g, shape, box, ink);
+                });
+            styleSegment (*button, i, dynamics.size());
+            button->onClick = [this, shape] { if (onRollDynamicsChosen) onRollDynamicsChosen (shape); };
+            addChildComponent (*button);
+            dynamicsButtons.push_back (std::move (button));
+        }
 
-        buzzRampToggle.setTooltip ("Start the buzz as a sixteenth-note roll and speed up into the note over its length");
-        buzzRampToggle.setWantsKeyboardFocus (false);
-        buzzRampToggle.onClick = [this] { if (onBuzzRampChosen) onBuzzRampChosen (buzzRampToggle.getToggleState()); };
-        addAndMakeVisible (buzzRampToggle);
-
-        tuneHeader.setText ("Tune", juce::dontSendNotification);
-        tuneHeader.setJustificationType (juce::Justification::centredRight);
-        addAndMakeVisible (tuneHeader);
-
-        // Ids offset so that 0 -- "nothing selected" to a ComboBox -- is free
-        // to mean a selection that differs.
-        for (int semitones = model::Note::maxTune; semitones >= -model::Note::maxTune; --semitones)
-            tuneBox.addItem ((semitones > 0 ? "+" : "") + juce::String (semitones), tuneIdFor (semitones));
-
-        tuneBox.setTooltip ("Play this note's slice higher or lower, in semitones -- faster or slower, as a sampler would");
-        tuneBox.setWantsKeyboardFocus (false);
-        tuneBox.onChange = [this]
+        // Tune: a stepper, double-click for none.
+        tuneSlider.setSliderStyle (juce::Slider::IncDecButtons);
+        tuneSlider.setIncDecButtonsMode (juce::Slider::incDecButtonsDraggable_Vertical);
+        tuneSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 34, 22);
+        tuneSlider.setRange (-model::Note::maxTune, model::Note::maxTune, 1.0);
+        tuneSlider.setDoubleClickReturnValue (true, 0.0);
+        tuneSlider.textFromValueFunction = [] (double value)
         {
-            if (onTuneChosen && tuneBox.getSelectedId() > 0)
-                onTuneChosen (tuneBox.getSelectedId() - tuneIdFor (0));
+            const auto semitones = juce::roundToInt (value);
+            return (semitones > 0 ? "+" : "") + juce::String (semitones);
         };
-        addAndMakeVisible (tuneBox);
-
-        using Dynamics = model::Note::RollDynamics;
-        dynamicsBox.addItem ("Flat", 1 + (int) Dynamics::flat);
-        dynamicsBox.addItem ("Cresc.", 1 + (int) Dynamics::crescendo);
-        dynamicsBox.addItem ("Decresc.", 1 + (int) Dynamics::decrescendo);
-        dynamicsBox.setTooltip ("A roll every restart as loud, rising out of silence (crescendo), or dying away (decrescendo)");
-        dynamicsBox.setWantsKeyboardFocus (false);
-        dynamicsBox.onChange = [this]
+        tuneSlider.valueFromTextFunction = [] (const juce::String& text) { return text.getDoubleValue(); };
+        tuneSlider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff2c2c31));
+        tuneSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a40));
+        tuneSlider.setTooltip ("This note's slice higher or lower, in semitones -- faster or slower, as a sampler "
+                               "would. Double-click for none");
+        tuneSlider.onValueChange = [this]
         {
-            if (onRollDynamicsChosen && dynamicsBox.getSelectedId() > 0)
-                onRollDynamicsChosen ((Dynamics) (dynamicsBox.getSelectedId() - 1));
+            if (! updating && onTuneChosen)
+                onTuneChosen (juce::roundToInt (tuneSlider.getValue()));
         };
-        addAndMakeVisible (dynamicsBox);
+        addAndMakeVisible (tuneSlider);
 
-        hint.setText ("applies to the selected notes, or to the next note drawn", juce::dontSendNotification);
-        hint.setFont (uiFont (fonts::small));
-        hint.setColour (juce::Label::textColourId, juce::Colour (0xff6e6e78));
-        addAndMakeVisible (hint);
+        // What it all applies to, and the way back to plain.
+        target.setFont (uiFont (fonts::small));
+        target.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+        target.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (target);
+
+        resetButton.setTooltip ("Back to a plain note: forward, no roll, no tune");
+        resetButton.setWantsKeyboardFocus (false);
+        resetButton.onClick = [this] { if (onReset) onReset(); };
+        addAndMakeVisible (resetButton);
     }
 
-    // What the roll says is shown: nothing lit for a selection that differs.
-    void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger,
-               std::optional<int> buzzPitch, std::optional<bool> buzzRamped,
-               std::optional<int> tune, std::optional<model::Note::RollDynamics> dynamics)
+    // What the roll says is shown: nothing lit for a setting the selected
+    // notes differ on.
+    void show (std::optional<Mode> mode, std::optional<int> retrigger, std::optional<int> buzzPitch,
+               std::optional<bool> buzzRamped, std::optional<int> tune, std::optional<Dynamics> shape,
+               int numSelected)
     {
-        tuneBox.setSelectedId (tune ? tuneIdFor (*tune) : 0, juce::dontSendNotification);
-        dynamicsBox.setSelectedId (dynamics ? 1 + (int) *dynamics : 0, juce::dontSendNotification);
+        const juce::ScopedValueSetter<bool> guard (updating, true);
 
-        // Dynamics are a roll's; without one there is nothing to shape.
-        dynamicsBox.setEnabled (! retrigger || *retrigger != 0);
+        for (size_t i = 0; i < modes.size(); ++i)
+            modeButtons[i]->setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
 
-        // The buzz's settings only mean something on a buzz.
-        const bool buzz = mode && *mode == model::Note::PlayMode::buzz;
-        buzzPitchBox.setEnabled (buzz);
-        buzzRampToggle.setEnabled (buzz);
         buzzPitchBox.setSelectedId (buzzPitch ? *buzzPitch : 0, juce::dontSendNotification);
         buzzRampToggle.setToggleState (buzzRamped.value_or (false), juce::dontSendNotification);
 
-        using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::fadeIn, Mode::fadeOut, Mode::buzz };
+        rollBox.setSelectedId (retrigger ? rollIdFor (*retrigger) : 0, juce::dontSendNotification);
 
-        for (size_t i = 0; i < modeButtons.size(); ++i)
-            modeButtons[i].setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
+        for (size_t i = 0; i < dynamics.size(); ++i)
+            dynamicsButtons[i]->setToggleState (shape && *shape == dynamics[i], juce::dontSendNotification);
 
-        if (retrigger)
-            rollBox.setSelectedId (rollIdFor (*retrigger), juce::dontSendNotification);
-        else
-            rollBox.setSelectedId (0, juce::dontSendNotification);
+        tuneSlider.setValue (tune.value_or (0), juce::dontSendNotification);
+        tuneSlider.setAlpha (tune ? 1.0f : 0.5f);   // differs across the selection
+
+        target.setText (numSelected == 0 ? "next note"
+                                         : numSelected == 1 ? "1 note" : juce::String (numSelected) + " notes",
+                        juce::dontSendNotification);
+
+        // Only what the choice above it makes meaningful.
+        showsBuzzOptions = mode && *mode == Mode::buzz;
+        showsDynamics = ! retrigger || *retrigger != 0;
+
+        for (auto& button : modeButtons)
+            button->repaint();   // the buzz mark follows the ramp
+
+        resized();
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (juce::Colour (0xff26262b));
+
+        // A rule between the groups.
+        g.setColour (juce::Colour (0xff3a3a40));
+
+        for (auto x : dividers)
+            g.drawVerticalLine (x, 6.0f, (float) getHeight() - 6.0f);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (6, 4);
-        playHeader.setBounds (area.removeFromLeft (40));
+        auto area = getLocalBounds().reduced (8, 4);
+        dividers.clear();
+
+        auto divide = [&]
+        {
+            area.removeFromLeft (8);
+            dividers.push_back (area.getX());
+            area.removeFromLeft (9);
+        };
+
+        // The right end first: it is always there, and whatever is left in
+        // the middle is what the groups get.
+        resetButton.setBounds (area.removeFromRight (52));
+        area.removeFromRight (6);
+        target.setBounds (area.removeFromRight (64));
+
+        playHeader.setBounds (area.removeFromLeft (30));
         area.removeFromLeft (6);
 
         for (auto& button : modeButtons)
-            button.setBounds (area.removeFromLeft (juce::jmax (48, button.getBestWidthForHeight (area.getHeight()) - 8)));
+            button->setBounds (area.removeFromLeft (30));
 
-        area.removeFromLeft (4);
-        buzzPitchBox.setBounds (area.removeFromLeft (64));
-        area.removeFromLeft (4);
-        buzzRampToggle.setBounds (area.removeFromLeft (60));
+        buzzPitchBox.setVisible (showsBuzzOptions);
+        buzzRampToggle.setVisible (showsBuzzOptions);
 
-        area.removeFromLeft (12);
-        tuneHeader.setBounds (area.removeFromLeft (36));
-        area.removeFromLeft (4);
-        tuneBox.setBounds (area.removeFromLeft (58));
+        if (showsBuzzOptions)
+        {
+            area.removeFromLeft (6);
+            buzzPitchBox.setBounds (area.removeFromLeft (62));
+            area.removeFromLeft (4);
+            buzzRampToggle.setBounds (area.removeFromLeft (60));
+        }
 
-        area.removeFromLeft (12);
-        rollHeader.setBounds (area.removeFromLeft (32));
-        area.removeFromLeft (4);
+        divide();
+        rollHeader.setBounds (area.removeFromLeft (28));
+        area.removeFromLeft (6);
         rollBox.setBounds (area.removeFromLeft (72));
-        area.removeFromLeft (4);
-        dynamicsBox.setBounds (area.removeFromLeft (86));
-        area.removeFromLeft (12);
 
-        // Said only where there is room to say it.
-        hint.setVisible (area.getWidth() > 160);
-        hint.setBounds (area);
+        for (auto& button : dynamicsButtons)
+            button->setVisible (showsDynamics);
+
+        if (showsDynamics)
+        {
+            area.removeFromLeft (6);
+
+            for (auto& button : dynamicsButtons)
+                button->setBounds (area.removeFromLeft (28));
+        }
+
+        divide();
+        tuneHeader.setBounds (area.removeFromLeft (30));
+        area.removeFromLeft (6);
+        tuneSlider.setBounds (area.removeFromLeft (84));
+
+        repaint();
     }
 
 private:
-    static int tuneIdFor (int semitones)  { return semitones + model::Note::maxTune + 1; }
-
-    // Combo ids are 1-based; division + 1 keeps "Off" (0) addressable.
     static int rollIdFor (int divisionsPerBeat)  { return divisionsPerBeat + 1; }
 
-    juce::Label playHeader, rollHeader, hint;
-    std::array<juce::TextButton, 6> modeButtons;
-    juce::Label tuneHeader;
-    juce::ComboBox tuneBox, dynamicsBox;
-    juce::ComboBox buzzPitchBox;
+    static void styleSegment (juce::Button& button, size_t index, size_t count)
+    {
+        button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
+        button.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        button.setConnectedEdges ((index > 0 ? juce::Button::ConnectedOnLeft : 0)
+                                  | (index + 1 < count ? juce::Button::ConnectedOnRight : 0));
+    }
+
+    const std::array<Mode, 6> modes { Mode::forward, Mode::reverse, Mode::tapeStop,
+                                      Mode::fadeIn, Mode::fadeOut, Mode::buzz };
+    const std::array<Dynamics, 3> dynamics { Dynamics::flat, Dynamics::crescendo, Dynamics::decrescendo };
+
+    juce::Label playHeader, rollHeader, tuneHeader, target;
+    std::vector<std::unique_ptr<playmode::GlyphButton>> modeButtons, dynamicsButtons;
+    juce::ComboBox buzzPitchBox, rollBox;
     juce::ToggleButton buzzRampToggle { "Ramp" };
-    juce::ComboBox rollBox;
+    juce::Slider tuneSlider;
+    juce::TextButton resetButton { "Reset" };
+
+    bool showsBuzzOptions = false, showsDynamics = false, updating = false;
+    std::vector<int> dividers;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayModeBar)
 };
@@ -456,6 +540,12 @@ public:
         playModeBar.onBuzzRampChosen = [this] (bool ramped)
         {
             pianoRoll.setBuzzRamped (ramped);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onReset = [this]
+        {
+            pianoRoll.resetPlayModes();
             refreshPlayModeBar();
             pianoRoll.grabKeyboardFocus();
         };
@@ -971,7 +1061,8 @@ private:
         if (playModeBar.isVisible())
             playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger(),
                               pianoRoll.getShownBuzzPitch(), pianoRoll.getShownBuzzRamped(),
-                              pianoRoll.getShownTune(), pianoRoll.getShownRollDynamics());
+                              pianoRoll.getShownTune(), pianoRoll.getShownRollDynamics(),
+                              pianoRoll.getNumSelectedNotes());
     }
 
     juce::UndoManager& undoManager;

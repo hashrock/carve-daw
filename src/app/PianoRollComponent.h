@@ -114,6 +114,10 @@ public:
     void setTune (int semitones);
     void setRollDynamics (model::Note::RollDynamics);
 
+    // Everything back to a plain note: forward, no roll, no tune. For the
+    // selection, as one step, and for what is drawn next.
+    void resetPlayModes();
+
     // The selection's setting when every selected note agrees, nothing when
     // they differ; the brush's when nothing is selected.
     std::optional<model::Note::PlayMode> getShownPlayMode() const;
