@@ -16,6 +16,13 @@ namespace
     constexpr double attackSeconds = 0.0005;
     constexpr double releaseSeconds = 0.003;
 
+    // How far apart a trigger and its note-on may arrive. They are written at
+    // the same beat, but the engine does not promise the same sample -- a
+    // block boundary can fall between them -- so they are paired within a
+    // short window either way. Shorter than any roll's restarts, so a
+    // trigger can never be taken by the next note of the same slice.
+    constexpr double pairingWindowSeconds = 0.02;
+
     // The file's loop, read now or shared from whoever read it already.
     std::shared_ptr<const BreakPlugin::Audio> loadAudio (const juce::File& file, juce::String& error)
     {
@@ -181,10 +188,14 @@ void BreakPlugin::reset()
     playingSlice.store (-1, std::memory_order_relaxed);
 }
 
-void BreakPlugin::applyMode (Voice& voice, Mode mode, double seconds)
+void BreakPlugin::applyMode (Voice& voice, const PendingTrigger& trigger)
 {
+    const auto mode = trigger.mode;
     voice.mode = mode;
-    voice.duration = seconds > 0.0 ? seconds * sampleRate : 0.0;
+    voice.duration = trigger.seconds > 0.0 ? trigger.seconds * sampleRate : 0.0;
+    voice.buzzFrom = trigger.buzzFrom;
+    voice.buzzTo = trigger.buzzTo;
+    voice.cycle = 0.0;
 
     // Backwards starts from the far end of the slice; everything else from
     // its cut.
@@ -236,7 +247,7 @@ void BreakPlugin::startSlice (int note, float velocity)
     voice.envelopeStep = attackStep;
 
     auto& trigger = pending[(size_t) note];
-    applyMode (voice, trigger.set ? trigger.mode : Mode::forward, trigger.set ? trigger.seconds : 0.0);
+    applyMode (voice, trigger.set ? trigger : PendingTrigger {});
     trigger.set = false;
 }
 
@@ -244,36 +255,57 @@ void BreakPlugin::handleTrigger (const juce::MidiMessage& m)
 {
     const auto* data = m.getSysExData();
 
-    if (m.getSysExDataSize() != 8 || data[0] != sysexId[0] || data[1] != sysexId[1] || data[2] != sysexId[2])
+    const auto size = m.getSysExDataSize();
+
+    if ((size != 8 && size != 12) || data[0] != sysexId[0] || data[1] != sysexId[1] || data[2] != sysexId[2])
         return;
 
-    const auto mode = (Mode) juce::jlimit (0, 5, (int) data[3]);
-    const int note = data[4] & 0x7f;
-    const double seconds = (((data[5] & 0x7f) << 14) | ((data[6] & 0x7f) << 7) | (data[7] & 0x7f)) / 1000.0;
+    auto threeBytes = [data] (int at)
+    {
+        return ((data[at] & 0x7f) << 14) | ((data[at + 1] & 0x7f) << 7) | (data[at + 2] & 0x7f);
+    };
 
-    // After its note-on: the voice it is for has not played a sample yet.
+    PendingTrigger trigger;
+    trigger.set = true;
+    trigger.mode = (Mode) juce::jlimit (0, 6, (int) data[3]);
+    trigger.seconds = threeBytes (5) / 1000.0;
+
+    const int note = data[4] & 0x7f;
+
+    if (trigger.mode == Mode::buzz)
+    {
+        if (size != 12)
+            return;
+
+        trigger.buzzTo = juce::MidiMessage::getMidiNoteInHertz (data[8] & 0x7f);
+        trigger.buzzFrom = threeBytes (9) / 10.0;
+    }
+
+    // After its note-on: the voice it is for has only just started.
     for (auto& voice : voices)
-        if (voice.active && voice.note == note && voice.elapsed < 0.5 && voice.envelopeStep > 0.0f)
+        if (voice.active && voice.note == note && voice.elapsed < pairingWindowSeconds * sampleRate
+             && voice.isHeld())
         {
-            applyMode (voice, mode, seconds);
+            applyMode (voice, trigger);
             return;
         }
 
-    pending[(size_t) note] = { true, mode, seconds };
+    trigger.age = 0.0;
+    pending[(size_t) note] = trigger;
     anyPending = true;
 }
 
 void BreakPlugin::releaseNote (int note)
 {
     for (auto& voice : voices)
-        if (voice.active && voice.note == note && voice.envelopeStep > 0.0f)
+        if (voice.active && voice.note == note && voice.isHeld())
             voice.envelopeStep = -releaseStep;
 }
 
 void BreakPlugin::releaseAll()
 {
     for (auto& voice : voices)
-        if (voice.active && voice.envelopeStep > 0.0f)
+        if (voice.active && voice.isHeld())
             voice.envelopeStep = -releaseStep;
 }
 
@@ -315,6 +347,7 @@ namespace
 
             case BreakPlugin::Mode::fadeIn:
             case BreakPlugin::Mode::fadeOut:
+            case BreakPlugin::Mode::buzz:
             case BreakPlugin::Mode::forward:
                 break;
         }
@@ -346,14 +379,19 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
     if (numSamples <= 0)
         return;
 
-    // Audio is about to move on: a trigger nothing claimed was for a note
-    // that never came.
+    // A trigger nothing has claimed for a moment was for a note that never
+    // came; it must not wait for a later one.
     if (anyPending)
     {
-        for (auto& trigger : pending)
-            trigger.set = false;
-
         anyPending = false;
+
+        for (auto& trigger : pending)
+            if (trigger.set)
+            {
+                trigger.age += numSamples;
+                trigger.set = trigger.age < pairingWindowSeconds * sampleRate;
+                anyPending = anyPending || trigger.set;
+            }
     }
 
     const auto& source = program->audio->buffer;
@@ -384,12 +422,12 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
             // going backwards -- rather than being cut off there. A scratch
             // turns round inside its slice, so it fades only at its note's
             // end; a tape stop fades as it comes to rest.
-            if (voice.envelopeStep > 0.0f)
+            if (voice.isHeld())
             {
                 const double fadeSamples = 1.0 / juce::jmax (1.0e-6, (double) releaseStep);
                 bool fade = false;
 
-                if (voice.mode == Mode::scratch)
+                if (voice.mode == Mode::scratch || voice.mode == Mode::buzz)
                     fade = voice.elapsed >= duration - fadeSamples;
                 else if (move > 0.0)
                     fade = voice.position + move * fadeSamples >= voice.end;
@@ -411,9 +449,35 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
                 voice.envelopeStep = 0.0f;
             }
 
-            const bool outside = voice.mode == Mode::scratch
+            const bool outside = voice.mode == Mode::scratch || voice.mode == Mode::buzz
                                     ? false
                                     : (voice.position >= voice.end || voice.position < voice.start);
+
+            // A buzz is its slice's head over and over, `period` output
+            // samples at a time, each restart faded in and out over a few
+            // samples so the buzz is the slice's colour rather than a click
+            // train. With a ramp the rate climbs from where it starts to
+            // where it ends evenly in pitch, so a roll speeding up into a
+            // note sounds like it is heading there.
+            float grainGain = 1.0f;
+            double period = 0.0;
+
+            if (voice.mode == Mode::buzz)
+            {
+                const auto to = juce::jmax (1.0, voice.buzzTo);
+                const auto from = voice.buzzFrom > 0.0 ? voice.buzzFrom : to;
+                const auto rate = juce::jlimit (1.0, 4000.0, from * std::pow (to / from, progress));
+                period = sampleRate / rate;
+
+                const auto grainFade = juce::jmax (1.0, juce::jmin (32.0, period / 4.0));
+                grainGain = (float) (juce::jmin (1.0, voice.cycle / grainFade)
+                                       * juce::jmin (1.0, (period - voice.cycle) / grainFade));
+
+                // A restart longer than the slice runs out of slice: the rest
+                // of it is silence, not the next hit.
+                if (voice.position >= voice.end - 1.0)
+                    grainGain = 0.0f;
+            }
 
             if (voice.envelope <= 0.0f || outside || voice.position >= sourceFrames - 1 || voice.position < 0.0)
             {
@@ -423,7 +487,7 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
 
             const int index = (int) voice.position;
             const auto fraction = (float) (voice.position - index);
-            const float gain = voice.envelope * voice.gain * fadeGainFor (voice.mode, progress);
+            const float gain = voice.envelope * voice.gain * fadeGainFor (voice.mode, progress) * grainGain;
 
             const float left = inL[index] + (inL[index + 1] - inL[index]) * fraction;
             const float right = inR[index] + (inR[index + 1] - inR[index]) * fraction;
@@ -440,6 +504,22 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
 
             voice.position += move;
             voice.elapsed += 1.0;
+
+            if (voice.mode == Mode::buzz)
+            {
+                voice.position = juce::jmin (voice.position, juce::jmax (voice.start, voice.end - 1.0));
+                voice.cycle += 1.0;
+
+                // Back to the head, keeping the fraction of a sample the
+                // period overshot by: a restart rounded to whole samples
+                // would wobble the pitch of any note whose period is not
+                // a whole number of them.
+                if (voice.cycle >= period)
+                {
+                    voice.cycle -= period;
+                    voice.position = voice.start + voice.cycle * step;
+                }
+            }
 
             // A scratch stays on its slice: pushed past either edge, the
             // record just stops there until the hand turns it round.

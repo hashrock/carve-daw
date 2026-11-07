@@ -1612,12 +1612,32 @@ namespace
                     {
                         const auto ms = juce::jlimit (1, (1 << 21) - 1,
                                                       juce::roundToInt ((secondsAt (start + length) - secondsAt (start)) * 1000.0));
-                        const uint8_t payload[] = { plugins::BreakPlugin::sysexId[0], plugins::BreakPlugin::sysexId[1],
-                                                    plugins::BreakPlugin::sysexId[2],
-                                                    (uint8_t) mode, (uint8_t) pitch,
-                                                    (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f),
-                                                    (uint8_t) (ms & 0x7f) };
-                        triggers.push_back ({ start, juce::MemoryBlock (payload, sizeof (payload)) });
+                        juce::MemoryBlock payload;
+
+                        for (auto byte : { plugins::BreakPlugin::sysexId[0], plugins::BreakPlugin::sysexId[1],
+                                           plugins::BreakPlugin::sysexId[2],
+                                           (uint8_t) mode, (uint8_t) pitch,
+                                           (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f),
+                                           (uint8_t) (ms & 0x7f) })
+                            payload.append (&byte, 1);
+
+                        // A buzz says what it sounds and where it starts
+                        // from: a ramp from a sixteenth-note roll at the
+                        // tempo the note starts in, in tenths of a hertz.
+                        if (mode == model::Note::PlayMode::buzz)
+                        {
+                            const auto target = juce::MidiMessage::getMidiNoteInHertz (note.getBuzzPitch());
+                            const auto sixteenth = secondsAt (start + 0.25) - secondsAt (start);
+                            const auto from = note.isBuzzRamped() && sixteenth > 0.0 ? 1.0 / sixteenth : target;
+                            const auto tenths = juce::jlimit (1, (1 << 21) - 1, juce::roundToInt (from * 10.0));
+
+                            for (auto byte : { (uint8_t) note.getBuzzPitch(),
+                                               (uint8_t) ((tenths >> 14) & 0x7f), (uint8_t) ((tenths >> 7) & 0x7f),
+                                               (uint8_t) (tenths & 0x7f) })
+                                payload.append (&byte, 1);
+                        }
+
+                        triggers.push_back ({ start, std::move (payload) });
                     }
                 }
             }

@@ -108,11 +108,15 @@ public:
     // the bar shows one setting, and it should be the one that is used.
     void setPlayMode (model::Note::PlayMode);
     void setRetrigger (int divisionsPerBeat);
+    void setBuzzPitch (int midiNote);
+    void setBuzzRamped (bool);
 
     // The selection's setting when every selected note agrees, nothing when
     // they differ; the brush's when nothing is selected.
     std::optional<model::Note::PlayMode> getShownPlayMode() const;
     std::optional<int> getShownRetrigger() const;
+    std::optional<int> getShownBuzzPitch() const;
+    std::optional<bool> getShownBuzzRamped() const;
 
     // The rows worth looking at: the span of the drum map, or nothing at all
     // when there is no map and one row is as good as another.
@@ -340,6 +344,16 @@ private:
     bool showsPlayModesFlag = false;
     inline static model::Note::PlayMode playModeBrush = model::Note::PlayMode::forward;
     inline static int retriggerBrush = 0;
+    inline static int buzzPitchBrush = model::Note::defaultBuzzPitch;
+    inline static bool buzzRampBrush = false;
+
+    // The selection's value of one note setting when all agree, nothing
+    // when they differ, the brush's when nothing is selected; and the same
+    // setting written to the brush and to every selected note as one step.
+    template <typename Value, typename Getter>
+    std::optional<Value> shownSetting (Value brush, Getter get) const;
+    template <typename Setter>
+    void applyToSelection (Setter set);
 
     void paintPlayMode (juce::Graphics&, const model::Note&, juce::Rectangle<float> bounds) const;
     std::unique_ptr<LyricEditor> lyricEditor;

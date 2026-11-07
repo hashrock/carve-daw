@@ -138,6 +138,8 @@ public:
 
     std::function<void (model::Note::PlayMode)> onPlayModeChosen;
     std::function<void (int divisionsPerBeat)> onRetriggerChosen;
+    std::function<void (int midiNote)> onBuzzPitchChosen;
+    std::function<void (bool)> onBuzzRampChosen;
 
     PlayModeBar()
     {
@@ -146,7 +148,8 @@ public:
         addAndMakeVisible (playHeader);
 
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut,
+                               Mode::buzz };
         const char* tips[] = {
             "Play the slice as recorded",
             "Play the slice backwards, from the next cut to its own",
@@ -154,6 +157,7 @@ public:
             "Push the slice forward for half the note and pull it straight back for the other half",
             "Rise from silence to full over the note",
             "Fall from full to silence over the note",
+            "Restart the slice's head so fast it sounds as a note -- the pitch beside it",
         };
 
         for (size_t i = 0; i < modeButtons.size(); ++i)
@@ -190,6 +194,23 @@ public:
         };
         addAndMakeVisible (rollBox);
 
+        for (int note = model::Note::lowestBuzzPitch; note <= model::Note::highestBuzzPitch; ++note)
+            buzzPitchBox.addItem (juce::MidiMessage::getMidiNoteName (note, true, true, 3), note);
+
+        buzzPitchBox.setTooltip ("The note a buzz sounds");
+        buzzPitchBox.setWantsKeyboardFocus (false);
+        buzzPitchBox.onChange = [this]
+        {
+            if (onBuzzPitchChosen && buzzPitchBox.getSelectedId() > 0)
+                onBuzzPitchChosen (buzzPitchBox.getSelectedId());
+        };
+        addAndMakeVisible (buzzPitchBox);
+
+        buzzRampToggle.setTooltip ("Start the buzz as a sixteenth-note roll and speed up into the note over its length");
+        buzzRampToggle.setWantsKeyboardFocus (false);
+        buzzRampToggle.onClick = [this] { if (onBuzzRampChosen) onBuzzRampChosen (buzzRampToggle.getToggleState()); };
+        addAndMakeVisible (buzzRampToggle);
+
         hint.setText ("applies to the selected notes, or to the next note drawn", juce::dontSendNotification);
         hint.setFont (uiFont (fonts::small));
         hint.setColour (juce::Label::textColourId, juce::Colour (0xff6e6e78));
@@ -197,10 +218,19 @@ public:
     }
 
     // What the roll says is shown: nothing lit for a selection that differs.
-    void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger)
+    void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger,
+               std::optional<int> buzzPitch, std::optional<bool> buzzRamped)
     {
+        // The buzz's settings only mean something on a buzz.
+        const bool buzz = mode && *mode == model::Note::PlayMode::buzz;
+        buzzPitchBox.setEnabled (buzz);
+        buzzRampToggle.setEnabled (buzz);
+        buzzPitchBox.setSelectedId (buzzPitch ? *buzzPitch : 0, juce::dontSendNotification);
+        buzzRampToggle.setToggleState (buzzRamped.value_or (false), juce::dontSendNotification);
+
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut,
+                               Mode::buzz };
 
         for (size_t i = 0; i < modeButtons.size(); ++i)
             modeButtons[i].setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
@@ -223,13 +253,21 @@ public:
         area.removeFromLeft (6);
 
         for (auto& button : modeButtons)
-            button.setBounds (area.removeFromLeft (button.getButtonText().length() > 7 ? 80 : 68));
+            button.setBounds (area.removeFromLeft (juce::jmax (48, button.getBestWidthForHeight (area.getHeight()) - 8)));
 
-        area.removeFromLeft (18);
-        rollHeader.setBounds (area.removeFromLeft (36));
         area.removeFromLeft (4);
-        rollBox.setBounds (area.removeFromLeft (80));
+        buzzPitchBox.setBounds (area.removeFromLeft (64));
+        area.removeFromLeft (4);
+        buzzRampToggle.setBounds (area.removeFromLeft (60));
+
+        area.removeFromLeft (14);
+        rollHeader.setBounds (area.removeFromLeft (32));
+        area.removeFromLeft (4);
+        rollBox.setBounds (area.removeFromLeft (72));
         area.removeFromLeft (12);
+
+        // Said only where there is room to say it.
+        hint.setVisible (area.getWidth() > 160);
         hint.setBounds (area);
     }
 
@@ -238,7 +276,9 @@ private:
     static int rollIdFor (int divisionsPerBeat)  { return divisionsPerBeat + 1; }
 
     juce::Label playHeader, rollHeader, hint;
-    std::array<juce::TextButton, 6> modeButtons;
+    std::array<juce::TextButton, 7> modeButtons;
+    juce::ComboBox buzzPitchBox;
+    juce::ToggleButton buzzRampToggle { "Ramp" };
     juce::ComboBox rollBox;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayModeBar)
@@ -356,6 +396,18 @@ public:
         playModeBar.onPlayModeChosen = [this] (model::Note::PlayMode mode)
         {
             pianoRoll.setPlayMode (mode);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onBuzzPitchChosen = [this] (int note)
+        {
+            pianoRoll.setBuzzPitch (note);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        playModeBar.onBuzzRampChosen = [this] (bool ramped)
+        {
+            pianoRoll.setBuzzRamped (ramped);
             refreshPlayModeBar();
             pianoRoll.grabKeyboardFocus();
         };
@@ -857,7 +909,8 @@ private:
     void refreshPlayModeBar()
     {
         if (playModeBar.isVisible())
-            playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger());
+            playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger(),
+                              pianoRoll.getShownBuzzPitch(), pianoRoll.getShownBuzzRamped());
     }
 
     juce::UndoManager& undoManager;

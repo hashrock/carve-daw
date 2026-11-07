@@ -54,10 +54,12 @@ public:
     // The start of every SysEx this plugin reads: the non-commercial
     // manufacturer id, then "CB". After it come the mode (the number of a
     // model::Note::PlayMode), the note it is for, and the note's length in
-    // milliseconds as three 7-bit bytes, most significant first.
+    // milliseconds as three 7-bit bytes, most significant first. A buzz adds
+    // the MIDI note it sounds and the rate it starts from, in tenths of a
+    // hertz, three bytes the same way.
     static constexpr uint8_t sysexId[3] = { 0x7d, 0x43, 0x42 };
 
-    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5 };
+    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5, buzz = 6 };
 
     juce::String getName() const override             { return "Break Slicer"; }
     juce::String getPluginType() override             { return xmlTypeName; }
@@ -132,25 +134,34 @@ private:
         double end = 0.0;        // file frames: the next cut
         double elapsed = 0.0;    // output samples since the note-on
         double duration = 0.0;   // output samples the note lasts, when a trigger said
+        double buzzFrom = 0.0, buzzTo = 0.0;   // restarts a second, at the start and the end
+        double cycle = 0.0;      // output samples into the current restart
         float gain = 1.0f;
         float envelope = 0.0f;
         float envelopeStep = 0.0f;   // per output sample; negative while fading out
+
+        // Fading in or sustaining, rather than fading out. Zero is held: the
+        // step drops to it when the attack is done, so "> 0" would be true
+        // only for the first half millisecond of a note.
+        bool isHeld() const  { return envelopeStep >= 0.0f; }
     };
 
-    // A trigger read before its note-on, at the same instant: the two can
-    // arrive in either order, so whichever comes second finds the first.
-    // Only good until any audio is rendered -- a trigger is for a note at
-    // its own moment, never a later one.
+    // A trigger read before its note-on: the two are written at the same
+    // beat but can arrive in either order, a few samples apart, so whichever
+    // comes second finds the first. Only good for a moment -- a trigger is
+    // for a note at its own beat, never a later one.
     struct PendingTrigger
     {
         bool set = false;
         Mode mode = Mode::forward;
         double seconds = 0.0;
+        double buzzFrom = 0.0, buzzTo = 0.0;
+        double age = 0.0;   // output samples since it arrived
     };
 
     void handleMidi (const juce::MidiMessage&);
     void handleTrigger (const juce::MidiMessage&);
-    void applyMode (Voice&, Mode, double seconds);
+    void applyMode (Voice&, const PendingTrigger&);
     void startSlice (int note, float velocity);
     void releaseNote (int note);
     void releaseAll();

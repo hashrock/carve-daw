@@ -82,13 +82,15 @@
 // │           │        order the pattern picker lists them. Songs written
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
-// │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig}   times in beats (quarter notes)
+// │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig, buzz, buzzRamp}   times in beats
 // │                    lyric: what a singing ("utau") generator sings on
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
 // │                    play: how a "break" generator plays the slice --
-// │                    "reverse" | "stop" | "scratch" | "fadein" | "fadeout",
-// │                    absent = forward.
+// │                    "reverse" | "stop" | "scratch" | "fadein" | "fadeout"
+// │                    | "buzz", absent = forward. buzz: the MIDI note a
+// │                    buzz sounds (absent = 48), buzzRamp: speed up into
+// │                    it from a sixteenth roll.
 // │                    retrig: restart the slice every 1/retrig of a beat,
 // │                    absent = once. Both optional, both carried by any
 // │                    generator (see Note::getPlayMode)
@@ -213,6 +215,8 @@ CARVE_DECLARE_ID (breakBars)
 CARVE_DECLARE_ID (breakRepitch)
 CARVE_DECLARE_ID (play)
 CARVE_DECLARE_ID (retrig)
+CARVE_DECLARE_ID (buzz)
+CARVE_DECLARE_ID (buzzRamp)
 
 #undef CARVE_DECLARE_ID
 

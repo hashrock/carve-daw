@@ -172,58 +172,78 @@ void PianoRollComponent::setShowsPlayModes (bool shouldShow)
     }
 }
 
-void PianoRollComponent::setPlayMode (model::Note::PlayMode mode)
+template <typename Value, typename Getter>
+std::optional<Value> PianoRollComponent::shownSetting (Value brush, Getter get) const
 {
-    playModeBrush = mode;
+    if (selectedNotes.empty())
+        return brush;
 
+    const Value first = get (model::Note (selectedNotes.front()));
+
+    for (const auto& state : selectedNotes)
+        if (get (model::Note (state)) != first)
+            return std::nullopt;
+
+    return first;
+}
+
+template <typename Setter>
+void PianoRollComponent::applyToSelection (Setter set)
+{
     if (! pattern || selectedNotes.empty())
         return;
 
     undoManager.beginNewTransaction();
 
     for (const auto& state : selectedNotes)
-        model::Note (state).setPlayMode (mode, &undoManager);
+    {
+        model::Note note (state);
+        set (note);
+    }
+}
+
+void PianoRollComponent::setPlayMode (model::Note::PlayMode mode)
+{
+    playModeBrush = mode;
+    applyToSelection ([&] (model::Note& note) { note.setPlayMode (mode, &undoManager); });
 }
 
 void PianoRollComponent::setRetrigger (int divisionsPerBeat)
 {
     retriggerBrush = divisionsPerBeat;
+    applyToSelection ([&] (model::Note& note) { note.setRetrigger (divisionsPerBeat, &undoManager); });
+}
 
-    if (! pattern || selectedNotes.empty())
-        return;
+void PianoRollComponent::setBuzzPitch (int midiNote)
+{
+    buzzPitchBrush = midiNote;
+    applyToSelection ([&] (model::Note& note) { note.setBuzzPitch (midiNote, &undoManager); });
+}
 
-    undoManager.beginNewTransaction();
-
-    for (const auto& state : selectedNotes)
-        model::Note (state).setRetrigger (divisionsPerBeat, &undoManager);
+void PianoRollComponent::setBuzzRamped (bool ramped)
+{
+    buzzRampBrush = ramped;
+    applyToSelection ([&] (model::Note& note) { note.setBuzzRamped (ramped, &undoManager); });
 }
 
 std::optional<model::Note::PlayMode> PianoRollComponent::getShownPlayMode() const
 {
-    if (selectedNotes.empty())
-        return playModeBrush;
-
-    const auto first = model::Note (selectedNotes.front()).getPlayMode();
-
-    for (const auto& state : selectedNotes)
-        if (model::Note (state).getPlayMode() != first)
-            return std::nullopt;
-
-    return first;
+    return shownSetting (playModeBrush, [] (const model::Note& n) { return n.getPlayMode(); });
 }
 
 std::optional<int> PianoRollComponent::getShownRetrigger() const
 {
-    if (selectedNotes.empty())
-        return retriggerBrush;
+    return shownSetting (retriggerBrush, [] (const model::Note& n) { return n.getRetrigger(); });
+}
 
-    const auto first = model::Note (selectedNotes.front()).getRetrigger();
+std::optional<int> PianoRollComponent::getShownBuzzPitch() const
+{
+    return shownSetting (buzzPitchBrush, [] (const model::Note& n) { return n.getBuzzPitch(); });
+}
 
-    for (const auto& state : selectedNotes)
-        if (model::Note (state).getRetrigger() != first)
-            return std::nullopt;
-
-    return first;
+std::optional<bool> PianoRollComponent::getShownBuzzRamped() const
+{
+    return shownSetting (buzzRampBrush, [] (const model::Note& n) { return n.isBuzzRamped(); });
 }
 
 void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& note, juce::Rectangle<float> r) const
@@ -278,6 +298,37 @@ void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& no
             glyph.lineTo (box.getCentreX(), box.getY());
             glyph.lineTo (box.getRight(), box.getBottom());
             break;
+
+        case model::Note::PlayMode::buzz:
+        {
+            // A saw that tightens for a ramp, even for a fixed buzz, and the
+            // note it sounds where there is room for it.
+            const bool ramped = note.isBuzzRamped();
+            juce::Path saw;
+            auto x = box.getX();
+            saw.startNewSubPath (x, box.getBottom());
+
+            for (int i = 0; i < 4 && x < box.getRight(); ++i)
+            {
+                const auto width = box.getWidth() * (ramped ? 0.4f / (float) (i + 1) : 0.25f);
+                saw.lineTo (x + width, box.getY());
+                saw.lineTo (x + width, box.getBottom());
+                x += width;
+            }
+
+            g.setColour (ink);
+            g.strokePath (saw, juce::PathStrokeType (1.2f));
+
+            if (r.getWidth() > 40.0f)
+            {
+                g.setFont (uiFont (fonts::small));
+                g.drawText (juce::MidiMessage::getMidiNoteName (note.getBuzzPitch(), true, true, 3),
+                            r.withTrimmedLeft (box.getRight() - r.getX() + 3.0f).reduced (0.0f, 0.0f),
+                            juce::Justification::centredLeft, false);
+            }
+
+            return;
+        }
 
         case model::Note::PlayMode::fadeIn:
         case model::Note::PlayMode::fadeOut:
@@ -1670,6 +1721,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     {
         draggedNote->setPlayMode (playModeBrush, &undoManager);
         draggedNote->setRetrigger (retriggerBrush, &undoManager);
+        draggedNote->setBuzzPitch (buzzPitchBrush, &undoManager);
+        draggedNote->setBuzzRamped (buzzRampBrush, &undoManager);
     }
     previewNote (pitch, lastNoteVelocity);
 

@@ -182,6 +182,7 @@ namespace
             case Note::PlayMode::scratch:   return "scratch";
             case Note::PlayMode::fadeIn:    return "fadein";
             case Note::PlayMode::fadeOut:   return "fadeout";
+            case Note::PlayMode::buzz:      return "buzz";
             case Note::PlayMode::forward:   break;
         }
 
@@ -193,7 +194,7 @@ Note::PlayMode Note::getPlayMode() const
 {
     const auto key = state[ids::play].toString();
 
-    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch, PlayMode::fadeIn, PlayMode::fadeOut })
+    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch, PlayMode::fadeIn, PlayMode::fadeOut, PlayMode::buzz })
         if (key == playModeKey (mode))
             return mode;
 
@@ -217,6 +218,7 @@ juce::String Note::getPlayModeName (PlayMode mode)
         case PlayMode::scratch:   return "Scratch";
         case PlayMode::fadeIn:    return "Fade In";
         case PlayMode::fadeOut:   return "Fade Out";
+        case PlayMode::buzz:      return "Buzz";
         case PlayMode::forward:   break;
     }
 
@@ -255,12 +257,37 @@ void Note::setRetrigger (int divisionsPerBeat, juce::UndoManager* um)
         state.setProperty (ids::retrig, best, um);
 }
 
+int Note::getBuzzPitch() const
+{
+    return juce::jlimit (lowestBuzzPitch, highestBuzzPitch, (int) state.getProperty (ids::buzz, defaultBuzzPitch));
+}
+
+void Note::setBuzzPitch (int midiNote, juce::UndoManager* um)
+{
+    const auto clamped = juce::jlimit (lowestBuzzPitch, highestBuzzPitch, midiNote);
+
+    if (clamped == defaultBuzzPitch)
+        state.removeProperty (ids::buzz, um);
+    else
+        state.setProperty (ids::buzz, clamped, um);
+}
+
+void Note::setBuzzRamped (bool ramped, juce::UndoManager* um)
+{
+    if (ramped)
+        state.setProperty (ids::buzzRamp, true, um);
+    else
+        state.removeProperty (ids::buzzRamp, um);
+}
+
 void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
 {
     const Note from (source);
     setLyric (from.getLyric(), um);
     setPlayMode (from.getPlayMode(), um);
     setRetrigger (from.getRetrigger(), um);
+    setBuzzPitch (from.getBuzzPitch(), um);
+    setBuzzRamped (from.isBuzzRamped(), um);
 }
 
 //==============================================================================

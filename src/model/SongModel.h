@@ -89,7 +89,7 @@ public:
     // carries it along untouched, and it is stored only when it is not the
     // plain forward play.
     // The numbers are what the sync sends the slicer (BreakPlugin::Mode).
-    enum class PlayMode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5 };
+    enum class PlayMode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5, buzz = 6 };
 
     PlayMode getPlayMode() const;
     void setPlayMode (PlayMode, juce::UndoManager*);
@@ -105,7 +105,19 @@ public:
     int getRetrigger() const;
     void setRetrigger (int divisionsPerBeat, juce::UndoManager*);
 
-    // The lyric, the play mode and the retrigger -- everything about a note
+    // Buzz: the head of the slice restarted so fast that the restarts are a
+    // pitch -- a snare played as a note. getBuzzPitch is that note (MIDI,
+    // C0..C6), the same whatever the tempo; with the ramp on, the restarts
+    // start at a sixteenth-note roll and speed up into the pitch over the
+    // note, the breakcore roll that turns into a tone.
+    static constexpr int lowestBuzzPitch = 24, highestBuzzPitch = 96, defaultBuzzPitch = 48;
+
+    int getBuzzPitch() const;
+    void setBuzzPitch (int midiNote, juce::UndoManager*);
+    bool isBuzzRamped() const  { return state.getProperty (ids::buzzRamp, false); }
+    void setBuzzRamped (bool, juce::UndoManager*);
+
+    // The lyric, the play mode, the retrigger and the buzz -- everything about a note
     // beyond where it is and how loud -- taken from another one. What every
     // copy of a note goes through, so a duplicated roll stays a roll.
     void copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager*);

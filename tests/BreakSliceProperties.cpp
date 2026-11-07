@@ -361,18 +361,32 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
     REQUIRE (restored.getPlayMode() == Note::PlayMode::scratch);
     REQUIRE (restored.getRetrigger() == 4);
 
+    // A buzz's note and ramp: stored only when not the default, clamped.
+    REQUIRE (note.getBuzzPitch() == Note::defaultBuzzPitch);
+    note.setBuzzPitch (200, nullptr);
+    REQUIRE (note.getBuzzPitch() == Note::highestBuzzPitch);
+    note.setBuzzPitch (57, nullptr);
+    note.setBuzzRamped (true, nullptr);
+
     // A copy plays the same, and a cloned pattern too.
     auto copy = pattern.addNote (2.0, 1.0, 37, 100, nullptr);
     copy.copyExtrasFrom (note.state, nullptr);
     REQUIRE (copy.getPlayMode() == Note::PlayMode::scratch);
     REQUIRE (copy.getRetrigger() == 4);
+    REQUIRE (copy.getBuzzPitch() == 57);
+    REQUIRE (copy.isBuzzRamped());
+
+    auto reloaded = Song::fromXml (song.toXmlString());
+    const auto buzzed = reloaded->findGenerator (generator.getId())->getPatterns().front().getNote (0);
+    REQUIRE (buzzed.getBuzzPitch() == 57);
+    REQUIRE (buzzed.isBuzzRamped());
 
     auto clone = generator.duplicatePattern (pattern, nullptr);
     REQUIRE (clone.getNote (0).getPlayMode() == Note::PlayMode::scratch);
 
     // Every mode by name, and back to forward removes it again.
     for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop, Note::PlayMode::scratch,
-                       Note::PlayMode::fadeIn, Note::PlayMode::fadeOut })
+                       Note::PlayMode::fadeIn, Note::PlayMode::fadeOut, Note::PlayMode::buzz })
     {
         note.setPlayMode (mode, nullptr);
         REQUIRE (note.getPlayMode() == mode);
@@ -383,6 +397,10 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
 
     note.setPlayMode (Note::PlayMode::forward, nullptr);
     note.setRetrigger (0, nullptr);
+    note.setBuzzPitch (Note::defaultBuzzPitch, nullptr);
+    note.setBuzzRamped (false, nullptr);
     REQUIRE (! note.state.hasProperty (ids::play));
     REQUIRE (! note.state.hasProperty (ids::retrig));
+    REQUIRE (! note.state.hasProperty (ids::buzz));
+    REQUIRE (! note.state.hasProperty (ids::buzzRamp));
 }
