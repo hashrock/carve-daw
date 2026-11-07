@@ -9,8 +9,10 @@ namespace carve::app
 {
 
 // What an empty instrument is waiting for: a sample, an .sf2, a voicebank
-// folder. Each kind keeps its own history (see GeneratorController).
-enum class MediaKind { sample, soundFont, voicebank };
+// folder, a drum loop to slice. Each kind keeps its own history (see
+// GeneratorController) -- the loops a slicer was given are not the one-shots
+// a sampler was.
+enum class MediaKind { sample, soundFont, voicebank, breakLoop };
 
 // The files (or voicebank folders) of one kind used most recently, for an
 // empty instrument's Inst tab: a click loads one, so filling a new sampler

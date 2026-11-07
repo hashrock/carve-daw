@@ -55,6 +55,7 @@ namespace
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
     }
@@ -341,6 +342,36 @@ namespace
                            generator.getSoundFontBank(), generator.getSoundFontProgram());
     }
 
+    // The break slicer, likewise: its loop, its cuts and whether it follows
+    // the song's tempo all come from the model.
+    void ensureBreakInstrument (te::Edit& edit, te::AudioTrack& track, const model::Song& song,
+                                const model::Generator& generator)
+    {
+        auto slicer = dynamic_cast<plugins::BreakPlugin*> (findInstrument (track));
+
+        if (slicer == nullptr)
+        {
+            removeInstruments (track);
+
+            auto plugin = edit.getPluginCache().createNewPlugin (plugins::BreakPlugin::xmlTypeName, {});
+            slicer = dynamic_cast<plugins::BreakPlugin*> (plugin.get());
+
+            if (slicer == nullptr)
+                return;
+
+            track.pluginList.insertPlugin (plugin, 0, nullptr);
+        }
+
+        // Repitched to the song's opening tempo. A tempo change later in the
+        // song moves where the slices start, as it moves every note, but does
+        // not retune a loop already playing.
+        const auto loopBeats = generator.isBreakRepitched()
+                                   ? generator.getBreakBars() * song.getTimeSigAt (0.0).getBeatsPerBar()
+                                   : 0.0;
+
+        slicer->setSource (generator.getBreakFile(), generator.getBreakSlices(), loopBeats, song.getTempo());
+    }
+
     // The singer, likewise: the voicebank is all it keeps, and the model's.
     void ensureUtauInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
     {
@@ -404,7 +435,8 @@ namespace
         }
     }
 
-    void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
+    void ensureInstrument (te::Edit& edit, te::AudioTrack& track, const model::Song& song,
+                           const model::Generator& generator)
     {
         if (generator.isAudio())
         {
@@ -424,6 +456,10 @@ namespace
         else if (generator.isUtau())
         {
             ensureUtauInstrument (edit, track, generator);
+        }
+        else if (generator.isBreak())
+        {
+            ensureBreakInstrument (edit, track, song, generator);
         }
         else if (generator.getType() == "plugin")
         {
@@ -1524,6 +1560,97 @@ namespace
         return wanted;
     }
 
+    // A break slicer's clips: its notes, with every roll (Note::getRetrigger)
+    // written out as the notes it plays, louder or softer along a crescendo -- so a roll lands on the song's
+    // beats at any tempo, exactly as drawn ones would -- and a trigger in
+    // front of each note that plays its slice some way other than forwards,
+    // or tuned up or down.
+    // The trigger names the mode, the note it is for, and how long that note
+    // lasts in seconds, which a tape stop and a scratch need from the start
+    // and a note-on cannot say (see BreakPlugin::PlayTrigger).
+    void wantedBreakContentFor (const model::Pattern& pattern, double patternLength, double clipLength,
+                                int transpose, double clipStartBeat, const te::TempoSequence& tempo,
+                                std::vector<WantedNote>& notes, std::vector<WantedTrigger>& triggers)
+    {
+        auto secondsAt = [&] (double clipBeat)
+        {
+            return tempo.toTime (te::BeatPosition::fromBeats (clipStartBeat + clipBeat)).inSeconds();
+        };
+
+        constexpr int maxRepeats = 512;
+
+        // A roll at 1/64 over a long note in a long loop is a lot of notes;
+        // past this the rest of the clip plays without them rather than the
+        // sync grinding.
+        constexpr size_t maxNotes = 20000;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            for (const auto& note : pattern.getNotes())
+            {
+                const auto noteStart = offset + note.getStart();
+
+                if (noteStart >= clipLength - 1.0e-9)
+                    continue;
+
+                const auto noteEnd = std::min (noteStart + note.getLength(), clipLength);
+                const auto pitch = model::Note::clampPitch (note.getPitch() + transpose);
+                const auto mode = note.getPlayMode();
+                const auto division = note.getRetrigger();
+                const auto step = division > 0 ? 1.0 / division : noteEnd - noteStart;
+                const auto tune = note.getTune();
+
+                // How many restarts the roll makes, for its dynamics.
+                const auto count = juce::jmax (1, (int) std::ceil ((noteEnd - noteStart) / step - 1.0e-9));
+                int index = 0;
+
+                for (auto start = noteStart; start < noteEnd - 1.0e-9 && notes.size() < maxNotes; start += step, ++index)
+                {
+                    const auto length = std::min (step, noteEnd - start);
+                    notes.push_back ({ pitch, start, length,
+                                       model::Note::rollVelocity (note.getVelocity(), note.getRollDynamics(), index, count) });
+
+                    if (mode != model::Note::PlayMode::forward || tune != 0)
+                    {
+                        const auto ms = juce::jlimit (1, (1 << 21) - 1,
+                                                      juce::roundToInt ((secondsAt (start + length) - secondsAt (start)) * 1000.0));
+                        juce::MemoryBlock payload;
+
+                        for (auto byte : { plugins::BreakPlugin::sysexId[0], plugins::BreakPlugin::sysexId[1],
+                                           plugins::BreakPlugin::sysexId[2],
+                                           (uint8_t) mode, (uint8_t) pitch,
+                                           (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f),
+                                           (uint8_t) (ms & 0x7f), (uint8_t) (64 + tune) })
+                            payload.append (&byte, 1);
+
+                        // A buzz says what it sounds and where it starts
+                        // from: a ramp from a sixteenth-note roll at the
+                        // tempo the note starts in, in tenths of a hertz.
+                        if (mode == model::Note::PlayMode::buzz)
+                        {
+                            const auto target = juce::MidiMessage::getMidiNoteInHertz (note.getBuzzPitch());
+                            const auto sixteenth = secondsAt (start + 0.25) - secondsAt (start);
+                            const auto from = note.isBuzzRamped() && sixteenth > 0.0 ? 1.0 / sixteenth : target;
+                            const auto tenths = juce::jlimit (1, (1 << 21) - 1, juce::roundToInt (from * 10.0));
+
+                            for (auto byte : { (uint8_t) note.getBuzzPitch(),
+                                               (uint8_t) ((tenths >> 14) & 0x7f), (uint8_t) ((tenths >> 7) & 0x7f),
+                                               (uint8_t) (tenths & 0x7f) })
+                                payload.append (&byte, 1);
+                        }
+
+                        triggers.push_back ({ start, std::move (payload) });
+                    }
+                }
+            }
+        }
+    }
+
     bool triggersMatch (const te::MidiClip& clip, const std::vector<WantedTrigger>& wanted)
     {
         const auto& live = clip.getSequence().getSysexEvents();
@@ -1632,6 +1759,11 @@ namespace
                 if (singer != nullptr)
                     want.triggers = wantedTriggersFor (*singer, pattern, patternLength, clipLength, transpose,
                                                        clipStartBeat, edit.tempoSequence);
+            }
+            else if (generator.isBreak())
+            {
+                wantedBreakContentFor (pattern, patternLength, clipLength, transpose, clipStartBeat,
+                                       edit.tempoSequence, want.notes, want.triggers);
             }
             else
             {
@@ -1941,7 +2073,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         if (rebuildInstruments)
             removeInstruments (track);
 
-        ensureInstrument (edit, track, generator);
+        ensureInstrument (edit, track, song, generator);
         syncEffects (edit, track, generator);
         syncSends (song, edit, track, generator);
         applyMixerState (song, generator, track);
@@ -2112,7 +2244,10 @@ void EditSync::applyTempoOnly()
 
         // A singer's notes are synthesised to their length in seconds, which
         // a tempo change moves: only a full sync prepares them again.
-        if (generator.isUtau())
+        // A break's triggers carry note lengths in seconds, and a repitched
+        // one plays at a rate the tempo sets: only the full sync rewrites
+        // either.
+        if (generator.isUtau() || generator.isBreak())
         {
             triggerAsyncUpdate();
             return;

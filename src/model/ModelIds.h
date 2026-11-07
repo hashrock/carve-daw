@@ -26,7 +26,7 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
-// │     │                                | "drum-sampler" | "soundfont" | "utau" | "audio"
+// │     │                                | "drum-sampler" | "soundfont" | "utau" | "break" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
@@ -49,6 +49,14 @@
 // │     │        survive a change of voicebank: voiceGender, voiceBreath,
 // │     │        voiceBrightness, voiceModulation (see VoiceStyle). Each is
 // │     │        stored only when it differs from its default.
+// │     ├─ SLICES                           "break" generators only
+// │     │  └─ SLICE {start}                 seconds into the loop (its one SOUND).
+// │     │        Kept in order. Slice i plays from its start up to the next
+// │     │        one's (the last to the end of the file) on note 36 + i.
+// │     │        The GENERATOR carries breakBars (how many bars the loop is,
+// │     │        for its tempo) and breakRepitch (play the whole loop faster
+// │     │        or slower with the song's tempo, pitch and all). Both are
+// │     │        optional; see Generator::getBreakBars.
 // │     ├─ AUTOMATION
 // │     │  └─ AUTOCURVE {target, param}     target: "volume" | "pan" |
 // │     │     └─ PT {beat, value, curve}    "instrument" | an effect id.
@@ -74,10 +82,20 @@
 // │           │        order the pattern picker lists them. Songs written
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
-// │           └─ NOTE {start, length, pitch, velocity, lyric}   times in beats (quarter notes)
+// │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig, buzz, buzzRamp,
+// │                    tune, rollDyn}   times in beats
 // │                    lyric: what a singing ("utau") generator sings on
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
+// │                    play: how a "break" generator plays the slice --
+// │                    "reverse" | "stop" | "fadein" | "fadeout" | "buzz",
+// │                    absent = forward. buzz: the MIDI note a buzz sounds
+// │                    (absent = 48), buzzRamp: speed up into it from a
+// │                    sixteenth roll. tune: -12..12 semitones, absent = 0.
+// │                    rollDyn: "cresc" | "decresc", absent = flat.
+// │                    retrig: restart the slice every 1/retrig of a beat,
+// │                    absent = once. Both optional, both carried by any
+// │                    generator (see Note::getPlayMode)
 // ├─ PLAYLIST
 // │  ├─ CLIP {generatorId, patternId, start, length, transpose}
 // │  │                               length and transpose are per-placement
@@ -136,6 +154,8 @@ CARVE_DECLARE_ID (TEMPO)
 CARVE_DECLARE_ID (TIMESIGS)
 CARVE_DECLARE_ID (TIMESIG)
 CARVE_DECLARE_ID (AUTOMATION)
+CARVE_DECLARE_ID (SLICES)
+CARVE_DECLARE_ID (SLICE)
 
 CARVE_DECLARE_ID (id)
 CARVE_DECLARE_ID (name)
@@ -193,6 +213,14 @@ CARVE_DECLARE_ID (voiceBrightness)
 CARVE_DECLARE_ID (voiceModulation)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
+CARVE_DECLARE_ID (breakBars)
+CARVE_DECLARE_ID (breakRepitch)
+CARVE_DECLARE_ID (play)
+CARVE_DECLARE_ID (retrig)
+CARVE_DECLARE_ID (buzz)
+CARVE_DECLARE_ID (buzzRamp)
+CARVE_DECLARE_ID (tune)
+CARVE_DECLARE_ID (rollDyn)
 
 #undef CARVE_DECLARE_ID
 

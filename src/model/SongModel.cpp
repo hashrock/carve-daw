@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <map>
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -166,6 +167,177 @@ void Pattern::copyNotesFrom (const Pattern& source, juce::UndoManager* um)
         state.appendChild (note.state.createCopy(), um);
 }
 
+
+//==============================================================================
+// Note extras
+
+namespace
+{
+    const char* playModeKey (Note::PlayMode mode)
+    {
+        switch (mode)
+        {
+            case Note::PlayMode::reverse:   return "reverse";
+            case Note::PlayMode::tapeStop:  return "stop";
+            case Note::PlayMode::fadeIn:    return "fadein";
+            case Note::PlayMode::fadeOut:   return "fadeout";
+            case Note::PlayMode::buzz:      return "buzz";
+            case Note::PlayMode::forward:   break;
+        }
+
+        return "";
+    }
+}
+
+Note::PlayMode Note::getPlayMode() const
+{
+    const auto key = state[ids::play].toString();
+
+    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::fadeIn, PlayMode::fadeOut, PlayMode::buzz })
+        if (key == playModeKey (mode))
+            return mode;
+
+    return PlayMode::forward;
+}
+
+void Note::setPlayMode (PlayMode mode, juce::UndoManager* um)
+{
+    if (mode == PlayMode::forward)
+        state.removeProperty (ids::play, um);
+    else
+        state.setProperty (ids::play, playModeKey (mode), um);
+}
+
+juce::String Note::getPlayModeName (PlayMode mode)
+{
+    switch (mode)
+    {
+        case PlayMode::reverse:   return "Reverse";
+        case PlayMode::tapeStop:  return "Tape Stop";
+        case PlayMode::fadeIn:    return "Fade In";
+        case PlayMode::fadeOut:   return "Fade Out";
+        case PlayMode::buzz:      return "Buzz";
+        case PlayMode::forward:   break;
+    }
+
+    return "Forward";
+}
+
+int Note::getRetrigger() const
+{
+    const int value = state.getProperty (ids::retrig, 0);
+
+    for (auto division : retriggerDivisions)
+        if (value == division)
+            return value;
+
+    return 0;
+}
+
+void Note::setRetrigger (int divisionsPerBeat, juce::UndoManager* um)
+{
+    // Snapped to the nearest one offered, so a hand-written 5 is a 4 rather
+    // than a roll nothing else can show.
+    int best = 0;
+
+    if (divisionsPerBeat > 0)
+    {
+        best = retriggerDivisions[0];
+
+        for (auto division : retriggerDivisions)
+            if (std::abs (division - divisionsPerBeat) < std::abs (best - divisionsPerBeat))
+                best = division;
+    }
+
+    if (best == 0)
+        state.removeProperty (ids::retrig, um);
+    else
+        state.setProperty (ids::retrig, best, um);
+}
+
+int Note::getBuzzPitch() const
+{
+    return juce::jlimit (lowestBuzzPitch, highestBuzzPitch, (int) state.getProperty (ids::buzz, defaultBuzzPitch));
+}
+
+void Note::setBuzzPitch (int midiNote, juce::UndoManager* um)
+{
+    const auto clamped = juce::jlimit (lowestBuzzPitch, highestBuzzPitch, midiNote);
+
+    if (clamped == defaultBuzzPitch)
+        state.removeProperty (ids::buzz, um);
+    else
+        state.setProperty (ids::buzz, clamped, um);
+}
+
+void Note::setBuzzRamped (bool ramped, juce::UndoManager* um)
+{
+    if (ramped)
+        state.setProperty (ids::buzzRamp, true, um);
+    else
+        state.removeProperty (ids::buzzRamp, um);
+}
+
+int Note::getTune() const
+{
+    return juce::jlimit (-maxTune, maxTune, (int) state.getProperty (ids::tune, 0));
+}
+
+void Note::setTune (int semitones, juce::UndoManager* um)
+{
+    const auto clamped = juce::jlimit (-maxTune, maxTune, semitones);
+
+    if (clamped == 0)
+        state.removeProperty (ids::tune, um);
+    else
+        state.setProperty (ids::tune, clamped, um);
+}
+
+Note::RollDynamics Note::getRollDynamics() const
+{
+    const auto key = state[ids::rollDyn].toString();
+
+    if (key == "cresc")    return RollDynamics::crescendo;
+    if (key == "decresc")  return RollDynamics::decrescendo;
+    return RollDynamics::flat;
+}
+
+void Note::setRollDynamics (RollDynamics dynamics, juce::UndoManager* um)
+{
+    if (dynamics == RollDynamics::flat)
+        state.removeProperty (ids::rollDyn, um);
+    else
+        state.setProperty (ids::rollDyn, dynamics == RollDynamics::crescendo ? "cresc" : "decresc", um);
+}
+
+int Note::rollVelocity (int velocity, RollDynamics dynamics, int index, int count)
+{
+    if (dynamics == RollDynamics::flat || count <= 1)
+        return clampVelocity (velocity);
+
+    // From a tenth of the note's velocity to all of it, evenly, over the
+    // roll: quiet enough at the bottom that a crescendo comes up out of
+    // nothing, loud enough that its first hits are still hits.
+    constexpr double floor = 0.1;
+    auto t = (double) index / (count - 1);
+
+    if (dynamics == RollDynamics::decrescendo)
+        t = 1.0 - t;
+
+    return clampVelocity (juce::roundToInt (velocity * (floor + (1.0 - floor) * t)));
+}
+
+void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
+{
+    const Note from (source);
+    setLyric (from.getLyric(), um);
+    setPlayMode (from.getPlayMode(), um);
+    setRetrigger (from.getRetrigger(), um);
+    setBuzzPitch (from.getBuzzPitch(), um);
+    setBuzzRamped (from.isBuzzRamped(), um);
+    setTune (from.getTune(), um);
+    setRollDynamics (from.getRollDynamics(), um);
+}
 
 //==============================================================================
 // FileRef
@@ -371,6 +543,352 @@ void Generator::setSoundFontPreset (int bank, int program, juce::UndoManager* um
     auto node = sounds.front().state;
     node.setProperty (ids::bank, juce::jlimit (0, 128, bank), um);
     node.setProperty (ids::program, juce::jlimit (0, 127, program), um);
+}
+
+//==============================================================================
+// Break slicer
+
+juce::File Generator::getBreakFile() const
+{
+    const auto sounds = getSounds();
+    return sounds.empty() ? juce::File() : sounds.front().getFile();
+}
+
+void Generator::setBreakFile (const juce::File& file, double loopSeconds, double beatsPerBar,
+                              juce::UndoManager* um)
+{
+    setSingleSound (file, um);
+    setBreakBars (guessBreakBars (loopSeconds, beatsPerBar, file.getFileNameWithoutExtension()), um);
+    divideBreakEvenly (defaultBreakSlices, loopSeconds, um);
+}
+
+int Generator::getBreakBars() const
+{
+    return juce::jlimit (1, 64, (int) state.getProperty (ids::breakBars, 4));
+}
+
+void Generator::setBreakBars (int bars, juce::UndoManager* um)
+{
+    state.setProperty (ids::breakBars, juce::jlimit (1, 64, bars), um);
+}
+
+double Generator::getBreakBpm (double loopSeconds, double beatsPerBar) const
+{
+    if (loopSeconds <= 0.0)
+        return 0.0;
+
+    return getBreakBars() * beatsPerBar * 60.0 / loopSeconds;
+}
+
+int Generator::guessBreakBars (double loopSeconds, double beatsPerBar, const juce::String& fileName)
+{
+    if (loopSeconds <= 0.0 || beatsPerBar <= 0.0)
+        return 4;
+
+    // The last number in the name that could be a tempo: sample packs put it
+    // at the end ("cw_amen05_158"), after a take number that could not be.
+    {
+        int namedBpm = 0;
+        juce::String digits;
+
+        for (auto c : fileName + " ")
+        {
+            if (juce::CharacterFunctions::isDigit (c))
+            {
+                digits << juce::String::charToString (c);
+                continue;
+            }
+
+            if (const int value = digits.getIntValue(); digits.length() <= 3 && value >= 60 && value <= 250)
+                namedBpm = value;
+
+            digits.clear();
+        }
+
+        if (namedBpm > 0)
+        {
+            const auto bars = (int) std::lround (loopSeconds * namedBpm / 60.0 / beatsPerBar);
+
+            if (bars >= 1 && bars <= 64)
+                return bars;
+        }
+    }
+
+    // Distance in octaves of tempo, so 70 and 280 are equally far from 140.
+    int best = 4;
+    double bestDistance = 1.0e9;
+
+    for (int bars : { 1, 2, 4, 8, 16 })
+    {
+        const auto bpm = bars * beatsPerBar * 60.0 / loopSeconds;
+        const auto distance = std::abs (std::log2 (bpm / 140.0));
+
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = bars;
+        }
+    }
+
+    return best;
+}
+
+void Generator::setBreakRepitched (bool repitch, juce::UndoManager* um)
+{
+    if (repitch)
+        state.setProperty (ids::breakRepitch, true, um);
+    else
+        state.removeProperty (ids::breakRepitch, um);
+}
+
+std::vector<double> Generator::getBreakSlices() const
+{
+    std::vector<double> starts;
+
+    for (const auto& slice : state.getChildWithName (ids::SLICES))
+        if (slice.hasType (ids::SLICE))
+            starts.push_back (juce::jmax (0.0, (double) slice[ids::start]));
+
+    // Kept in order by every edit below; a hand-written file might not be.
+    std::sort (starts.begin(), starts.end());
+    return starts;
+}
+
+void Generator::setBreakSlices (std::vector<double> starts, double loopSeconds, juce::UndoManager* um)
+{
+    std::sort (starts.begin(), starts.end());
+
+    std::vector<double> kept;
+
+    for (auto start : starts)
+    {
+        if (start < 0.0 || (loopSeconds > 0.0 && start > loopSeconds - minBreakSliceSeconds))
+            continue;
+
+        if (! kept.empty() && start - kept.back() < minBreakSliceSeconds)
+            continue;
+
+        kept.push_back (start);
+
+        if ((int) kept.size() >= maxBreakSlices)
+            break;
+    }
+
+    if (auto existing = state.getChildWithName (ids::SLICES); existing.isValid())
+        state.removeChild (existing, um);
+
+    juce::ValueTree slices (ids::SLICES);
+
+    for (auto start : kept)
+    {
+        juce::ValueTree slice (ids::SLICE);
+        slice.setProperty (ids::start, start, nullptr);
+        slices.appendChild (slice, nullptr);
+    }
+
+    state.appendChild (slices, um);
+}
+
+void Generator::divideBreakEvenly (int count, double loopSeconds, juce::UndoManager* um)
+{
+    count = juce::jlimit (1, maxBreakSlices, count);
+
+    std::vector<double> starts;
+
+    if (loopSeconds > 0.0)
+        for (int i = 0; i < count; ++i)
+            starts.push_back (loopSeconds * i / count);
+
+    setBreakSlices (std::move (starts), loopSeconds, um);
+}
+
+namespace
+{
+    // The SLICE nodes, in order. setBreakSlices writes them sorted and the
+    // edits below keep them so, which is what makes a node's index its
+    // slice number.
+    std::vector<juce::ValueTree> sliceNodes (const juce::ValueTree& generator)
+    {
+        std::vector<juce::ValueTree> nodes;
+
+        for (const auto& slice : generator.getChildWithName (ids::SLICES))
+            if (slice.hasType (ids::SLICE))
+                nodes.push_back (slice);
+
+        std::stable_sort (nodes.begin(), nodes.end(), [] (const juce::ValueTree& a, const juce::ValueTree& b)
+        {
+            return (double) a[ids::start] < (double) b[ids::start];
+        });
+
+        return nodes;
+    }
+
+    // Every note of the generator from the first slice's key up, remapped
+    // slice by slice. Notes above the last slice move with the slices too,
+    // so a note that played nothing still plays nothing: left where it was,
+    // a cut added under it would make it a slice. Notes below the first key
+    // are below every slice whatever happens to them.
+    void remapSliceNotes (Generator& generator, const std::function<int (int)>& newIndexFor,
+                          juce::UndoManager* um)
+    {
+        for (const auto& pattern : generator.getPatterns())
+            for (auto note : pattern.getNotes())
+            {
+                const int index = note.getPitch() - Generator::breakFirstNote;
+
+                if (index < 0)
+                    continue;
+
+                if (const int moved = newIndexFor (index); moved != index)
+                    note.setPitch (Generator::breakFirstNote + moved, um);
+            }
+    }
+}
+
+void Generator::moveBreakSlice (int index, double start, double loopSeconds, juce::UndoManager* um)
+{
+    auto nodes = sliceNodes (state);
+
+    if (index < 0 || index >= (int) nodes.size())
+        return;
+
+    const double low = index > 0 ? (double) nodes[(size_t) index - 1][ids::start] + minBreakSliceSeconds : 0.0;
+    double high = index + 1 < (int) nodes.size() ? (double) nodes[(size_t) index + 1][ids::start] - minBreakSliceSeconds
+                                                 : (loopSeconds > 0.0 ? loopSeconds - minBreakSliceSeconds : start);
+
+    if (high < low)
+        return;   // no room to move at all
+
+    const auto clamped = juce::jlimit (low, high, start);
+
+    if (std::abs ((double) nodes[(size_t) index][ids::start] - clamped) > 1.0e-9)
+        nodes[(size_t) index].setProperty (ids::start, clamped, um);
+}
+
+int Generator::insertBreakSlice (double start, double loopSeconds, juce::UndoManager* um)
+{
+    auto nodes = sliceNodes (state);
+
+    if ((int) nodes.size() >= maxBreakSlices || start < 0.0
+         || (loopSeconds > 0.0 && start > loopSeconds - minBreakSliceSeconds))
+        return -1;
+
+    // Where it goes, and whether it is far enough from both neighbours.
+    int index = 0;
+
+    while (index < (int) nodes.size() && (double) nodes[(size_t) index][ids::start] < start)
+        ++index;
+
+    if (index > 0 && start - (double) nodes[(size_t) index - 1][ids::start] < minBreakSliceSeconds)
+        return -1;
+
+    if (index < (int) nodes.size() && (double) nodes[(size_t) index][ids::start] - start < minBreakSliceSeconds)
+        return -1;
+
+    // Everything from the new slice's number on moves up one.
+    remapSliceNotes (*this, [index] (int i) { return i >= index ? i + 1 : i; }, um);
+
+    juce::ValueTree slice (ids::SLICE);
+    slice.setProperty (ids::start, start, nullptr);
+
+    auto slices = getOrCreateChild (state, ids::SLICES);
+    const int at = nodes.empty() || index >= (int) nodes.size() ? -1 : slices.indexOf (nodes[(size_t) index]);
+    slices.addChild (slice, at, um);
+
+    return index;
+}
+
+bool Generator::removeBreakSlice (int index, juce::UndoManager* um)
+{
+    auto nodes = sliceNodes (state);
+
+    if (nodes.size() <= 1 || index < 0 || index >= (int) nodes.size())
+        return false;
+
+    remapSliceNotes (*this, [index] (int i)
+    {
+        if (i > index)
+            return i - 1;
+
+        if (i == index)
+            return juce::jmax (0, i - 1);
+
+        return i;
+    }, um);
+
+    state.getChildWithName (ids::SLICES).removeChild (nodes[(size_t) index], um);
+    return true;
+}
+
+namespace
+{
+    struct AsRecordedNote
+    {
+        double start, length;
+        int pitch;
+    };
+
+    // What createBreakPattern writes, as plain numbers.
+    std::vector<AsRecordedNote> asRecordedNotes (const std::vector<double>& slices, double loopSeconds,
+                                                 double loopBeats)
+    {
+        std::vector<AsRecordedNote> notes;
+
+        if (loopSeconds <= 0.0)
+            return notes;
+
+        for (int i = 0; i < (int) slices.size(); ++i)
+        {
+            const double end = i + 1 < (int) slices.size() ? slices[(size_t) i + 1] : loopSeconds;
+            const double startBeat = slices[(size_t) i] / loopSeconds * loopBeats;
+            const double lengthBeats = (end - slices[(size_t) i]) / loopSeconds * loopBeats;
+
+            if (startBeat < loopBeats && lengthBeats > 0.0)
+                notes.push_back ({ startBeat, lengthBeats, Generator::breakFirstNote + i });
+        }
+
+        return notes;
+    }
+}
+
+Pattern Generator::createBreakPattern (double loopSeconds, double beatsPerBar, juce::UndoManager* um)
+{
+    auto pattern = createPattern (um, getBreakBars() * beatsPerBar);
+    fillBreakAsRecorded (pattern, loopSeconds, beatsPerBar, um);
+    return pattern;
+}
+
+bool Generator::playsBreakAsRecorded (const Pattern& pattern, double loopSeconds, double beatsPerBar) const
+{
+    const double loopBeats = getBreakBars() * beatsPerBar;
+    const auto wanted = asRecordedNotes (getBreakSlices(), loopSeconds, loopBeats);
+    const auto notes = pattern.getNotes();
+
+    if (wanted.empty() || notes.size() != wanted.size()
+         || std::abs (pattern.getLengthBeats() - loopBeats) > 1.0e-6)
+        return false;
+
+    // Note order is the order they were written in, which for an untouched
+    // pattern is slice order; anything else has been edited.
+    for (size_t i = 0; i < notes.size(); ++i)
+        if (notes[i].getPitch() != wanted[i].pitch
+             || std::abs (notes[i].getStart() - Note::clampStart (wanted[i].start)) > 1.0e-6
+             || std::abs (notes[i].getLength() - Note::clampLength (wanted[i].length)) > 1.0e-6)
+            return false;
+
+    return true;
+}
+
+void Generator::fillBreakAsRecorded (Pattern& pattern, double loopSeconds, double beatsPerBar,
+                                     juce::UndoManager* um) const
+{
+    const double loopBeats = getBreakBars() * beatsPerBar;
+
+    pattern.clearNotes (um);
+    pattern.setLengthBeats (loopBeats, um);
+
+    for (const auto& note : asRecordedNotes (getBreakSlices(), loopSeconds, loopBeats))
+        pattern.addNote (note.start, note.length, note.pitch, 100, um);
 }
 
 //==============================================================================

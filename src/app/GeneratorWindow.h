@@ -13,6 +13,7 @@
 #include "DrumSynthEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
+#include "BreakEditor.h"
 #include "UtauEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
@@ -177,6 +178,20 @@ public:
     std::function<void (const juce::File&)> onVoicebankDropped;
     std::function<void (const juce::Identifier&, double)> onVoiceStyleChanged;
 
+    // The break slicer's: its loop, and every edit of its cuts and tempo.
+    std::function<void()> onLoadBreak;
+    std::function<void (const juce::File&)> onBreakDropped;
+    std::function<void (const std::vector<double>&)> onBreakCutsReplaced;
+    std::function<void (int index, double seconds)> onBreakCutMoved;
+    std::function<void (double seconds)> onBreakCutAdded;
+    std::function<void (int index)> onBreakCutRemoved;
+    std::function<void (int bars)> onBreakBarsChanged;
+    std::function<void (bool)> onBreakRepitchChanged;
+
+    // The song's bar length, which the slicer turns its bars into a tempo
+    // with. The view has no song of its own to ask.
+    std::function<double()> getBeatsPerBar;
+
     // The history an empty instrument offers (see RecentMediaList), and a
     // click on one of its entries.
     std::function<std::vector<RecentMediaList::Item> (MediaKind)> getRecentMedia;
@@ -212,6 +227,9 @@ public:
 
         if (utau != nullptr)
             return juce::Point<int> (utau->getWidth(), utau->getHeight());
+
+        if (breakEditor != nullptr)
+            return juce::Point<int> (breakEditor->getWidth(), breakEditor->getHeight());
 
         return std::nullopt;
     }
@@ -451,6 +469,51 @@ public:
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
+            else if (auto slicer = dynamic_cast<plugins::BreakPlugin*> (instrument))
+            {
+                breakEditor = std::make_unique<BreakEditor> (*slicer);
+                breakEditor->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                breakEditor->onLoadBreak = [this] { if (onLoadBreak) onLoadBreak(); };
+                breakEditor->onBreakDropped = [this] (const juce::File& file) { if (onBreakDropped) onBreakDropped (file); };
+                breakEditor->isInterestedInAudioFiles = [this] (const juce::StringArray& files)
+                {
+                    return isInterestedInAudioFiles && isInterestedInAudioFiles (files);
+                };
+                breakEditor->onRecentChosen = [this] (const juce::File& file)
+                {
+                    if (onRecentMediaChosen)
+                        onRecentMediaChosen (MediaKind::breakLoop, file);
+                };
+                breakEditor->onCutsReplaced = [this] (const std::vector<double>& cuts)
+                {
+                    if (onBreakCutsReplaced)
+                        onBreakCutsReplaced (cuts);
+                };
+                breakEditor->onCutMoved = [this] (int index, double seconds)
+                {
+                    if (onBreakCutMoved)
+                        onBreakCutMoved (index, seconds);
+                };
+                breakEditor->onCutAdded = [this] (double seconds) { if (onBreakCutAdded) onBreakCutAdded (seconds); };
+                breakEditor->onCutRemoved = [this] (int index) { if (onBreakCutRemoved) onBreakCutRemoved (index); };
+                breakEditor->onBarsChanged = [this] (int bars) { if (onBreakBarsChanged) onBreakBarsChanged (bars); };
+                breakEditor->onRepitchChanged = [this] (bool on) { if (onBreakRepitchChanged) onBreakRepitchChanged (on); };
+
+                if (getRecentMedia)
+                    breakEditor->setRecentItems (getRecentMedia (MediaKind::breakLoop));
+
+                if (generator)
+                    breakEditor->setModel (generator->getBreakSlices(), generator->getBreakBars(),
+                                           generator->isBreakRepitched(), getBeatsPerBar ? getBeatsPerBar() : 4.0);
+
+                viewport.setViewedComponent (breakEditor.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
             else if (auto singer = dynamic_cast<plugins::UtauPlugin*> (instrument))
             {
                 utau = std::make_unique<UtauEditor> (*singer);
@@ -525,6 +588,10 @@ public:
     {
         currentGenerator = generator;
 
+        if (breakEditor != nullptr && generator)
+            breakEditor->setModel (generator->getBreakSlices(), generator->getBreakBars(),
+                                   generator->isBreakRepitched(), getBeatsPerBar ? getBeatsPerBar() : 4.0);
+
         if (utau != nullptr)
         {
             utau->setPattern (generator ? generator->findPattern (selectedPatternId) : std::nullopt);
@@ -543,6 +610,9 @@ public:
 
             if (soundFont != nullptr)
                 soundFont->setRecentItems (getRecentMedia (MediaKind::soundFont));
+
+            if (breakEditor != nullptr)
+                breakEditor->setRecentItems (getRecentMedia (MediaKind::breakLoop));
 
             if (shownKind == Kind::sampler)
                 recentSamples.setItems (getRecentMedia (MediaKind::sample));
@@ -648,7 +718,8 @@ public:
             }
         }
 
-        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr || utau != nullptr)
+        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr || utau != nullptr
+             || breakEditor != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         if (externalEditor != nullptr || presetBar != nullptr)
@@ -710,6 +781,7 @@ private:
         slate.reset();
         drumSynth.reset();
         soundFont.reset();
+        breakEditor.reset();
         utau.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
@@ -770,6 +842,7 @@ private:
     std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
+    std::unique_ptr<BreakEditor> breakEditor;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
 
@@ -892,6 +965,7 @@ public:
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
         rollContent.setShowsLyrics (generator && generator->isUtau());
+        rollContent.setShowsPlayModes (generator && generator->isBreak());
         rollContent.setLyricCheck (lyricCheckFor (generator));
     }
 
@@ -939,6 +1013,14 @@ public:
                 map[plugins::DrumSynthPlugin::getNoteForDrum (drum)] =
                     { plugins::DrumSynthPlugin::getDrumName (drum), true };
             }
+        }
+        else if (generator->isBreak())
+        {
+            // A lane per slice, numbered as the editor numbers them.
+            const auto slices = generator->getBreakSlices();
+
+            for (int i = 0; i < (int) slices.size(); ++i)
+                map[model::Generator::breakFirstNote + i] = { "Slice " + juce::String (i + 1), true };
         }
         else if (generator->isDrumKit())
         {

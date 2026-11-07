@@ -3,6 +3,7 @@
 #include <tuple>
 
 #include "PianoRollComponent.h"
+#include "PlayModeGlyphs.h"
 #include "Fonts.h"
 
 #include "NoteGestures.h"
@@ -161,6 +162,206 @@ void PianoRollComponent::setShowsLyrics (bool shouldShow)
         updateSize();
 
     repaint();
+}
+
+void PianoRollComponent::setShowsPlayModes (bool shouldShow)
+{
+    if (showsPlayModesFlag != shouldShow)
+    {
+        showsPlayModesFlag = shouldShow;
+        repaint();
+    }
+}
+
+template <typename Value, typename Getter>
+std::optional<Value> PianoRollComponent::shownSetting (Value brush, Getter get) const
+{
+    if (selectedNotes.empty())
+        return brush;
+
+    const Value first = get (model::Note (selectedNotes.front()));
+
+    for (const auto& state : selectedNotes)
+        if (get (model::Note (state)) != first)
+            return std::nullopt;
+
+    return first;
+}
+
+template <typename Setter>
+void PianoRollComponent::applyToSelection (Setter set)
+{
+    if (! pattern || selectedNotes.empty())
+        return;
+
+    undoManager.beginNewTransaction();
+
+    for (const auto& state : selectedNotes)
+    {
+        model::Note note (state);
+        set (note);
+    }
+}
+
+void PianoRollComponent::setPlayMode (model::Note::PlayMode mode)
+{
+    playModeBrush = mode;
+    applyToSelection ([&] (model::Note& note) { note.setPlayMode (mode, &undoManager); });
+}
+
+void PianoRollComponent::setRetrigger (int divisionsPerBeat)
+{
+    retriggerBrush = divisionsPerBeat;
+    applyToSelection ([&] (model::Note& note) { note.setRetrigger (divisionsPerBeat, &undoManager); });
+}
+
+void PianoRollComponent::setBuzzPitch (int midiNote)
+{
+    buzzPitchBrush = midiNote;
+    applyToSelection ([&] (model::Note& note) { note.setBuzzPitch (midiNote, &undoManager); });
+}
+
+void PianoRollComponent::setBuzzRamped (bool ramped)
+{
+    buzzRampBrush = ramped;
+    applyToSelection ([&] (model::Note& note) { note.setBuzzRamped (ramped, &undoManager); });
+}
+
+void PianoRollComponent::resetPlayModes()
+{
+    playModeBrush = model::Note::PlayMode::forward;
+    retriggerBrush = 0;
+    buzzPitchBrush = model::Note::defaultBuzzPitch;
+    buzzRampBrush = false;
+    tuneBrush = 0;
+    rollDynamicsBrush = model::Note::RollDynamics::flat;
+
+    applyToSelection ([&] (model::Note& note)
+    {
+        note.setPlayMode (model::Note::PlayMode::forward, &undoManager);
+        note.setRetrigger (0, &undoManager);
+        note.setBuzzPitch (model::Note::defaultBuzzPitch, &undoManager);
+        note.setBuzzRamped (false, &undoManager);
+        note.setTune (0, &undoManager);
+        note.setRollDynamics (model::Note::RollDynamics::flat, &undoManager);
+    });
+}
+
+void PianoRollComponent::setTune (int semitones)
+{
+    tuneBrush = semitones;
+    applyToSelection ([&] (model::Note& note) { note.setTune (semitones, &undoManager); });
+}
+
+void PianoRollComponent::setRollDynamics (model::Note::RollDynamics dynamics)
+{
+    rollDynamicsBrush = dynamics;
+    applyToSelection ([&] (model::Note& note) { note.setRollDynamics (dynamics, &undoManager); });
+}
+
+std::optional<int> PianoRollComponent::getShownTune() const
+{
+    return shownSetting (tuneBrush, [] (const model::Note& n) { return n.getTune(); });
+}
+
+std::optional<model::Note::RollDynamics> PianoRollComponent::getShownRollDynamics() const
+{
+    return shownSetting (rollDynamicsBrush, [] (const model::Note& n) { return n.getRollDynamics(); });
+}
+
+std::optional<model::Note::PlayMode> PianoRollComponent::getShownPlayMode() const
+{
+    return shownSetting (playModeBrush, [] (const model::Note& n) { return n.getPlayMode(); });
+}
+
+std::optional<int> PianoRollComponent::getShownRetrigger() const
+{
+    return shownSetting (retriggerBrush, [] (const model::Note& n) { return n.getRetrigger(); });
+}
+
+std::optional<int> PianoRollComponent::getShownBuzzPitch() const
+{
+    return shownSetting (buzzPitchBrush, [] (const model::Note& n) { return n.getBuzzPitch(); });
+}
+
+std::optional<bool> PianoRollComponent::getShownBuzzRamped() const
+{
+    return shownSetting (buzzRampBrush, [] (const model::Note& n) { return n.isBuzzRamped(); });
+}
+
+void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& note, juce::Rectangle<float> r) const
+{
+    const auto ink = juce::Colours::black.withAlpha (0.7f);
+
+    // The roll's restarts: a tick at each, after the first, which is the
+    // note's own start -- rising from the bottom as far as that restart is
+    // loud, so a crescendo is a ramp of ticks.
+    if (const auto division = note.getRetrigger(); division > 0)
+    {
+        g.setColour (ink);
+
+        const auto step = 1.0 / division;
+        const auto count = juce::jmax (1, (int) std::ceil (note.getLength() / step - 1.0e-9));
+        const auto velocity = juce::jmax (1, note.getVelocity());
+        const auto full = r.getHeight() - 4.0f;
+
+        for (int index = 1; index < count; ++index)
+        {
+            const auto x = beatToX (note.getStart() + index * step);
+            const auto loudness = (float) model::Note::rollVelocity (velocity, note.getRollDynamics(), index, count) / (float) velocity;
+
+            if (x > r.getX() + 1.0f && x < r.getRight() - 1.0f)
+                g.drawVerticalLine ((int) x, r.getBottom() - 2.0f - full * loudness, r.getBottom() - 2.0f);
+        }
+    }
+
+    // The tune, at the tail where it does not cover the mode's mark.
+    if (const auto tune = note.getTune(); tune != 0 && r.getWidth() > 26.0f)
+    {
+        g.setColour (ink);
+        g.setFont (uiFont (fonts::small));
+        g.drawText ((tune > 0 ? "+" : "") + juce::String (tune), r.reduced (3.0f, 0.0f),
+                    juce::Justification::centredRight, false);
+    }
+
+    const auto mode = note.getPlayMode();
+
+    if (mode == model::Note::PlayMode::forward || r.getWidth() < 8.0f)
+        return;
+
+    // A small glyph at the head of the note, in the first restart's span.
+    const auto firstSpan = note.getRetrigger() > 0 ? juce::jmin (r.getWidth(), (float) (getPixelsPerBeat() / note.getRetrigger()))
+                                                   : r.getWidth();
+    auto box = r.withWidth (juce::jmin (firstSpan, 14.0f)).reduced (2.0f, 2.0f);
+    box = box.withSizeKeepingCentre (box.getWidth(), juce::jmin (box.getHeight(), 10.0f));
+
+    // A fade is drawn across the whole note -- the level at each moment, the
+    // way a clip's fade is -- every other mode as its mark at the head.
+    if (mode == model::Note::PlayMode::fadeIn || mode == model::Note::PlayMode::fadeOut)
+    {
+        const auto wedge = r.reduced (1.0f, 2.0f);
+        const bool in = mode == model::Note::PlayMode::fadeIn;
+        juce::Path fade;
+        fade.startNewSubPath (wedge.getX(), wedge.getBottom());
+        fade.lineTo (in ? wedge.getRight() : wedge.getX(), wedge.getY());
+        fade.lineTo (wedge.getRight(), wedge.getBottom());
+        fade.closeSubPath();
+        g.setColour (ink.withMultipliedAlpha (0.25f));
+        g.fillPath (fade);
+        return;
+    }
+
+    playmode::drawGlyph (g, mode, box, note.isBuzzRamped(), ink);
+
+    // A buzz says which note, where there is room for it.
+    if (mode == model::Note::PlayMode::buzz && r.getWidth() > 40.0f)
+    {
+        g.setColour (ink);
+        g.setFont (uiFont (fonts::small));
+        g.drawText (juce::MidiMessage::getMidiNoteName (note.getBuzzPitch(), true, true, 3),
+                    r.withTrimmedLeft (box.getRight() - r.getX() + 3.0f),
+                    juce::Justification::centredLeft, false);
+    }
 }
 
 void PianoRollComponent::setLyricCheck (LyricCheck check)
@@ -747,7 +948,7 @@ bool PianoRollComponent::duplicateSelectionForDrag()
         const model::Note note (state);
         auto copy = pattern->addNote (note.getStart(), note.getLength(),
                                       note.getPitch(), note.getVelocity(), &undoManager);
-        copy.setLyric (note.getLyric(), &undoManager);   // a copy sings the same word
+        copy.copyExtrasFrom (state, &undoManager);   // a copy sings the same word, rolls the same roll
 
         // The copy of the note the pointer grabbed carries the drag from here,
         // so the block keeps moving relative to where it was picked up.
@@ -783,7 +984,7 @@ void PianoRollComponent::syncDragDuplicate (const juce::ModifierKeys& mods)
             const model::Note note (notes[i]);
             auto copy = pattern->addNote (dragOriginStarts[i], note.getLength(),
                                           dragOriginPitches[i], note.getVelocity(), &undoManager);
-            copy.setLyric (note.getLyric(), &undoManager);
+            copy.copyExtrasFrom (notes[i], &undoManager);
             originCopies.push_back (copy.state);
         }
     }
@@ -1044,7 +1245,7 @@ void PianoRollComponent::pasteNotes()
 
     // .start/.length/.pitch so that gestures::boundsOf can read these
     // directly, the same way it reads a selection being dragged.
-    struct PastedNote : gestures::NoteSpan { int velocity = 0; juce::String lyric; };
+    struct PastedNote : gestures::NoteSpan { int velocity = 0; juce::ValueTree extras; };
     std::vector<PastedNote> notes;
 
     const auto noteTag = model::ids::NOTE.toString();
@@ -1064,7 +1265,7 @@ void PianoRollComponent::pasteNotes()
                            model::Note::clampVelocity (
                                child->getIntAttribute (model::ids::velocity.toString(),
                                                        defaultNoteVelocity)),
-                           child->getStringAttribute (model::ids::lyric.toString()) });
+                           juce::ValueTree::fromXml (*child) });
     }
 
     if (notes.empty())
@@ -1086,7 +1287,7 @@ void PianoRollComponent::pasteNotes()
     for (const auto& note : notes)
     {
         auto added = pattern->addNote (note.start + offset, note.length, note.pitch, note.velocity, &undoManager);
-        added.setLyric (note.lyric, &undoManager);
+        added.copyExtrasFrom (note.extras, &undoManager);
         pasted.push_back (added.state);
     }
 
@@ -1218,6 +1419,9 @@ void PianoRollComponent::paint (juce::Graphics& g)
                 g.setColour (selected ? juce::Colours::white : juce::Colours::black.withAlpha (0.4f));
                 g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.0f);
             }
+
+            if (showsPlayModesFlag)
+                paintPlayMode (g, note, r);
 
             // The lyric, or the default one dimmed: a note with nothing typed
             // still sings, and should say what.
@@ -1522,6 +1726,17 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
     draggedNote = pattern->addNote (start, length, pitch, lastNoteVelocity, &undoManager);
+
+    // Drawn with what the play-mode bar says, on a generator that has one.
+    if (showsPlayModesFlag)
+    {
+        draggedNote->setPlayMode (playModeBrush, &undoManager);
+        draggedNote->setRetrigger (retriggerBrush, &undoManager);
+        draggedNote->setBuzzPitch (buzzPitchBrush, &undoManager);
+        draggedNote->setBuzzRamped (buzzRampBrush, &undoManager);
+        draggedNote->setTune (tuneBrush, &undoManager);
+        draggedNote->setRollDynamics (rollDynamicsBrush, &undoManager);
+    }
     previewNote (pitch, lastNoteVelocity);
 
     // The new note becomes the selection, so that the drag that follows moves
