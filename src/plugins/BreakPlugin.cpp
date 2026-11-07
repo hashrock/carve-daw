@@ -247,7 +247,7 @@ void BreakPlugin::handleTrigger (const juce::MidiMessage& m)
     if (m.getSysExDataSize() != 8 || data[0] != sysexId[0] || data[1] != sysexId[1] || data[2] != sysexId[2])
         return;
 
-    const auto mode = (Mode) juce::jlimit (0, 3, (int) data[3]);
+    const auto mode = (Mode) juce::jlimit (0, 5, (int) data[3]);
     const int note = data[4] & 0x7f;
     const double seconds = (((data[5] & 0x7f) << 14) | ((data[6] & 0x7f) << 7) | (data[7] & 0x7f)) / 1000.0;
 
@@ -306,15 +306,34 @@ namespace
                 return std::pow (juce::jmax (0.0, 1.0 - progress), 1.6);
 
             case BreakPlugin::Mode::scratch:
-                // One stroke a note: pushed forward, pulled back to where it
-                // started. A roll of short scratch notes is a run of strokes.
-                return 2.4 * std::cos (2.0 * juce::MathConstants<double>::pi * progress);
+                // A baby scratch: the record pushed forward at its own speed
+                // for the first half of the note, pulled straight back for
+                // the second, ending where it started. Pitch stays as
+                // recorded; only the direction changes. A roll of short
+                // scratch notes is a run of strokes.
+                return progress < 0.5 ? 1.0 : -1.0;
 
+            case BreakPlugin::Mode::fadeIn:
+            case BreakPlugin::Mode::fadeOut:
             case BreakPlugin::Mode::forward:
                 break;
         }
 
         return 1.0;
+    }
+
+    // How loud a voice is, `progress` of the way through its note: a fade in
+    // rises from silence to full over the note, a fade out falls the other
+    // way; everything else is at full throughout.
+    float fadeGainFor (BreakPlugin::Mode mode, double progress)
+    {
+        if (mode == BreakPlugin::Mode::fadeIn)
+            return (float) progress;
+
+        if (mode == BreakPlugin::Mode::fadeOut)
+            return (float) (1.0 - progress);
+
+        return 1.0f;
     }
 
     // A tape stop or a scratch whose note length no trigger gave: what a
@@ -404,7 +423,7 @@ void BreakPlugin::renderSegment (juce::AudioBuffer<float>& buffer, int startSamp
 
             const int index = (int) voice.position;
             const auto fraction = (float) (voice.position - index);
-            const float gain = voice.envelope * voice.gain;
+            const float gain = voice.envelope * voice.gain * fadeGainFor (voice.mode, progress);
 
             const float left = inL[index] + (inL[index + 1] - inL[index]) * fraction;
             const float right = inR[index] + (inR[index + 1] - inR[index]) * fraction;

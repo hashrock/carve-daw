@@ -180,6 +180,8 @@ namespace
             case Note::PlayMode::reverse:   return "reverse";
             case Note::PlayMode::tapeStop:  return "stop";
             case Note::PlayMode::scratch:   return "scratch";
+            case Note::PlayMode::fadeIn:    return "fadein";
+            case Note::PlayMode::fadeOut:   return "fadeout";
             case Note::PlayMode::forward:   break;
         }
 
@@ -191,7 +193,7 @@ Note::PlayMode Note::getPlayMode() const
 {
     const auto key = state[ids::play].toString();
 
-    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch })
+    for (auto mode : { PlayMode::reverse, PlayMode::tapeStop, PlayMode::scratch, PlayMode::fadeIn, PlayMode::fadeOut })
         if (key == playModeKey (mode))
             return mode;
 
@@ -213,6 +215,8 @@ juce::String Note::getPlayModeName (PlayMode mode)
         case PlayMode::reverse:   return "Reverse";
         case PlayMode::tapeStop:  return "Tape Stop";
         case PlayMode::scratch:   return "Scratch";
+        case PlayMode::fadeIn:    return "Fade In";
+        case PlayMode::fadeOut:   return "Fade Out";
         case PlayMode::forward:   break;
     }
 

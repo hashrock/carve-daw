@@ -87,7 +87,8 @@
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
 // │                    play: how a "break" generator plays the slice --
-// │                    "reverse" | "stop" | "scratch", absent = forward.
+// │                    "reverse" | "stop" | "scratch" | "fadein" | "fadeout",
+// │                    absent = forward.
 // │                    retrig: restart the slice every 1/retrig of a beat,
 // │                    absent = once. Both optional, both carried by any
 // │                    generator (see Note::getPlayMode)

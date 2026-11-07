@@ -146,12 +146,14 @@ public:
         addAndMakeVisible (playHeader);
 
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut };
         const char* tips[] = {
             "Play the slice as recorded",
             "Play the slice backwards, from the next cut to its own",
             "Slow the slice to a halt over the note, like a tape machine losing power",
-            "Push the slice forward and pull it back over the note, like a record under a hand",
+            "Push the slice forward for half the note and pull it straight back for the other half",
+            "Rise from silence to full over the note",
+            "Fall from full to silence over the note",
         };
 
         for (size_t i = 0; i < modeButtons.size(); ++i)
@@ -198,7 +200,7 @@ public:
     void show (std::optional<model::Note::PlayMode> mode, std::optional<int> retrigger)
     {
         using Mode = model::Note::PlayMode;
-        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch };
+        const Mode modes[] = { Mode::forward, Mode::reverse, Mode::tapeStop, Mode::scratch, Mode::fadeIn, Mode::fadeOut };
 
         for (size_t i = 0; i < modeButtons.size(); ++i)
             modeButtons[i].setToggleState (mode && *mode == modes[i], juce::dontSendNotification);
@@ -236,7 +238,7 @@ private:
     static int rollIdFor (int divisionsPerBeat)  { return divisionsPerBeat + 1; }
 
     juce::Label playHeader, rollHeader, hint;
-    std::array<juce::TextButton, 4> modeButtons;
+    std::array<juce::TextButton, 6> modeButtons;
     juce::ComboBox rollBox;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayModeBar)

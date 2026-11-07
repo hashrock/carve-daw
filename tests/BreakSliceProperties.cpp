@@ -371,7 +371,8 @@ TEST_CASE ("A note's play mode and roll survive saving, copying and undo", "[bre
     REQUIRE (clone.getNote (0).getPlayMode() == Note::PlayMode::scratch);
 
     // Every mode by name, and back to forward removes it again.
-    for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop, Note::PlayMode::scratch })
+    for (auto mode : { Note::PlayMode::reverse, Note::PlayMode::tapeStop, Note::PlayMode::scratch,
+                       Note::PlayMode::fadeIn, Note::PlayMode::fadeOut })
     {
         note.setPlayMode (mode, nullptr);
         REQUIRE (note.getPlayMode() == mode);

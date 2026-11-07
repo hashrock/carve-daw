@@ -273,14 +273,26 @@ void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& no
             break;
 
         case model::Note::PlayMode::scratch:
-            glyph.startNewSubPath (box.getX(), box.getCentreY());
-            for (int i = 1; i <= 8; ++i)
-            {
-                const auto t = (float) i / 8.0f;
-                glyph.lineTo (box.getX() + box.getWidth() * t,
-                              box.getCentreY() - std::sin (t * juce::MathConstants<float>::twoPi) * box.getHeight() * 0.5f);
-            }
+            // There and back: a peak.
+            glyph.startNewSubPath (box.getX(), box.getBottom());
+            glyph.lineTo (box.getCentreX(), box.getY());
+            glyph.lineTo (box.getRight(), box.getBottom());
             break;
+
+        case model::Note::PlayMode::fadeIn:
+        case model::Note::PlayMode::fadeOut:
+        {
+            // A wedge across the whole note, the way a fade is drawn on a
+            // clip: the level it is at, at each moment.
+            const auto wedge = r.reduced (1.0f, 2.0f);
+            const bool in = mode == model::Note::PlayMode::fadeIn;
+            juce::Path fade;
+            fade.startNewSubPath (wedge.getX(), in ? wedge.getBottom() : wedge.getY());
+            fade.lineTo (wedge.getRight(), in ? wedge.getY() : wedge.getBottom());
+            g.setColour (ink);
+            g.strokePath (fade, juce::PathStrokeType (1.2f));
+            return;
+        }
 
         case model::Note::PlayMode::forward:
             return;

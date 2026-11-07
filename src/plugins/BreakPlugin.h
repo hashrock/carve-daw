@@ -26,7 +26,8 @@ namespace carve::plugins
 //     at the slice's end rather than running on into the next hit.
 //
 // A note can also play its slice backwards, slow it to a halt like a tape
-// machine losing power, or scratch it forwards and back like a record
+// machine losing power, fade it in or out over the note, or scratch it
+// forwards and back like a record
 // (model::Note::PlayMode). A note-on cannot say any of that, so the sync
 // puts a SysEx trigger beside such a note naming the mode and how long the
 // note lasts (see PlayTrigger); a roll needs nothing here, since the sync
@@ -56,7 +57,7 @@ public:
     // milliseconds as three 7-bit bytes, most significant first.
     static constexpr uint8_t sysexId[3] = { 0x7d, 0x43, 0x42 };
 
-    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3 };
+    enum class Mode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5 };
 
     juce::String getName() const override             { return "Break Slicer"; }
     juce::String getPluginType() override             { return xmlTypeName; }

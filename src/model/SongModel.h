@@ -88,7 +88,8 @@ public:
     // of the turntable and tape tricks. Like a lyric, every other generator
     // carries it along untouched, and it is stored only when it is not the
     // plain forward play.
-    enum class PlayMode { forward, reverse, tapeStop, scratch };
+    // The numbers are what the sync sends the slicer (BreakPlugin::Mode).
+    enum class PlayMode { forward = 0, reverse = 1, tapeStop = 2, scratch = 3, fadeIn = 4, fadeOut = 5 };
 
     PlayMode getPlayMode() const;
     void setPlayMode (PlayMode, juce::UndoManager*);
