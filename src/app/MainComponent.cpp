@@ -388,6 +388,24 @@ void MainComponent::updateAudition()
     if (editSync == nullptr)
         return;
 
+    // Every generator's current pattern, so the mode plays the song's parts
+    // together the way they are being worked on. An empty list is still
+    // Pattern mode -- a song with nothing to audition plays silence, not the
+    // playlist.
+    sync::Audition audition;
+    std::map<juce::String, juce::String> current;
+
+    for (const auto& entry : generatorController->getCurrentPatterns())
+    {
+        audition.entries.push_back ({ entry.generatorId, entry.patternId });
+        current[entry.generatorId] = entry.patternId;
+    }
+
+    // The playlist shows what the mode plays: the rack in Pattern mode, the
+    // song otherwise -- through an export too, which plays the song but is
+    // over in a moment, and the view should not flicker for it.
+    playlist.setRack (patternMode, current, sync::auditionLengthBeats (song, audition));
+
     // An export in progress holds the Edit on the song, and a pattern picked
     // meanwhile must not swap the patterns back in under the render.
     if (! patternMode || exportingSong)
@@ -395,15 +413,6 @@ void MainComponent::updateAudition()
         editSync->setAudition (std::nullopt);
         return;
     }
-
-    // Every generator's current pattern, so the mode plays the song's parts
-    // together the way they are being worked on. An empty list is still
-    // Pattern mode -- a song with nothing to audition plays silence, not the
-    // playlist.
-    sync::Audition audition;
-
-    for (const auto& current : generatorController->getCurrentPatterns())
-        audition.entries.push_back ({ current.generatorId, current.patternId });
 
     editSync->setAudition (std::move (audition));
 

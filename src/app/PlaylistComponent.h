@@ -53,6 +53,13 @@ namespace carve::app
 //
 // Selection is pure UI state: it lives here and never reaches the model, so
 // selecting never dirties the document or triggers an EditSync resync.
+//
+// In Pattern mode the timeline is not what plays, so it is not what is shown:
+// the same rows become a rack (see setRack). Each row's band holds the
+// pattern that generator is playing, repeated across the loop the mode plays,
+// with the playhead going round it. The row labels, the add button and the
+// zoom stay exactly where they were, so switching modes swaps what is to the
+// right of the labels and nothing else.
 class PlaylistComponent : public juce::Component,
                           public juce::FileDragAndDropTarget,
                           private juce::ValueTree::Listener
@@ -131,10 +138,24 @@ public:
     void setSelection (const juce::String& generatorId, const juce::String& patternId);
     void setPlayheadBeats (double beats);
 
+    // Pattern mode's view: each generator's current pattern (by generator
+    // id; a generator with none is absent), looping over loopBeats -- the
+    // longest of them, which is how long the mode's loop is. Off, the
+    // timeline comes back. The playhead is then a beat into the loop, which
+    // is what the transport reports in Pattern mode anyway.
+    void setRack (bool shouldShowRack, std::map<juce::String, juce::String> currentPatterns, double loopBeats);
+    bool isShowingRack() const  { return rackMode; }
+
     // Called by the host when the viewport we sit in changes size. Our width
     // is clamped to at least the viewport's, so the header band spans the
     // window -- but nothing else tells us the viewport grew.
-    void hostViewportResized()  { updateSize(); }
+    void hostViewportResized()
+    {
+        if (rackMode)
+            fitRackToView();
+
+        updateSize();
+    }
 
     void setTool (Tool newTool);
     Tool getTool() const  { return tool; }
@@ -505,6 +526,25 @@ private:
     void updateShortcutHelp();
 
     void paintMarkerLane (juce::Graphics&);
+
+    // The rack (see setRack): its paint, its press, and the pill at the head
+    // of a row's band that names its pattern and picks another.
+    void paintRack (juce::Graphics&);
+    void rackMouseDown (const juce::MouseEvent&);
+    std::optional<model::Pattern> rackPatternFor (const model::Generator&) const;
+    juce::Rectangle<float> rackBandBounds (int row) const;
+    juce::Rectangle<float> rackPillBounds (int row, const juce::String& patternName) const;
+    void showRackPatternMenu (const model::Generator&, juce::Rectangle<float> pill);
+
+    bool rackMode = false;
+    std::map<juce::String, juce::String> rackPatterns;
+    double rackLoopBeats = 4.0;
+
+    // The rack opens fitted to the view -- a two-bar loop drawn at the song's
+    // zoom is a postage stamp -- and the song's own zoom is kept to go back to.
+    double songPixelsPerBeat = defaultPixelsPerBeat;
+    static constexpr double maxRackPixelsPerBeat = 256.0;
+    void fitRackToView();
     void paintRuler (juce::Graphics&);
     void paintRowLabels (juce::Graphics&);
     void paintAudioClip (juce::Graphics&, const model::AudioClip&, juce::Rectangle<float>,
