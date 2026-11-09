@@ -85,7 +85,7 @@ juce::String decodeVoicebankText (const juce::MemoryBlock& bytes)
     }
 
     if (juce::CharPointer_UTF8::isValidString (data, (int) size))
-        return juce::String (juce::CharPointer_UTF8 (data), size);
+        return juce::String::fromUTF8 (data, (int) size);
 
     return decodeShiftJis (data, size);
 }
