@@ -484,6 +484,9 @@ public:
     static constexpr const char* synthType = "internal-synth";
     static constexpr const char* drumSynthType = "drum-synth";
 
+    // A kick designer: a patch of its own, stored the way the two above are.
+    static constexpr const char* gabberKickType = "gabber-kick";
+
     // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
     // the file is kept the way a sampler sound's is -- one SOUND node, with
     // the relative-path, missing-media and relink handling that comes with
@@ -500,7 +503,8 @@ public:
 
     bool isDrumKit() const    { return getType() == drumKitType; }
     bool isDrumSynth() const  { return getType() == drumSynthType; }
-    bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth(); }
+    bool isGabberKick() const { return getType() == gabberKickType; }
+    bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType; }
     bool isSoundFont() const  { return getType() == soundFontType; }

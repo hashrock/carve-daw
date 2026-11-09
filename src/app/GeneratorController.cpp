@@ -32,6 +32,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     juce::PopupMenu menu;
     menu.addItem (1, "Slate (internal synth)");
     menu.addItem (6, "808 Drums (internal drum synth)");
+    menu.addItem (10, "Gabber Kick (kick designer)");
     menu.addItem (3, "Sampler");
     menu.addItem (4, "Drum Kit (16 pads)");
     menu.addItem (7, "SoundFont (.sf2)");
@@ -88,6 +89,14 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
         {
             addGenerator ("Drums " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::drumSynthType, nullptr);
+        }
+        else if (result == 10)
+        {
+            addGenerator ("Gabber Kick " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::gabberKickType, nullptr);
+
+            if (onOpenInstrumentForSetup)
+                onOpenInstrumentForSetup();
         }
         else if (result == 8 || result == 7)
         {

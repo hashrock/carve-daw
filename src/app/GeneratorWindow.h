@@ -11,6 +11,7 @@
 #include "DrumPadGrid.h"
 #include "sync/EngineIds.h"
 #include "DrumSynthEditor.h"
+#include "GabberKickEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
 #include "BreakEditor.h"
@@ -221,6 +222,9 @@ public:
 
         if (drumSynth != nullptr)
             return juce::Point<int> (drumSynth->getWidth(), drumSynth->getHeight());
+
+        if (gabberKick != nullptr)
+            return juce::Point<int> (GabberKickEditor::defaultWidth, GabberKickEditor::getMinHeight());
 
         if (soundFont != nullptr)
             return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
@@ -435,6 +439,18 @@ public:
                         onPreviewNote (note, velocity);
                 };
                 viewport.setViewedComponent (drumSynth.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto kick = dynamic_cast<plugins::GabberKickPlugin*> (instrument))
+            {
+                gabberKick = std::make_unique<GabberKickEditor> (*kick);
+                gabberKick->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (gabberKick.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -718,9 +734,19 @@ public:
             }
         }
 
-        if (slate != nullptr || drumSynth != nullptr || soundFont != nullptr || utau != nullptr
+        if (slate != nullptr || drumSynth != nullptr || gabberKick != nullptr || soundFont != nullptr || utau != nullptr
              || breakEditor != nullptr)
             viewport.setBounds (area);   // the editor sized itself
+
+        // ...except this one, which fills the window it is given.
+        if (gabberKick != nullptr)
+        {
+            const auto minWidth = GabberKickEditor::minWidth, minHeight = GabberKickEditor::getMinHeight();
+            const auto bar = viewport.getScrollBarThickness();
+
+            gabberKick->setSize (juce::jmax (minWidth, area.getWidth() - (area.getHeight() < minHeight ? bar : 0)),
+                                 juce::jmax (minHeight, area.getHeight() - (area.getWidth() < minWidth ? bar : 0)));
+        }
 
         if (externalEditor != nullptr || presetBar != nullptr)
         {
@@ -780,6 +806,7 @@ private:
         removeChildComponent (&viewport);
         slate.reset();
         drumSynth.reset();
+        gabberKick.reset();
         soundFont.reset();
         breakEditor.reset();
         utau.reset();
@@ -840,6 +867,7 @@ private:
     juce::Viewport viewport;
     std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
+    std::unique_ptr<GabberKickEditor> gabberKick;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
     std::unique_ptr<BreakEditor> breakEditor;

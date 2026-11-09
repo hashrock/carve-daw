@@ -63,7 +63,7 @@ te::Engine& testEngine()
 // nothing here is about them.
 enum class Op
 {
-    addSynth, addDrumSynth, addSampler, addSoundFont, addUtau, addBreak, addAudioGenerator, removeGenerator,
+    addSynth, addDrumSynth, addGabberKick, addSampler, addSoundFont, addUtau, addBreak, addAudioGenerator, removeGenerator,
     addReturn, removeReturn,
     addGroup, removeGroup, setGroup,
     addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect,
@@ -150,6 +150,10 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
         case Op::addDrumSynth:
             song.addGenerator ("Drums", Generator::drumSynthType, &um);
+            break;
+
+        case Op::addGabberKick:
+            song.addGenerator ("Kick", Generator::gabberKickType, &um);
             break;
 
         case Op::addSampler:
