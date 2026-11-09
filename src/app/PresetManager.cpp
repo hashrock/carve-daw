@@ -1,6 +1,7 @@
 #include "PresetManager.h"
 #include "Fonts.h"
 
+#include "plugins/GabberKickPlugin.h"
 #include "sync/EngineIds.h"
 
 namespace carve::app
@@ -84,11 +85,21 @@ juce::AudioPluginInstance* PluginPresets::getExternalInstance() const
     return nullptr;
 }
 
+bool PluginPresets::hasFactoryPresets() const
+{
+    return dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()) != nullptr;
+}
+
 juce::StringArray PluginPresets::getPluginProgramNames() const
 {
     juce::StringArray names;
 
-    if (auto instance = getExternalInstance())
+    if (hasFactoryPresets())
+    {
+        for (int i = 0; i < plugins::gabber::numFactoryPresets; ++i)
+            names.add (plugins::gabber::getFactoryPresetName (i));
+    }
+    else if (auto instance = getExternalInstance())
     {
         const int count = instance->getNumPrograms();
 
@@ -102,6 +113,9 @@ juce::StringArray PluginPresets::getPluginProgramNames() const
 
 int PluginPresets::getCurrentPluginProgram() const
 {
+    if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
+        return kick->getMatchingFactoryPreset();
+
     if (auto instance = getExternalInstance())
         return instance->getCurrentProgram();
 
@@ -110,6 +124,15 @@ int PluginPresets::getCurrentPluginProgram() const
 
 bool PluginPresets::selectPluginProgram (int index)
 {
+    if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
+    {
+        if (! juce::isPositiveAndBelow (index, plugins::gabber::numFactoryPresets))
+            return false;
+
+        kick->setPatch (plugins::gabber::getFactoryPreset (index));
+        return true;
+    }
+
     auto instance = getExternalInstance();
 
     if (instance == nullptr || ! juce::isPositiveAndBelow (index, instance->getNumPrograms()))
@@ -420,7 +443,7 @@ void PresetBar::showMenu()
         const int current = presets.getCurrentPluginProgram();
 
         menu.addSeparator();
-        menu.addSectionHeader ("Plugin Presets");
+        menu.addSectionHeader (presets.hasFactoryPresets() ? "Factory Presets" : "Plugin Presets");
 
         auto addProgram = [&] (juce::PopupMenu& into, int i)
         {

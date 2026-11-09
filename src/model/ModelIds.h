@@ -25,12 +25,12 @@
 // │  └─ TIMESIG {start, numerator, denominator}   absent = 4/4 throughout
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
-// │     │                          type: "internal-synth" | "drum-synth" | "plugin" | "sampler"
+// │     │                          type: "internal-synth" | "drum-synth" | "gabber-kick" | "plugin" | "sampler"
 // │     │                                | "drum-sampler" | "soundfont" | "utau" | "break" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
-// │     ├─ INSTRUMENT                        for "internal-synth" / "drum-synth": holds the
+// │     ├─ INSTRUMENT                        for the three internal instruments: holds the
 // │     │  └─ PLUGIN {...}                   tracktion plugin's own state tree, as an effect does
 // │     ├─ SOUNDS                           sampler and soundfont types only
 // │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan, length}

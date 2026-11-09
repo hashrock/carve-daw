@@ -68,6 +68,10 @@ public:
 
     bool remove (const juce::String& presetName);
 
+    // True for an internal plugin that ships its own sounds; they are listed
+    // through the program calls below, as an external plugin's are.
+    bool hasFactoryPresets() const;
+
     // An external plugin's own presets -- the programs it ships with, or that
     // its host-side program list holds -- so they can be picked from here
     // without opening the plugin's UI and hunting for its browser. Empty for

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CarveDAW VERSION 0.16.0 LANGUAGES C CXX)
+project(CarveDAW VERSION 0.17.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,6 +102,10 @@ set(CARVE_CORE_SOURCES
     src/plugins/LimiterPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp
+    src/plugins/GabberKickDsp.h
+    src/plugins/GabberKickDsp.cpp
+    src/plugins/GabberKickPlugin.h
+    src/plugins/GabberKickPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
     src/plugins/BreakPlugin.h
@@ -313,7 +317,9 @@ if(CARVE_BUILD_TESTS)
         src/model/Capture.cpp
         src/voice/Voicebank.cpp
         src/plugins/BreakAnalysis.cpp
+        src/plugins/GabberKickDsp.cpp
         tests/BreakSliceProperties.cpp
+        tests/GabberKickTests.cpp
         tests/CaptureProperties.cpp
         tests/VoicebankTests.cpp
         tests/NoteGestureProperties.cpp

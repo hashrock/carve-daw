@@ -53,6 +53,7 @@ namespace
         return ! isEffect (plugin)
                 && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::GabberKickPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
@@ -166,18 +167,19 @@ namespace
     void ensureInternalInstrument (te::Edit& edit, te::AudioTrack& track,
                                    const model::Generator& generator)
     {
-        const bool wantsDrums = generator.isDrumSynth();
         auto* existing = findInstrument (track);
 
         if (existing != nullptr
-             && (wantsDrums ? dynamic_cast<plugins::DrumSynthPlugin*> (existing) != nullptr
-                            : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
+             && (generator.isDrumSynth()   ? dynamic_cast<plugins::DrumSynthPlugin*> (existing) != nullptr
+                 : generator.isGabberKick() ? dynamic_cast<plugins::GabberKickPlugin*> (existing) != nullptr
+                                            : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
         removeInstruments (track);
 
-        const char* typeName = wantsDrums ? plugins::DrumSynthPlugin::xmlTypeName
-                                          : te::FourOscPlugin::xmlTypeName;
+        const char* typeName = generator.isDrumSynth()   ? plugins::DrumSynthPlugin::xmlTypeName
+                               : generator.isGabberKick() ? plugins::GabberKickPlugin::xmlTypeName
+                                                          : te::FourOscPlugin::xmlTypeName;
 
         te::Plugin::Ptr plugin;
 
