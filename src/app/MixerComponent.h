@@ -8,6 +8,7 @@
 
 #include "EffectParameterWindow.h"
 #include "EffectSlotList.h"
+#include "FaderLookAndFeel.h"
 #include "PluginWindows.h"
 #include "model/SongModel.h"
 
@@ -118,6 +119,11 @@ private:
 
     te::Edit& edit;
     juce::UndoManager& undoManager;
+
+    // Declared before the strips so it outlives them: every slider on them
+    // is drawn by it.
+    FaderLookAndFeel faderLookAndFeel;
+
     model::Song song { model::Song::create ("Untitled") };
 
     std::vector<std::unique_ptr<ChannelStrip>> strips;

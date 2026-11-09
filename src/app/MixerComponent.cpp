@@ -853,6 +853,9 @@ private:
 MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     : edit (editToShow), undoManager (um)
 {
+    // The strips inherit it, so every fader, pan and send is a hardware one.
+    setLookAndFeel (&faderLookAndFeel);
+
     addReturnButton.onClick = [this]
     {
         undoManager.beginNewTransaction();
@@ -869,6 +872,7 @@ MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
 MixerComponent::~MixerComponent()
 {
     song.state.removeListener (this);
+    setLookAndFeel (nullptr);
 }
 
 void MixerComponent::setSong (model::Song newSong)
