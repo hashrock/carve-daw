@@ -27,8 +27,14 @@ namespace carve::app
 // a desk; a track's is a size smaller than a bus's, since there are many of
 // them and they are the ones the eye skims past to find the buses.
 //
-// Everything that is not a linear slider is drawn as CarveLookAndFeel draws
-// it, so the strips' buttons, labels and menus are unchanged.
+// The mute and solo switches (see setSwitchKind) are keys of the same
+// panel: raised and dark with a grey letter when off, pressed in and lit
+// when on -- amber for mute, green for solo, the colours a desk uses for
+// them -- so a strip's state reads from across the window rather than from
+// a slightly lighter shade of grey.
+//
+// Everything else is drawn as CarveLookAndFeel draws it, so the strips'
+// other buttons, labels and menus are unchanged.
 class FaderLookAndFeel : public CarveLookAndFeel
 {
 public:
@@ -39,6 +45,92 @@ public:
     static void setKind (juce::Slider& slider, FaderKind kind)
     {
         slider.getProperties().set (kindProperty, (int) kind);
+    }
+
+    enum class SwitchKind { none, mute, solo };
+
+    static void setSwitchKind (juce::Button& button, SwitchKind kind)
+    {
+        button.getProperties().set (switchProperty, (int) kind);
+    }
+
+    void drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
+                               bool isHighlighted, bool isDown) override
+    {
+        const auto kind = switchKindOf (button);
+
+        if (kind == SwitchKind::none)
+        {
+            CarveLookAndFeel::drawButtonBackground (g, button, backgroundColour, isHighlighted, isDown);
+            return;
+        }
+
+        const auto alpha = button.isEnabled() ? 1.0f : 0.4f;
+        const bool on = button.getToggleState();
+        const auto bounds = button.getLocalBounds().toFloat().reduced (0.5f, 0.5f);
+        const auto key = on || isDown ? bounds.withTrimmedTop (1.0f) : bounds.withTrimmedBottom (1.0f);
+        const auto corner = 3.0f;
+
+        // The shadow a raised key casts; a pressed one sits flush.
+        if (! on && ! isDown)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.5f * alpha));
+            g.fillRoundedRectangle (bounds.withTrimmedTop (1.0f), corner);
+        }
+
+        if (on)
+        {
+            const auto lit = juce::Colour (kind == SwitchKind::mute ? muteColour : soloColour);
+            g.setGradientFill (juce::ColourGradient (lit.brighter (isHighlighted ? 0.25f : 0.1f).withMultipliedAlpha (alpha),
+                                                     0.0f, key.getY(),
+                                                     lit.darker (0.35f).withMultipliedAlpha (alpha),
+                                                     0.0f, key.getBottom(), false));
+            g.fillRoundedRectangle (key, corner);
+
+            // The glow round a lit key, and a hot spot along its top.
+            g.setColour (lit.withAlpha (0.35f * alpha));
+            g.drawRoundedRectangle (key.expanded (1.0f), corner + 1.0f, 1.5f);
+            g.setColour (juce::Colours::white.withAlpha (0.25f * alpha));
+            g.drawHorizontalLine ((int) key.getY() + 1, key.getX() + corner, key.getRight() - corner);
+        }
+        else
+        {
+            const auto top = juce::Colour (isHighlighted ? 0xff4e4e57 : 0xff44444c);
+            g.setGradientFill (juce::ColourGradient (top.withMultipliedAlpha (alpha), 0.0f, key.getY(),
+                                                     juce::Colour (0xff26262b).withMultipliedAlpha (alpha),
+                                                     0.0f, key.getBottom(), false));
+            g.fillRoundedRectangle (key, corner);
+            g.setColour (juce::Colours::white.withAlpha (0.1f * alpha));
+            g.drawHorizontalLine ((int) key.getY() + 1, key.getX() + corner, key.getRight() - corner);
+        }
+
+        g.setColour (juce::Colours::black.withAlpha (0.65f * alpha));
+        g.drawRoundedRectangle (key, corner, 1.0f);
+    }
+
+    void drawButtonText (juce::Graphics& g, juce::TextButton& button, bool isHighlighted, bool isDown) override
+    {
+        const auto kind = switchKindOf (button);
+
+        if (kind == SwitchKind::none)
+        {
+            CarveLookAndFeel::drawButtonText (g, button, isHighlighted, isDown);
+            return;
+        }
+
+        const auto alpha = button.isEnabled() ? 1.0f : 0.4f;
+        const bool on = button.getToggleState();
+        auto area = button.getLocalBounds();
+
+        if (on || isDown)
+            area = area.withTrimmedTop (1);
+        else
+            area = area.withTrimmedBottom (1);
+
+        g.setFont (juce::Font (uiFont (fonts::normal, juce::Font::bold)));
+        g.setColour ((on ? juce::Colour (0xff1a1a1e) : juce::Colour (isHighlighted ? 0xffb8b8c0 : 0xff8a8a94))
+                         .withMultipliedAlpha (alpha));
+        g.drawText (button.getButtonText(), area, juce::Justification::centred, false);
     }
 
     int getSliderThumbRadius (juce::Slider& slider) override
@@ -70,6 +162,15 @@ public:
 
 private:
     static inline const juce::Identifier kindProperty { "carveFaderKind" };
+    static inline const juce::Identifier switchProperty { "carveSwitchKind" };
+
+    static constexpr juce::uint32 muteColour = 0xffd9a53a;   // amber
+    static constexpr juce::uint32 soloColour = 0xff62b866;   // green
+
+    static SwitchKind switchKindOf (juce::Button& button)
+    {
+        return (SwitchKind) (int) button.getProperties().getWithDefault (switchProperty, (int) SwitchKind::none);
+    }
 
     static FaderKind kindOf (juce::Slider& slider)
     {

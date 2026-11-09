@@ -157,6 +157,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setSwitchKind (muteButton, FaderLookAndFeel::SwitchKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -166,6 +167,7 @@ public:
         };
 
         soloButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setSwitchKind (soloButton, FaderLookAndFeel::SwitchKind::solo);
         soloButton.onClick = [this]
         {
             if (isRefreshing)
@@ -573,6 +575,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setSwitchKind (muteButton, FaderLookAndFeel::SwitchKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -727,6 +730,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setSwitchKind (muteButton, FaderLookAndFeel::SwitchKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -737,6 +741,7 @@ public:
         };
 
         soloButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setSwitchKind (soloButton, FaderLookAndFeel::SwitchKind::solo);
         soloButton.onClick = [this]
         {
             if (isRefreshing)
