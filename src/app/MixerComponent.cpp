@@ -293,7 +293,7 @@ public:
         for (auto it = sendRows.rbegin(); it != sendRows.rend(); ++it)
         {
             auto row = area.removeFromBottom (14);
-            (*it)->label.setBounds (row.removeFromLeft (34));
+            (*it)->label.setBounds (row.removeFromLeft (30));
             (*it)->slider.setBounds (row);
         }
 
@@ -320,8 +320,8 @@ public:
         }
 
         // meter on the left, fader on the right
-        meter.setBounds (area.removeFromLeft (18));
-        area.removeFromLeft (6);
+        meter.setBounds (area.removeFromLeft (12));
+        area.removeFromLeft (4);
         volumeSlider.setBounds (area);
     }
 
@@ -501,8 +501,8 @@ public:
             effectViewport.setVisible (false);
         }
 
-        meter.setBounds (area.removeFromLeft (18));
-        area.removeFromLeft (6);
+        meter.setBounds (area.removeFromLeft (12));
+        area.removeFromLeft (4);
         volumeSlider.setBounds (area);
     }
 
@@ -850,8 +850,8 @@ public:
             area.removeFromTop (4);
         }
 
-        meter.setBounds (area.removeFromLeft (18));
-        area.removeFromLeft (6);
+        meter.setBounds (area.removeFromLeft (12));
+        area.removeFromLeft (4);
         volumeSlider.setBounds (area);
     }
 
