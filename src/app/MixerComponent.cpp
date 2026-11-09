@@ -130,6 +130,7 @@ public:
         // The fader works in tracktion's fader-position space (0..1) so it gets
         // the engine's own taper; the model stores the resulting dB.
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        FaderLookAndFeel::setKind (volumeSlider, FaderLookAndFeel::FaderKind::track);
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         volumeSlider.setDoubleClickReturnValue (
@@ -389,6 +390,7 @@ public:
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        FaderLookAndFeel::setKind (volumeSlider, FaderLookAndFeel::FaderKind::master);
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         volumeSlider.setDoubleClickReturnValue (

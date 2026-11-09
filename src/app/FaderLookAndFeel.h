@@ -22,16 +22,30 @@ namespace carve::app
 // from the middle for a bipolar range (pan), from the bottom or left for the
 // rest.
 //
+// Two faders are marked out from the rest (see setKind): the master's cap is
+// a muted red, the one fader on the panel that is not like the others, as on
+// a desk; a track's is a size smaller than a bus's, since there are many of
+// them and they are the ones the eye skims past to find the buses.
+//
 // Everything that is not a linear slider is drawn as CarveLookAndFeel draws
 // it, so the strips' buttons, labels and menus are unchanged.
 class FaderLookAndFeel : public CarveLookAndFeel
 {
 public:
+    enum class FaderKind { bus, track, master };
+
+    // Stamped on the slider, so the one look-and-feel the whole mixer shares
+    // can tell its faders apart. Unmarked is a bus: groups and returns.
+    static void setKind (juce::Slider& slider, FaderKind kind)
+    {
+        slider.getProperties().set (kindProperty, (int) kind);
+    }
+
     int getSliderThumbRadius (juce::Slider& slider) override
     {
         // How far the travel stops short of the ends: half a cap, so the cap
         // never hangs out of its slot at either extreme.
-        return slider.isVertical() ? faderCapHeight / 2 : panCapWidth / 2;
+        return slider.isVertical() ? capSizeFor (slider).y / 2 : panCapWidth / 2;
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -55,7 +69,32 @@ public:
     }
 
 private:
-    static constexpr int faderCapHeight = 30;
+    static inline const juce::Identifier kindProperty { "carveFaderKind" };
+
+    static FaderKind kindOf (juce::Slider& slider)
+    {
+        return (FaderKind) (int) slider.getProperties().getWithDefault (kindProperty, (int) FaderKind::bus);
+    }
+
+    // A fader cap's width and height.
+    static juce::Point<int> capSizeFor (juce::Slider& slider)
+    {
+        return kindOf (slider) == FaderKind::track ? juce::Point<int> (24, 24)
+                                                   : juce::Point<int> (30, 30);
+    }
+
+    // The shades a cap is made of, light top edge to dark bottom one, and the
+    // two halves of its dished face.
+    struct CapColours
+    {
+        juce::uint32 bodyTop, bodyBottom, upperTop, upperBottom, lowerTop, lowerBottom;
+    };
+
+    static constexpr CapColours greyCap { 0xff74747d, 0xff1e1e22, 0xff4c4c55, 0xff2a2a30, 0xff26262b, 0xff3c3c44 };
+
+    // Red, but a dull, oxblood one: the master should be found at a glance,
+    // not shout over the orange the values glow in.
+    static constexpr CapColours masterCap { 0xff9a5a56, 0xff2a1514, 0xff6e3632, 0xff421f1d, 0xff3a1b1a, 0xff5a2c29 };
     static constexpr int panCapWidth = 12;
     static constexpr juce::uint32 accentColour = 0xffe0a24f;   // the app's orange, as on the knobs
 
@@ -95,15 +134,16 @@ private:
     // from a light top edge to a dark bottom one, and a face dished either side
     // of the line that marks the value -- top half darkening downwards, bottom
     // half lightening, the way a concave cap catches a light overhead.
-    static void drawCap (juce::Graphics& g, juce::Rectangle<float> cap, bool vertical, float alpha)
+    static void drawCap (juce::Graphics& g, juce::Rectangle<float> cap, bool vertical, float alpha,
+                         const CapColours& colours = greyCap)
     {
         const auto corner = juce::jmin (3.0f, juce::jmin (cap.getWidth(), cap.getHeight()) * 0.25f);
 
         g.setColour (juce::Colours::black.withAlpha (0.45f * alpha));
         g.fillRoundedRectangle (cap.translated (0.0f, 2.0f).expanded (1.0f), corner + 1.0f);
 
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff74747d).withMultipliedAlpha (alpha), 0.0f, cap.getY(),
-                                                 juce::Colour (0xff1e1e22).withMultipliedAlpha (alpha), 0.0f, cap.getBottom(),
+        g.setGradientFill (juce::ColourGradient (juce::Colour (colours.bodyTop).withMultipliedAlpha (alpha), 0.0f, cap.getY(),
+                                                 juce::Colour (colours.bodyBottom).withMultipliedAlpha (alpha), 0.0f, cap.getBottom(),
                                                  false));
         g.fillRoundedRectangle (cap, corner);
 
@@ -115,12 +155,12 @@ private:
             upper = upper.removeFromTop (face.getHeight() * 0.5f);
             lower = lower.removeFromBottom (face.getHeight() * 0.5f);
 
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4c4c55).withMultipliedAlpha (alpha), 0.0f, upper.getY(),
-                                                     juce::Colour (0xff2a2a30).withMultipliedAlpha (alpha), 0.0f, upper.getBottom(),
+            g.setGradientFill (juce::ColourGradient (juce::Colour (colours.upperTop).withMultipliedAlpha (alpha), 0.0f, upper.getY(),
+                                                     juce::Colour (colours.upperBottom).withMultipliedAlpha (alpha), 0.0f, upper.getBottom(),
                                                      false));
             g.fillRect (upper);
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff26262b).withMultipliedAlpha (alpha), 0.0f, lower.getY(),
-                                                     juce::Colour (0xff3c3c44).withMultipliedAlpha (alpha), 0.0f, lower.getBottom(),
+            g.setGradientFill (juce::ColourGradient (juce::Colour (colours.lowerTop).withMultipliedAlpha (alpha), 0.0f, lower.getY(),
+                                                     juce::Colour (colours.lowerBottom).withMultipliedAlpha (alpha), 0.0f, lower.getBottom(),
                                                      false));
             g.fillRect (lower);
 
@@ -172,13 +212,14 @@ private:
     void drawFader (juce::Graphics& g, juce::Rectangle<float> bounds, float sliderPos,
                     juce::Slider& slider, float alpha)
     {
-        const auto travelTop = bounds.getY() + (float) faderCapHeight * 0.5f;
-        const auto travelBottom = bounds.getBottom() - (float) faderCapHeight * 0.5f;
+        const auto capSize = capSizeFor (slider).toFloat();
+        const auto travelTop = bounds.getY() + capSize.y * 0.5f;
+        const auto travelBottom = bounds.getBottom() - capSize.y * 0.5f;
         const auto travel = juce::jmax (1.0f, travelBottom - travelTop);
         const auto yFor = [&] (double proportion) { return travelBottom - (float) proportion * travel; };
 
         const auto cx = bounds.getCentreX();
-        const auto capWidth = juce::jmin (bounds.getWidth() - 4.0f, 30.0f);
+        const auto capWidth = juce::jmin (bounds.getWidth() - 4.0f, capSize.x);
 
         // The scale, printed on the panel either side of the slot: a mark
         // at each of these, the 0 dB one brighter and longer. Only a fader in
@@ -234,8 +275,8 @@ private:
                                                 2.0f, std::abs (sliderPos - zeroY)));
         }
 
-        drawCap (g, juce::Rectangle<float> (capWidth, (float) faderCapHeight).withCentre ({ cx, sliderPos }),
-                 true, alpha);
+        drawCap (g, juce::Rectangle<float> (capWidth, capSize.y).withCentre ({ cx, sliderPos }),
+                 true, alpha, kindOf (slider) == FaderKind::master ? masterCap : greyCap);
     }
 
     void drawSmallSlider (juce::Graphics& g, juce::Rectangle<float> bounds, float sliderPos,
