@@ -62,9 +62,9 @@ private:
     class ReturnStrip;
     class GroupStrip;
 
-    // Wider than a bare fader strip needs to be: the insert slots have to
-    // show enough of an effect's name to tell two of them apart.
-    static constexpr int stripWidth = 116;
+    // As slim as the fader, its scale and the M / S keys allow; an effect's
+    // name in an insert slot is cut short before the strip grows for it.
+    static constexpr int stripWidth = 96;
     static constexpr int minHeight = 300;
 
     // The gap that sets the master apart from the generators it sums.

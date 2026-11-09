@@ -218,6 +218,7 @@ private:
     // not shout over the orange the values glow in.
     static constexpr CapColours masterCap { 0xff9a5a56, 0xff2a1514, 0xff6e3632, 0xff421f1d, 0xff3a1b1a, 0xff5a2c29 };
     static constexpr int panCapWidth = 12;
+    static constexpr float scaleLabelWidth = 20.0f;   // room for "-48" at the smallest font
     static constexpr juce::uint32 accentColour = 0xffe0a24f;   // the app's orange, as on the knobs
 
     // The proportion of the travel the range's zero sits at: the middle of a
@@ -340,18 +341,22 @@ private:
         const auto travel = juce::jmax (1.0f, travelBottom - travelTop);
         const auto yFor = [&] (double proportion) { return travelBottom - (float) proportion * travel; };
 
-        const auto cx = bounds.getCentreX();
-        const auto capWidth = juce::jmin (bounds.getWidth() - 4.0f, capSize.x);
-
         // The scale, printed on the panel either side of the slot: a mark
         // at each of these, the 0 dB one brighter and longer. Only a fader in
         // tracktion's position space has decibels to mark.
         const bool isVolumeFader = std::abs (slider.getMinimum()) < 1.0e-9
                                    && std::abs (slider.getMaximum() - 1.0) < 1.0e-9;
 
+        // A fader with a scale keeps a column on its left for the numbers and
+        // centres itself in what is left, so a narrow strip loses empty panel
+        // to the right of the cap rather than the numbers.
+        const auto labelColumn = isVolumeFader ? juce::jmin (scaleLabelWidth, bounds.getWidth() * 0.3f) : 0.0f;
+        const auto cx = bounds.getX() + labelColumn + (bounds.getWidth() - labelColumn) * 0.5f;
+        const auto capWidth = juce::jmin (bounds.getWidth() - labelColumn - 4.0f, capSize.x);
+
         if (isVolumeFader)
         {
-            const auto tickReach = capWidth * 0.5f + 3.0f;
+            const auto tickReach = capWidth * 0.5f + 2.0f;
             const auto labelFont = juce::Font (uiFont (fonts::small));
             g.setFont (labelFont);
             auto lastLabelY = std::numeric_limits<float>::lowest();
@@ -371,7 +376,7 @@ private:
                 const auto labelRight = cx - tickReach - len - 2.0f;
                 const auto labelHeight = labelFont.getHeight();
 
-                if (labelRight - bounds.getX() >= 16.0f && ty - lastLabelY >= labelHeight)
+                if (labelRight - bounds.getX() >= scaleLabelWidth - 4.0f && ty - lastLabelY >= labelHeight)
                 {
                     g.setColour (juce::Colour (isUnity ? 0xff9a9aa4 : 0xff6a6a72).withMultipliedAlpha (alpha));
                     g.drawText (db > 0.0f ? "+" + juce::String ((int) db) : juce::String ((int) db),
