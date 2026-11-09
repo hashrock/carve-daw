@@ -31,15 +31,19 @@ namespace carve::app
 // section leaves no empty bar to start one from. The piano roll reads every
 // one of these gestures the same way: SelectionModifiers.h is the list.
 //
-// A clip carries one handle: the chevron in its top-right corner swaps which of
-// the generator's patterns it plays. How long the placement runs for is a
-// property of the clip, not a gesture here - a clip shorter than its pattern is
-// cut off, a longer one repeats it, and the repeats are drawn as dividers.
+// A clip carries two handles: the chevron in its top-right corner swaps which
+// of the generator's patterns it plays, and the grip on its right edge resizes
+// the placement in whole bars (the whole selection, when the clip is part of
+// it). A clip shorter than its pattern is cut off, a longer one repeats it, and
+// the repeats are drawn as dividers. ⌘-dragging the same grip resizes the
+// pattern itself instead, and every clip that was playing it at its full
+// length follows (see patternLengthFollowers); the chevron's menu offers the
+// same thing as a one-off, plus putting a clip back to its pattern's length.
 //
 // An "audio" generator's row holds files rather than patterns. Those are drawn
 // as their waveform, they have no pattern to swap and no transpose (that would
-// mean pitch-shifting), and their one handle is instead a grip on the right
-// edge that trims the placement. Dropping audio files anywhere on the grid
+// mean pitch-shifting), and their one handle is the same right-edge grip, which
+// trims the placement by the beat rather than the bar. Dropping audio files anywhere on the grid
 // places them: onto an audio row when the drop lands on one, onto a new audio
 // generator otherwise.
 //
@@ -230,7 +234,7 @@ private:
     static constexpr float menuButtonWidth = 15.0f;
     static constexpr float menuButtonInset = 3.0f;
 
-    // The grip on an audio clip's right edge that trims it. Narrow, because it
+    // The grip on a clip's right edge that resizes it. Narrow, because it
     // sits inside the clip and everything to its left still drags the clip.
     static constexpr float trimHandleWidth = 6.0f;
 
@@ -250,7 +254,8 @@ private:
         paint,
         erase,
         move,
-        trim,        // an audio clip's right edge
+        trim,        // a clip's right edge
+        patternLength, // ⌘ on a pattern clip's right edge: the pattern itself
         loopRange,   // on the ruler
         marker,      // a tempo or time signature change on the lane above it
         autoPoint,   // a point on a row's automation lane
@@ -402,6 +407,23 @@ private:
     // Gives every clip the trim drag is touching the same length in beats,
     // each one refused on its own if it would run into a neighbour.
     void trimSelectionTo (double targetEnd);
+
+    // The pattern-length drag: the pattern trimClip plays becomes as long as
+    // targetEnd is from that clip's start. All or nothing: if any follower
+    // would run into a neighbour, nothing changes.
+    void dragPatternLengthTo (double targetEnd);
+
+    // The clips that should keep playing a pattern whole when its length
+    // changes: those with no length of their own, and those whose own length
+    // is the pattern's current one. Everything else was cut or extended on
+    // purpose, and keeps that length.
+    std::vector<juce::ValueTree> patternLengthFollowers (const model::Generator&,
+                                                         const model::Pattern&) const;
+
+    // Sets the pattern's length and has every follower inherit it again. False,
+    // and nothing written, when a follower at that length would overlap.
+    bool resizePattern (const model::Generator&, model::Pattern, double lengthBeats,
+                        const std::vector<juce::ValueTree>& followers);
 
     // The three writes that have to know which kind of placement they are
     // holding, so that nothing else does. copyPlacement puts the same clip
@@ -619,13 +641,17 @@ private:
     // that letting go of ⌘ before the mouse can take them back again.
     std::vector<juce::ValueTree> originCopies;
 
-    // Trim drag: the audio clip whose edge was grabbed, every clip the drag
-    // writes to (the whole selection when the grabbed one is part of it,
+    // Trim drag: the clip whose edge was grabbed, every clip the drag writes
+    // to (the selected clips of its kind when the grabbed one is selected,
     // otherwise just that clip), and the end we last wrote, so dragging within
     // the same beat writes nothing.
     juce::ValueTree trimClip;
     std::vector<juce::ValueTree> trimTargets;
     double trimLastEnd = 0.0;
+
+    // Pattern-length drag: the clips that follow the pattern, fixed when the
+    // drag starts so they do not change as lengths do during it.
+    std::vector<juce::ValueTree> patternFollowers;
 
     // A file drag currently over us, and where it would land.
     std::optional<FileDropTarget> fileDropTarget;

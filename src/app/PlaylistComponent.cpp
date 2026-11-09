@@ -869,6 +869,12 @@ void PlaylistComponent::updateShortcutHelp()
         }
     }
 
+    if (! hoverMarkerLane && hoverLaneRow < 0 && ! mods.isAltDown())
+    {
+        entries.push_back ({ "drag clip edge", "clip length" });
+        entries.push_back ({ "Cmd+drag clip edge", "pattern length" });
+    }
+
     if (! selectedClips.empty())
     {
         entries.push_back ({ "Cmd+D", "duplicate" });
@@ -1417,6 +1423,14 @@ void PlaylistComponent::paint (juce::Graphics& g)
                     g.fillRect (x, r.getY() + 2.0f, 1.0f, r.getHeight() - 4.0f);
             }
 
+            // The grip that resizes the clip in bars, under the chevron so
+            // the two never draw over each other.
+            if (const auto grip = trimHandleBounds (r); ! grip.isEmpty())
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.3f));
+                g.fillRect (grip.withTrimmedTop (r.getHeight() * 0.5f + 1.0f).reduced (1.0f, 3.0f));
+            }
+
             const auto menuRect = patternMenuBounds (r);
 
             g.setColour (juce::Colours::black.withAlpha (0.7f));
@@ -1936,12 +1950,13 @@ void PlaylistComponent::trimSelectionTo (double targetEnd)
     // The pointer sets the length of the clip it grabbed; the rest of the
     // selection takes the same length, not the same edge, so a trim does not
     // line every clip's end up on one beat. The same rule as resizing notes.
-    const auto length = std::max (0.0, targetEnd - model::AudioClip (trimClip).getStart());
+    const auto grabbedStart = (double) trimClip[model::ids::start];
+    const auto length = std::max (0.0, targetEnd - grabbedStart);
 
-    if (std::abs (model::AudioClip (trimClip).getStart() + length - trimLastEnd) < beatTolerance)
+    if (std::abs (grabbedStart + length - trimLastEnd) < beatTolerance)
         return;   // still inside the beat we last wrote: no model write, no resync
 
-    trimLastEnd = model::AudioClip (trimClip).getStart() + length;
+    trimLastEnd = grabbedStart + length;
 
     // Every write calls back into refresh(), which rewrites selectedClips, so
     // work from our own copy for the whole gesture.
@@ -1949,6 +1964,23 @@ void PlaylistComponent::trimSelectionTo (double targetEnd)
 
     for (const auto& state : targets)
     {
+        if (state.hasType (model::ids::CLIP))
+        {
+            model::PlaylistClip clip (state);
+            auto generator = song.findGenerator (clip.getGeneratorId());
+
+            if (! generator || length <= 0.0
+                    || ! isRangeFree (*generator, clip.getStart(), length, false, state))
+                continue;
+
+            const auto current = placementFor (state);
+
+            if (! current || std::abs (current->length - length) > beatTolerance)
+                clip.setLength (length, &undoManager);
+
+            continue;
+        }
+
         model::AudioClip clip (state);
         auto generator = song.findGenerator (clip.getGeneratorId());
 
@@ -1966,6 +1998,92 @@ void PlaylistComponent::trimSelectionTo (double targetEnd)
         if (std::abs (seconds - clip.getLengthSeconds()) > 1.0e-9)
             clip.setLengthSeconds (seconds, &undoManager);
     }
+}
+
+std::vector<juce::ValueTree> PlaylistComponent::patternLengthFollowers (const model::Generator& generator,
+                                                                         const model::Pattern& pattern) const
+{
+    const auto generatorId = generator.getId();
+    const auto patternId = pattern.getId();
+    const auto patternLength = pattern.getLengthBeats();
+    std::vector<juce::ValueTree> result;
+
+    for (const auto& child : song.getPlaylist().state)
+    {
+        if (! child.hasType (model::ids::CLIP))
+            continue;
+
+        const model::PlaylistClip clip (child);
+
+        if (clip.getGeneratorId() != generatorId || clip.getPatternId() != patternId)
+            continue;
+
+        if (! clip.hasOwnLength()
+                || std::abs (clip.getLength (patternLength) - patternLength) < beatTolerance)
+            result.push_back (child);
+    }
+
+    return result;
+}
+
+bool PlaylistComponent::resizePattern (const model::Generator& generator, model::Pattern pattern,
+                                       double lengthBeats, const std::vector<juce::ValueTree>& followers)
+{
+    if (lengthBeats <= 0.0)
+        return false;
+
+    // Check every follower before writing any, so a refused length leaves the
+    // song exactly as it was rather than half-resized.
+    for (const auto& state : followers)
+        if (! isRangeFree (generator, model::PlaylistClip (state).getStart(), lengthBeats, false, state))
+            return false;
+
+    // Every write calls back into refresh(), so work from our own copy.
+    const auto targets = followers;
+
+    if (std::abs (pattern.getLengthBeats() - lengthBeats) > beatTolerance)
+        pattern.setLengthBeats (lengthBeats, &undoManager);
+
+    // A follower that had the old length written into it would otherwise keep
+    // it; handing the length back to the pattern is what makes it follow.
+    for (const auto& state : targets)
+    {
+        model::PlaylistClip clip (state);
+
+        if (clip.hasOwnLength())
+            clip.clearLength (&undoManager);
+    }
+
+    return true;
+}
+
+void PlaylistComponent::dragPatternLengthTo (double targetEnd)
+{
+    if (! trimClip.isValid())
+        return;
+
+    const model::PlaylistClip grabbed (trimClip);
+    const auto length = targetEnd - grabbed.getStart();
+
+    if (std::abs (grabbed.getStart() + length - trimLastEnd) < beatTolerance)
+        return;   // same bar as last time: no write, no resync
+
+    auto generator = song.findGenerator (grabbed.getGeneratorId());
+    if (! generator)
+        return;
+
+    auto pattern = generator->findPattern (grabbed.getPatternId());
+    if (! pattern)
+        return;
+
+    // The grabbed clip follows whatever length it had: dragging its edge is
+    // saying "this is how long the pattern is", so it ends where it was let go.
+    auto followers = patternFollowers;
+    if (std::find (followers.begin(), followers.end(), trimClip) == followers.end())
+        followers.push_back (trimClip);
+
+    if (resizePattern (*generator, *pattern, length, followers))
+        trimLastEnd = grabbed.getStart() + length;
 }
 
 void PlaylistComponent::dragSelectionTo (double targetStart, const juce::ModifierKeys& mods)
@@ -2374,7 +2492,7 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
 
     // New and Clone are ids of their own above the patterns', so one callback
     // can tell "the third pattern" from them.
-    enum { newPatternId = 1000, clonePatternId };
+    enum { newPatternId = 1000, clonePatternId, patternFromClipId, clipFromPatternId };
 
     juce::PopupMenu menu;
     for (int i = 0; i < (int) patterns.size(); ++i)
@@ -2386,6 +2504,19 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
     menu.addSeparator();
     menu.addItem (newPatternId, "New");
     menu.addItem (clonePatternId, "Clone");
+
+    // The two directions between a clip's own length and its pattern's. Only
+    // a clip that has drifted from its pattern has anything to offer.
+    if (auto current = generator->findPattern (currentId))
+    {
+        const auto patternLength = current->getLengthBeats();
+        const bool differs = clip.hasOwnLength()
+                                 && std::abs (clip.getLength (patternLength) - patternLength) > beatTolerance;
+
+        menu.addSeparator();
+        menu.addItem (patternFromClipId, "Set Pattern Length to This Clip", differs);
+        menu.addItem (clipFromPatternId, "Fit Clip to Pattern Length", differs);
+    }
 
     const auto options = juce::PopupMenu::Options()
                              .withTargetComponent (this)
@@ -2404,6 +2535,36 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
         if (result == newPatternId || result == clonePatternId)
         {
             safeThis->makePatternForClip (clipState, result == clonePatternId);
+            return;
+        }
+
+        if (result == patternFromClipId || result == clipFromPatternId)
+        {
+            if (! clipState.isAChildOf (safeThis->song.getPlaylist().state))
+                return;
+
+            model::PlaylistClip target (clipState);
+            auto owner = safeThis->song.findGenerator (target.getGeneratorId());
+            auto pattern = owner ? owner->findPattern (target.getPatternId()) : std::nullopt;
+
+            if (! owner || ! pattern)
+                return;
+
+            safeThis->undoManager.beginNewTransaction();
+
+            if (result == patternFromClipId)
+            {
+                auto followers = safeThis->patternLengthFollowers (*owner, *pattern);
+                followers.push_back (clipState);
+                safeThis->resizePattern (*owner, *pattern,
+                                         target.getLength (pattern->getLengthBeats()), followers);
+            }
+            else if (safeThis->isRangeFree (*owner, target.getStart(),
+                                            pattern->getLengthBeats(), false, clipState))
+            {
+                target.clearLength (&safeThis->undoManager);
+            }
+
             return;
         }
 
@@ -3078,12 +3239,10 @@ juce::MouseCursor PlaylistComponent::cursorFor (juce::Point<float> position,
     {
         const auto bounds = slotBounds (row, placement->start, placement->length);
 
-        if (placement->isAudio())
-        {
-            if (trimHandleBounds (bounds).contains (position))
-                return juce::MouseCursor::LeftRightResizeCursor;
-        }
-        else if (patternMenuBounds (bounds).contains (position))
+        if (trimHandleBounds (bounds).contains (position))
+            return juce::MouseCursor::LeftRightResizeCursor;
+
+        if (! placement->isAudio() && patternMenuBounds (bounds).contains (position))
         {
             return juce::MouseCursor::PointingHandCursor;
         }
@@ -3398,33 +3557,54 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         const auto bounds = slotBounds (row, placement->start, placement->length);
         const auto extend = selection::isExtendModifier (e.mods);
 
-        if (placement->isAudio())
+        // The grip on the right edge resizes the placement: an audio clip by
+        // the beat, a pattern clip by the bar. Select it too, so the resize
+        // reads as happening to the clip it highlights -- but never take it
+        // out of the selection: the edge of a selected clip resizes every
+        // selected clip of the same kind (see trimSelectionTo), so the clip
+        // has to stay in it. Checked before the chevron, which it overlaps
+        // by a few pixels at the corner.
+        if (trimHandleBounds (bounds).contains (e.position))
         {
-            // The grip on the right edge trims the placement. Select it too,
-            // so the trim reads as happening to the clip it highlights -- but
-            // never take it out of the selection: the edge of a selected clip
-            // trims the whole selection (see trimSelectionTo), so the clip
-            // has to stay in it.
-            if (trimHandleBounds (bounds).contains (e.position))
+            // ⌘ on a pattern clip's grip resizes the pattern, not the clip. ⌘
+            // on a clip is a duplicate drag, but nothing duplicates from a
+            // grip, so the key is free here.
+            if (! placement->isAudio() && selection::isDuplicateModifier (e.mods))
             {
-                if (! isSelected (placement->state))
-                    selectClip (placement->state, extend);
+                const model::PlaylistClip clip (placement->state);
 
-                dragMode = DragMode::trim;
-                trimClip = placement->state;
-                trimLastEnd = placement->getEnd();
-                trimTargets.clear();
+                if (auto pattern = generator.findPattern (clip.getPatternId()))
+                {
+                    if (! isSelected (placement->state))
+                        selectClip (placement->state, false);
 
-                for (const auto& state : selectedClips)
-                    if (state.hasType (model::ids::AUDIOCLIP))
-                        trimTargets.push_back (state);
+                    dragMode = DragMode::patternLength;
+                    trimClip = placement->state;
+                    trimLastEnd = placement->getEnd();
+                    patternFollowers = patternLengthFollowers (generator, *pattern);
+                }
 
                 return;
             }
+
+            if (! isSelected (placement->state))
+                selectClip (placement->state, extend);
+
+            dragMode = DragMode::trim;
+            trimClip = placement->state;
+            trimLastEnd = placement->getEnd();
+            trimTargets.clear();
+
+            for (const auto& state : selectedClips)
+                if (state.getType() == placement->state.getType())
+                    trimTargets.push_back (state);
+
+            return;
         }
+
         // The chevron swaps which pattern the clip plays: it must not also
         // select the clip or start a move.
-        else if (patternMenuBounds (bounds).contains (e.position))
+        if (! placement->isAudio() && patternMenuBounds (bounds).contains (e.position))
         {
             showPatternMenu (model::PlaylistClip (placement->state), patternMenuBounds (bounds));
             return;
@@ -3569,10 +3749,28 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
             break;
 
         case DragMode::trim:
-            // Beats, not bars: a dropped file is almost never a whole number of
-            // bars long, so bar-snapping a trim would only ever be in the way.
-            trimSelectionTo (std::max (0.0, std::round (beat)));
+            if (trimClip.hasType (model::ids::AUDIOCLIP))
+            {
+                // Beats, not bars: a dropped file is almost never a whole number
+                // of bars long, so bar-snapping a trim would only ever be in the way.
+                trimSelectionTo (std::max (0.0, std::round (beat)));
+            }
+            else
+            {
+                // A pattern clip is laid down in bars, so it is resized in bars:
+                // the nearest bar line, the same slack a move has, and never
+                // shorter than the bar the clip starts in.
+                const auto start = (double) trimClip[model::ids::start];
+                trimSelectionTo (std::max (nearestBar (beat), start + barLengthAt (start)));
+            }
             break;
+
+        case DragMode::patternLength:
+        {
+            const auto start = (double) trimClip[model::ids::start];
+            dragPatternLengthTo (std::max (nearestBar (beat), start + barLengthAt (start)));
+            break;
+        }
 
         case DragMode::loopRange:
             dragLoopTo (xToBeat (e.position.x));
@@ -3630,6 +3828,7 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
     dragAutoRow = -1;
     trimClip = {};
     trimTargets.clear();
+    patternFollowers.clear();
     rubberBand = {};
     rubberBandBaseSelection.clear();
     updateHover (e.position);
