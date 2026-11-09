@@ -2276,7 +2276,7 @@ juce::ValueTree PlaylistComponent::makeClipboardPayload() const
         if (auto placement = placementFor (state))
             anchor = std::min (anchor, placement->start);
 
-    if (anchor == std::numeric_limits<double>::max())
+    if (juce::exactlyEqual (anchor, std::numeric_limits<double>::max()))
         return {};
 
     juce::ValueTree payload (clipboardType);

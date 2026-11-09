@@ -1209,15 +1209,15 @@ void GeneratorController::renamePattern (const juce::String& generatorId,
         if (name.isEmpty())
             return;
 
-        auto generator = song.findGenerator (generatorId);
+        auto current = song.findGenerator (generatorId);
 
-        if (! generator)
+        if (! current)
             return;
 
-        if (auto pattern = generator->findPattern (patternId))
+        if (auto currentPattern = current->findPattern (patternId))
         {
             undoManager.beginNewTransaction();
-            pattern->setName (name, &undoManager);
+            currentPattern->setName (name, &undoManager);
             refresh();
             fireSelectionChanged();
         }
@@ -1295,19 +1295,19 @@ void GeneratorController::exportPatternToMidi (const juce::String& generatorId,
 
         // Looked up again rather than captured: the chooser is asynchronous,
         // and the song may have been replaced while it stood open.
-        auto generator = song.findGenerator (generatorId);
+        auto current = song.findGenerator (generatorId);
 
-        if (! generator)
+        if (! current)
             return;
 
-        auto pattern = generator->findPattern (patternId);
+        auto currentPattern = current->findPattern (patternId);
 
-        if (! pattern)
+        if (! currentPattern)
             return;
 
         // The song's tempo and meter, not the pattern's: a pattern has neither,
         // and these are what it is being played at here.
-        if (! model::midiio::writePattern (*pattern, destination, song.getTempo(),
+        if (! model::midiio::writePattern (*currentPattern, destination, song.getTempo(),
                                            song.getTimeSigAt (0.0)))
             juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                          "Export failed",

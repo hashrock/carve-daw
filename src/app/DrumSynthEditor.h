@@ -202,12 +202,12 @@ private:
                                 : highlighted ? juce::Colour (0xff4a4a54) : juce::Colour (0xff3a3a42));
             g.fillRoundedRectangle (area, 4.0f);
 
-            const auto text = bright ? juce::Colour (0xff232327) : juce::Colour (0xffe8e8ec);
+            const auto textColour = bright ? juce::Colour (0xff232327) : juce::Colour (0xffe8e8ec);
             auto bounds = getLocalBounds();
-            g.setColour (text);
+            g.setColour (textColour);
             g.setFont (uiFont (fonts::small, juce::Font::bold));
             g.drawText (name, bounds.removeFromTop (bounds.getHeight() / 2 + 2), juce::Justification::centredBottom);
-            g.setColour (text.withAlpha (0.7f));
+            g.setColour (textColour.withAlpha (0.7f));
             g.setFont (uiFont (fonts::small));
             g.drawText (note, bounds, juce::Justification::centredTop);
         }

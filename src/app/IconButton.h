@@ -388,8 +388,8 @@ namespace icons
 class IconButton : public juce::TextButton
 {
 public:
-    IconButton (const juce::String& text, Icon initialIcon)
-        : juce::TextButton (text), icon (initialIcon)
+    IconButton (const juce::String& buttonText, Icon initialIcon)
+        : juce::TextButton (buttonText), icon (initialIcon)
     {
     }
 
@@ -434,14 +434,14 @@ public:
         }
 
         const auto font = lf.getTextButtonFont (*this, getHeight());
-        const auto text = getButtonText();
-        const auto textWidth = text.isEmpty() ? 0.0f
-                                              : (float) juce::GlyphArrangement::getStringWidthInt (font, text);
+        const auto label = getButtonText();
+        const auto textWidth = label.isEmpty() ? 0.0f
+                                               : (float) juce::GlyphArrangement::getStringWidthInt (font, label);
 
         // The symbol is sized from the button, so a toolbar button and a
         // transport button each get one in proportion.
         const auto iconSize = juce::jlimit (9.0f, 13.0f, (float) getHeight() * 0.42f);
-        const auto gap = text.isEmpty() ? 0.0f : iconGap;
+        const auto gap = label.isEmpty() ? 0.0f : iconGap;
 
         // Icon and word are centred as one block, so a button whose word
         // changes -- Play to Pause -- does not shuffle its symbol about.
@@ -454,11 +454,11 @@ public:
 
         g.fillPath (icons::make (icon, { x, area.getCentreY() - iconSize * 0.5f, iconSize, iconSize }));
 
-        if (! text.isEmpty())
+        if (! label.isEmpty())
         {
             g.setFont (font);
-            g.drawText (text, juce::Rectangle<float> (x + iconSize + gap, area.getY(),
-                                                      textWidth, area.getHeight()),
+            g.drawText (label, juce::Rectangle<float> (x + iconSize + gap, area.getY(),
+                                                       textWidth, area.getHeight()),
                         juce::Justification::centredLeft, false);
         }
     }

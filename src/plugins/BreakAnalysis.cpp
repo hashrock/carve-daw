@@ -43,7 +43,7 @@ double snapToZeroCrossing (const juce::AudioBuffer<float>& buffer, double sample
             const auto before = monoAt (buffer, frame - 1);
             const auto here = monoAt (buffer, frame);
 
-            if (here == 0.0f || (before < 0.0f) != (here < 0.0f))
+            if (juce::exactlyEqual (here, 0.0f) || (before < 0.0f) != (here < 0.0f))
                 return frame / sampleRate;
         }
     }
