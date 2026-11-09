@@ -35,7 +35,10 @@ namespace carve::app
 // of the generator's patterns it plays, and the grip on its right edge resizes
 // the placement in whole bars (the whole selection, when the clip is part of
 // it). A clip shorter than its pattern is cut off, a longer one repeats it, and
-// the repeats are drawn as dividers.
+// the repeats are drawn as dividers. ⌘-dragging the same grip resizes the
+// pattern itself instead, and every clip that was playing it at its full
+// length follows (see patternLengthFollowers); the chevron's menu offers the
+// same thing as a one-off, plus putting a clip back to its pattern's length.
 //
 // An "audio" generator's row holds files rather than patterns. Those are drawn
 // as their waveform, they have no pattern to swap and no transpose (that would
@@ -252,6 +255,7 @@ private:
         erase,
         move,
         trim,        // a clip's right edge
+        patternLength, // ⌘ on a pattern clip's right edge: the pattern itself
         loopRange,   // on the ruler
         marker,      // a tempo or time signature change on the lane above it
         autoPoint,   // a point on a row's automation lane
@@ -403,6 +407,23 @@ private:
     // Gives every clip the trim drag is touching the same length in beats,
     // each one refused on its own if it would run into a neighbour.
     void trimSelectionTo (double targetEnd);
+
+    // The pattern-length drag: the pattern trimClip plays becomes as long as
+    // targetEnd is from that clip's start. All or nothing: if any follower
+    // would run into a neighbour, nothing changes.
+    void dragPatternLengthTo (double targetEnd);
+
+    // The clips that should keep playing a pattern whole when its length
+    // changes: those with no length of their own, and those whose own length
+    // is the pattern's current one. Everything else was cut or extended on
+    // purpose, and keeps that length.
+    std::vector<juce::ValueTree> patternLengthFollowers (const model::Generator&,
+                                                         const model::Pattern&) const;
+
+    // Sets the pattern's length and has every follower inherit it again. False,
+    // and nothing written, when a follower at that length would overlap.
+    bool resizePattern (const model::Generator&, model::Pattern, double lengthBeats,
+                        const std::vector<juce::ValueTree>& followers);
 
     // The three writes that have to know which kind of placement they are
     // holding, so that nothing else does. copyPlacement puts the same clip
@@ -627,6 +648,10 @@ private:
     juce::ValueTree trimClip;
     std::vector<juce::ValueTree> trimTargets;
     double trimLastEnd = 0.0;
+
+    // Pattern-length drag: the clips that follow the pattern, fixed when the
+    // drag starts so they do not change as lengths do during it.
+    std::vector<juce::ValueTree> patternFollowers;
 
     // A file drag currently over us, and where it would land.
     std::optional<FileDropTarget> fileDropTarget;
