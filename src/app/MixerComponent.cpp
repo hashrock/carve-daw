@@ -1,5 +1,6 @@
 #include "MixerComponent.h"
 #include "Fonts.h"
+#include "IconButton.h"
 
 #include "../sync/EffectChains.h"
 
@@ -26,6 +27,14 @@ namespace
             return group->getName();
 
         return {};
+    }
+
+    // The bin on a bus strip: a key like the M and S beside it, its symbol
+    // in their grey.
+    void styleRemoveKey (juce::TextButton& button)
+    {
+        FaderLookAndFeel::setKeyKind (button, FaderLookAndFeel::KeyKind::remove);
+        button.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
     }
 
     juce::String formatDb (float db)
@@ -130,6 +139,7 @@ public:
         // The fader works in tracktion's fader-position space (0..1) so it gets
         // the engine's own taper; the model stores the resulting dB.
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        FaderLookAndFeel::setKind (volumeSlider, FaderLookAndFeel::FaderKind::track);
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         volumeSlider.setDoubleClickReturnValue (
@@ -156,6 +166,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setKeyKind (muteButton, FaderLookAndFeel::KeyKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -165,6 +176,7 @@ public:
         };
 
         soloButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setKeyKind (soloButton, FaderLookAndFeel::KeyKind::solo);
         soloButton.onClick = [this]
         {
             if (isRefreshing)
@@ -187,6 +199,7 @@ public:
                 onChooseGroup (groupButton.getScreenBounds());
         };
         groupButton.setTooltip ("Which group bus this track plays through");
+        FaderLookAndFeel::setKeyKind (groupButton, FaderLookAndFeel::KeyKind::plain);
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
@@ -389,6 +402,7 @@ public:
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
+        FaderLookAndFeel::setKind (volumeSlider, FaderLookAndFeel::FaderKind::master);
         volumeSlider.setRange (0.0, 1.0);
         volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         volumeSlider.setDoubleClickReturnValue (
@@ -571,6 +585,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setKeyKind (muteButton, FaderLookAndFeel::KeyKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -581,6 +596,8 @@ public:
         };
 
         removeButton.onClick = [this] { if (onRemove) onRemove(); };
+        removeButton.setTooltip ("Delete this return: the sends to it go too");
+        styleRemoveKey (removeButton);
 
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
@@ -657,7 +674,8 @@ private:
 
     juce::Label nameLabel, dbLabel;
     juce::Slider volumeSlider;
-    juce::TextButton muteButton { "M" }, removeButton { "X" };
+    juce::TextButton muteButton { "M" };
+    IconButton removeButton { {}, Icon::trash };
     juce::Viewport effectViewport;
     EffectSlotList effectSlots;
     bool isRefreshing = false;
@@ -725,6 +743,7 @@ public:
         };
 
         muteButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setKeyKind (muteButton, FaderLookAndFeel::KeyKind::mute);
         muteButton.onClick = [this]
         {
             if (isRefreshing)
@@ -735,6 +754,7 @@ public:
         };
 
         soloButton.setClickingTogglesState (true);
+        FaderLookAndFeel::setKeyKind (soloButton, FaderLookAndFeel::KeyKind::solo);
         soloButton.onClick = [this]
         {
             if (isRefreshing)
@@ -746,6 +766,7 @@ public:
 
         removeButton.onClick = [this] { if (onRemove) onRemove(); };
         removeButton.setTooltip ("Ungroup: the tracks go back to the master");
+        styleRemoveKey (removeButton);
 
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
@@ -840,7 +861,8 @@ private:
 
     juce::Label nameLabel, dbLabel;
     juce::Slider volumeSlider, panSlider;
-    juce::TextButton muteButton { "M" }, soloButton { "S" }, removeButton { "X" };
+    juce::TextButton muteButton { "M" }, soloButton { "S" };
+    IconButton removeButton { {}, Icon::trash };
     juce::Viewport effectViewport;
     EffectSlotList effectSlots;
     LevelMeterView meter;
@@ -853,12 +875,17 @@ private:
 MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
     : edit (editToShow), undoManager (um)
 {
+    // The strips inherit it, so every fader, pan and send is a hardware one.
+    setLookAndFeel (&faderLookAndFeel);
+
     addReturnButton.onClick = [this]
     {
         undoManager.beginNewTransaction();
         song.addReturn ("Return " + juce::String ((int) song.getReturns().size() + 1),
                         &undoManager);
     };
+    FaderLookAndFeel::setKeyKind (addReturnButton, FaderLookAndFeel::KeyKind::plain);
+    addReturnButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffb8b8c0));
     addAndMakeVisible (addReturnButton);
 
     song.state.addListener (this);
@@ -869,6 +896,7 @@ MixerComponent::MixerComponent (te::Edit& editToShow, juce::UndoManager& um)
 MixerComponent::~MixerComponent()
 {
     song.state.removeListener (this);
+    setLookAndFeel (nullptr);
 }
 
 void MixerComponent::setSong (model::Song newSong)
