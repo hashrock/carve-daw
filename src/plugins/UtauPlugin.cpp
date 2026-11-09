@@ -295,10 +295,10 @@ UtauPlugin::Prepared UtauPlugin::prepare (const NoteContext& note)
 
 void UtauPlugin::submit (std::shared_ptr<Snippet> snippet, const voice::NoteRender& request)
 {
-    auto state = renderState;
-    ++state->pending;
+    auto jobState = renderState;
+    ++jobState->pending;
 
-    renderPool().addJob ([snippet, request, state]
+    renderPool().addJob ([snippet, request, jobState]
     {
         if (! snippet->wanted.load())
         {
@@ -310,7 +310,7 @@ void UtauPlugin::submit (std::shared_ptr<Snippet> snippet, const voice::NoteRend
 
             if (! snippet->wanted.load() || ! snippet->skipped.exchange (false))
             {
-                --state->pending;
+                --jobState->pending;
                 return;
             }
         }
@@ -325,12 +325,12 @@ void UtauPlugin::submit (std::shared_ptr<Snippet> snippet, const voice::NoteRend
         }
         else
         {
-            ++state->failed;
-            const juce::ScopedLock sl (state->errorLock);
-            state->lastError = error;
+            ++jobState->failed;
+            const juce::ScopedLock sl (jobState->errorLock);
+            jobState->lastError = error;
         }
 
-        --state->pending;
+        --jobState->pending;
     });
 }
 
@@ -339,7 +339,7 @@ void UtauPlugin::endPreparing()
     const auto now = nowMs();
 
     for (auto& [id, slot] : slots)
-        if (slot.generation != generation && slot.unwantedSinceMs == 0.0)
+        if (slot.generation != generation && juce::exactlyEqual (slot.unwantedSinceMs, 0.0))
         {
             slot.unwantedSinceMs = now;
             slot.snippet->wanted.store (false);

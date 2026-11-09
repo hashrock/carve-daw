@@ -816,7 +816,7 @@ namespace
     // the plugin's third channel onward -- nothing is inserted anywhere. This
     // only has to keep three plugin-state values in step with one model
     // property, compare-before-set so a steady-state resync touches nothing.
-    void syncSidechains (const model::Song& song, te::Edit& edit,
+    void syncSidechains (const model::Song& song,
                          const juce::Array<te::AudioTrack*>& tracks)
     {
         const auto generators = song.getGenerators();
@@ -1267,7 +1267,7 @@ namespace
     // and its assignments reconciled through the parameter API -- assignments
     // store the modifier's session-local itemID, so they are never captured
     // and always rebuilt from the model.
-    void syncModifiers (const model::Song& song, te::Edit& edit,
+    void syncModifiers (const model::Song& song,
                         const juce::Array<te::AudioTrack*>& tracks)
     {
         static const juce::Identifier modifierIdProperty ("carveModifierId");
@@ -1896,7 +1896,7 @@ namespace
             sequence.removeTempo (i, false);
 
         if (auto first = sequence.getTempo (0))
-            if (first->getBpm() != song.getTempo())
+            if (! juce::exactlyEqual (first->getBpm(), song.getTempo()))
                 first->setBpm (song.getTempo());
 
         for (const auto& change : song.getTempoChanges())
@@ -2088,9 +2088,9 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     }
 
     syncGroups (song, edit);
-    syncSidechains (song, edit, tracks);
+    syncSidechains (song, tracks);
     syncAutomation (song, edit, tracks);
-    syncModifiers (song, edit, tracks);
+    syncModifiers (song, tracks);
     syncReturns (song, edit);
 
    #if JUCE_DEBUG

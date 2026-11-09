@@ -1226,8 +1226,8 @@ void MixerComponent::showGroupMenu (const juce::String& generatorId, juce::Recta
             auto group = safe->song.addGroup ("Group " + juce::String ((int) safe->song.getGroups().size() + 1),
                                               &safe->undoManager);
 
-            if (auto generator = safe->song.findGenerator (generatorId))
-                generator->setGroupId (group.getId(), &safe->undoManager);
+            if (auto joining = safe->song.findGenerator (generatorId))
+                joining->setGroupId (group.getId(), &safe->undoManager);
 
             return;
         }
@@ -1281,7 +1281,7 @@ void MixerComponent::openEffectEditor (const juce::String& generatorId, const ju
     // parameter list, which is all a tracktion plugin can offer.
     if (auto* external = dynamic_cast<te::ExternalPlugin*> (plugin))
     {
-        if (auto* instance = external->getAudioPluginInstance())
+        if (external->getAudioPluginInstance() != nullptr)
             window = std::make_unique<PluginEditorWindow> (*external, std::move (onClose));
     }
     else

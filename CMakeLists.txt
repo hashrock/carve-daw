@@ -306,6 +306,17 @@ if(CARVE_BUILD_TESTS)
 
     FetchContent_MakeAvailable(Catch2 rapidcheck)
 
+    # Their headers as system headers, so JUCE's warning flags (which the sync
+    # suite builds with) are not turned on someone else's templates. The
+    # SYSTEM option of FetchContent_Declare would say this, but needs 3.25.
+    foreach(_carve_dep rapidcheck Catch2)
+        get_target_property(_carve_dep_includes ${_carve_dep} INTERFACE_INCLUDE_DIRECTORIES)
+        set_target_properties(${_carve_dep} PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_carve_dep_includes}")
+    endforeach()
+    unset(_carve_dep)
+    unset(_carve_dep_includes)
+
     # Deliberately not carve_configure_target: what is under test is model-layer
     # arithmetic, document edits, and the piano roll's gesture maths -- none of
     # which reaches the engine, and linking tracktion_engine would recompile the

@@ -662,22 +662,22 @@ public:
             for (int pad = 0; pad < drumkit::numPads; ++pad)
             {
                 const auto sound = drumkit::findSoundForPad (*generator, pad);
-                DrumPadGrid::PadInfo info;
-                info.sampleName = sound ? sound->getName() : juce::String();
-                info.usedByPattern = used[(size_t) pad];
+                DrumPadGrid::PadInfo padInfo;
+                padInfo.sampleName = sound ? sound->getName() : juce::String();
+                padInfo.usedByPattern = used[(size_t) pad];
 
                 if (sound && sampler != nullptr)
                     for (int i = 0; i < sampler->getNumSounds(); ++i)
                         if (sampler->getMinKey (i) == drumkit::getNoteForPad (pad)
                              && sampler->getMaxKey (i) == drumkit::getNoteForPad (pad))
                         {
-                            info.soundSeconds = sampler->getSoundLength (i)
+                            padInfo.soundSeconds = sampler->getSoundLength (i)
                                 / std::pow (2.0, (drumkit::getNoteForPad (pad) - sampler->getKeyNote (i)) / 12.0);
-                            info.oneShot = sampler->isSoundOpenEnded (i);
+                            padInfo.oneShot = sampler->isSoundOpenEnded (i);
                             break;
                         }
 
-                pads.setPadState (pad, info);
+                pads.setPadState (pad, padInfo);
             }
 
             pads.repaint();

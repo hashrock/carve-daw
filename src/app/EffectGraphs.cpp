@@ -124,7 +124,8 @@ void EqualiserGraph::paint (juce::Graphics& g)
                       5000.0f, 10000.0f, 20000.0f })
     {
         const auto x = frequencyToX (hz);
-        const auto labelled = hz == 100.0f || hz == 1000.0f || hz == 10000.0f;
+        const auto labelled = juce::exactlyEqual (hz, 100.0f) || juce::exactlyEqual (hz, 1000.0f)
+                                  || juce::exactlyEqual (hz, 10000.0f);
 
         g.setColour (labelled ? gridZero : grid);
         g.drawVerticalLine ((int) x, area.getY(), area.getBottom());
@@ -140,7 +141,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
 
     for (float db : { -18.0f, -12.0f, -6.0f, 0.0f, 6.0f, 12.0f, 18.0f })
     {
-        g.setColour (db == 0.0f ? gridZero : grid);
+        g.setColour (juce::exactlyEqual (db, 0.0f) ? gridZero : grid);
         g.drawHorizontalLine ((int) gainToY (db), area.getX(), area.getRight());
     }
 
@@ -155,7 +156,7 @@ void EqualiserGraph::paint (juce::Graphics& g)
         const auto db = plugin->getDBGainAtFrequency (xToFrequency (x));
         const auto y = gainToY (db);
 
-        if (x == area.getX())
+        if (juce::exactlyEqual (x, area.getX()))
             path.startNewSubPath (x, y);
         else
             path.lineTo (x, y);
@@ -388,7 +389,7 @@ void OvertopGraph::paint (juce::Graphics& g)
     for (float db : { 0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f })
     {
         const auto y = levelToY (db);
-        g.setColour (db == 0.0f ? gridZero : grid);
+        g.setColour (juce::exactlyEqual (db, 0.0f) ? gridZero : grid);
         g.drawHorizontalLine ((int) y, area.getX(), area.getRight());
 
         g.setColour (text);

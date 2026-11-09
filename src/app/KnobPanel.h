@@ -549,9 +549,9 @@ class PropertyToggleButton : public juce::ToggleButton,
 {
 public:
     PropertyToggleButton (juce::ValueTree stateToEdit, const juce::Identifier& propertyToEdit,
-                          const juce::String& text, std::function<bool()> isAliveCheck,
+                          const juce::String& buttonText, std::function<bool()> isAliveCheck,
                           bool defaultValueToUse = false)
-        : juce::ToggleButton (text),
+        : juce::ToggleButton (buttonText),
           state (std::move (stateToEdit)),
           property (propertyToEdit),
           defaultValue (defaultValueToUse),
@@ -559,7 +559,7 @@ public:
     {
         setWantsKeyboardFocus (false);
         width = juce::GlyphArrangement::getStringWidthInt (
-                    juce::Font (uiFont (EditorRow::rowFontHeight)), text) + 30;
+                    juce::Font (uiFont (EditorRow::rowFontHeight)), buttonText) + 30;
 
         onClick = [this]
         {
