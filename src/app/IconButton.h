@@ -20,7 +20,8 @@ enum class Icon
     pencil, select,
     zoomIn, zoomOut,
     folder, audioFile, star, arrowUp, speaker,
-    capture, keyboard
+    capture, keyboard,
+    trash
 };
 
 namespace icons
@@ -331,6 +332,22 @@ namespace icons
                 p.addRectangle (0.3f, 0.62f, 0.4f, 0.07f);
                 break;
             }
+
+            case Icon::trash:
+                // A bin with its lid lifted a little, the handle on the lid,
+                // and two slots down the can so it reads as a can and not a
+                // box. Even-odd makes the slots holes.
+                p.addRectangle (0.36f, 0.02f, 0.28f, 0.1f);                // handle
+                p.addRoundedRectangle (0.06f, 0.1f, 0.88f, 0.12f, 0.04f);   // lid
+                p.startNewSubPath (0.14f, 0.28f);                          // can, narrowing down
+                p.lineTo (0.86f, 0.28f);
+                p.lineTo (0.79f, 0.98f);
+                p.lineTo (0.21f, 0.98f);
+                p.closeSubPath();
+                p.addRectangle (0.34f, 0.40f, 0.09f, 0.46f);
+                p.addRectangle (0.57f, 0.40f, 0.09f, 0.46f);
+                p.setUsingNonZeroWinding (false);
+                break;
 
             case Icon::zoomIn:
             case Icon::zoomOut:
