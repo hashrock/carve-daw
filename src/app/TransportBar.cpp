@@ -345,6 +345,7 @@ void TransportBar::showFileMenu()
     // The recent songs get IDs of their own above the fixed items, so one
     // callback can tell "the third recent song" from "Save As".
     enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId,
+           settingsId, aboutId, noticesId,
            firstRecentId = 100, firstSampleSongId = 200 };
 
     juce::PopupMenu menu;
@@ -377,6 +378,17 @@ void TransportBar::showFileMenu()
     menu.addSeparator();
     menu.addItem (exportId, "Export Audio...");
 
+    // On macOS these three are in the application menu, at the top of the
+    // screen. Anywhere else this menu is the only one there is, and About is
+    // not optional: it is where the licence terms and the "Powered by
+    // Tracktion Engine" line are shown.
+   #if ! JUCE_MAC
+    menu.addSeparator();
+    menu.addItem (settingsId, "Settings...");
+    menu.addItem (aboutId, "About Carve DAW");
+    menu.addItem (noticesId, "Third-Party Notices...");
+   #endif
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (logoButton),
                         [safe = juce::Component::SafePointer (this)] (int result)
     {
@@ -391,6 +403,9 @@ void TransportBar::showFileMenu()
             case saveId:      if (safe->onSave)     safe->onSave();     break;
             case saveAsId:    if (safe->onSaveAs)   safe->onSaveAs();   break;
             case exportId:    if (safe->onExport)   safe->onExport();   break;
+            case settingsId:  if (safe->onSettings) safe->onSettings(); break;
+            case aboutId:     if (safe->onAbout)    safe->onAbout();    break;
+            case noticesId:   if (safe->onNotices)  safe->onNotices();  break;
 
             default:
                 if (result >= firstSampleSongId)
@@ -647,19 +662,43 @@ void TransportBar::paint (juce::Graphics& g)
 
 void TransportBar::resized()
 {
+    // The bar was drawn for a desktop window, which can be as wide as it
+    // needs. An iPad's screen cannot, and on an 11-inch one the full layout
+    // runs off the right-hand edge, taking the master knob and Save with it.
+    // So it is tried at its full size first and then tighter: narrower gaps
+    // between the groups, then without the Master button, then a shorter
+    // master meter, then none. The Master button goes first because the
+    // mixer's MASTERING button does the same thing; the meter goes after it
+    // because the mixer shows that level too. Nothing else is dropped.
+    struct Spacing { int gap, meter; bool mastering; };
+
+    for (const auto spacing : { Spacing { 12, 110, true }, Spacing { 8, 110, true },
+                                Spacing { 8, 110, false }, Spacing { 6, 110, false }, Spacing { 6, 72, false },
+                                Spacing { 4, 44, false }, Spacing { 4, 0, false }, Spacing { 2, 0, false } })
+        if (layOut (spacing.gap, spacing.meter, spacing.mastering))
+            break;
+
+    repaint();
+}
+
+bool TransportBar::layOut (int gapWidth, int meterWidth, bool showMastering)
+{
     panels.clear();
     captions.clear();
 
     auto area = getLocalBounds().reduced (6, 5);
     const int h = area.getHeight();
+    const int available = area.getWidth();
+    int used = 0;
 
     // Wide enough for the caption at the app's minimum font size: these cells
     // used to be cut to whatever 10.5pt bold needed.
     constexpr int captionWidth = 36;        // "BPM", "BAR"
     constexpr int wideCaptionWidth = 54;    // "Start", "Length"
 
-    auto take = [&area] (int width, int gap = 0)
+    auto take = [&area, &used] (int width, int gap = 0)
     {
+        used += width + gap;
         auto r = area.removeFromLeft (width);
         area.removeFromLeft (gap);
         return r;
@@ -668,7 +707,7 @@ void TransportBar::resized()
     // The space that used to carry a bevelled line between two groups. The
     // panels are already drawn as panels, so the line was saying a second time
     // what the gap and the two edges say once.
-    auto gap = [&] { area.removeFromLeft (12); };
+    auto gap = [&] { used += gapWidth; area.removeFromLeft (gapWidth); };
 
     auto panel = [&] (int width)
     {
@@ -736,19 +775,26 @@ void TransportBar::resized()
     gap();
 
     browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
-    mixerButton.setBounds (take (76, 6).withSizeKeepingCentre (76, 28));
-    masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
+    mixerButton.setBounds (take (76, showMastering ? 6 : 10).withSizeKeepingCentre (76, 28));
+    masteringButton.setVisible (showMastering);
+
+    if (showMastering)
+        masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
 
     // Master: knob and a lying-down meter
     masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));
-    masterMeter.setBounds (take (110, 12).withSizeKeepingCentre (110, 14));
+    masterMeter.setVisible (meterWidth > 0);
+
+    if (meterWidth > 0)
+        masterMeter.setBounds (take (meterWidth, 12).withSizeKeepingCentre (meterWidth, 14));
 
     // Save at the far right, then whatever is left goes to the document name
-    saveButton.setBounds (area.removeFromRight (70).withSizeKeepingCentre (70, 28));
+    constexpr int saveWidth = 70;
+    saveButton.setBounds (area.removeFromRight (saveWidth).withSizeKeepingCentre (saveWidth, 28));
     area.removeFromRight (8);
     documentLabel.setBounds (area);
 
-    repaint();
+    return used + saveWidth <= available;
 }
 
 } // namespace carve::app

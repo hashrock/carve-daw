@@ -167,6 +167,26 @@ cmake --build build-appstore --target carve --parallel
    See above: the first is ignored in JUCE 8.0.6, and the second is not a
    macro here.
 
+### The iPad build (prototype)
+
+An iOS app has no route to its users but the App Store, so there is no AGPL
+iPad binary: configuring for iOS forces `CARVE_APP_STORE` on, and everything
+above about the commercial licences and their notices applies to it as it
+does to the Mac one. About and Third-Party Notices are in the logo menu
+there, since iOS has no application menu.
+
+```sh
+cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64
+cmake --build build-ios --config Debug --target carve -- \
+      -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
+xcrun simctl install booted "build-ios/carve_artefacts/Debug/Carve DAW.app"
+xcrun simctl launch booted com.hashrock.carve
+```
+
+It has only been run in the simulator. A build for a real iPad needs a
+development team and a provisioning profile, which this tree does not set.
+
 ### Signing
 
 There are two entitlements files, one per distribution, and they are not

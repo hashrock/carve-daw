@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "SettingsComponent.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -25,7 +26,7 @@ public:
           content (engine)
     {
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         setResizeLimits (420, 380, 900, 900);
         centreWithSize (getWidth(), getHeight());

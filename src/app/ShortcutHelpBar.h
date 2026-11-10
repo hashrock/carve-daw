@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "Fonts.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -33,6 +34,9 @@ public:
 
     void setEntries (std::vector<Entry> newEntries)
     {
+        if (isTouchUi)
+            newEntries = forTouch (std::move (newEntries));
+
         if (newEntries == entries)
             return;
 
@@ -80,6 +84,55 @@ public:
     }
 
 private:
+    // The entries are written for a mouse and a keyboard. On a touch screen
+    // a click is a tap and a drag is still a drag, and those are reworded;
+    // a right click is a long press; anything that needs a key has no gesture
+    // to stand in for it yet, and a bar that advertised it would be wrong.
+    static std::vector<Entry> forTouch (std::vector<Entry> all)
+    {
+        std::vector<Entry> kept;
+
+        for (auto& entry : all)
+        {
+            // Alt with the left button is the same erase gesture as the right
+            // button (SelectionModifiers.h), so it is a long press as well:
+            // the item under the finger goes.
+            if (entry.keys.equalsIgnoreCase ("Alt+drag") || entry.keys.equalsIgnoreCase ("Alt+click"))
+                entry.keys = "long press";
+
+            const auto keys = entry.keys.toLowerCase();
+            // A right click is a long press (see LongPress.h), but only the
+            // click: a right-button drag has nothing to stand in for it.
+            const bool rightDrag = keys.contains ("right") && keys.contains ("drag");
+            const bool needsDesktop = rightDrag || keys.contains ("cmd") || keys.contains ("shift")
+                                      || keys.contains ("alt") || keys.contains ("ctrl") || keys.contains ("scroll")
+                                      || keys.contains ("hover") || keys.startsWith ("drop");
+
+            // A key on its own: one character, or one of the named ones. What
+            // is left after these is a gesture or the name of something on
+            // screen ("+ FX", "dot").
+            const bool isKey = keys.length() == 1
+                               || juce::StringArray { "space", "backspace", "delete", "esc", "enter", "return", "tab" }
+                                      .contains (keys);
+
+            if (needsDesktop || isKey)
+                continue;
+
+            entry.keys = entry.keys.replace ("right-click", "long press", true)
+                                   .replace ("right click", "long press", true)
+                                   .replace ("double click", "double tap", true)
+                                   .replace ("double-click", "double tap", true)
+                                   .replace ("dbl-click", "double tap", true)
+                                   .replace ("click", "tap", true);
+            entry.action = entry.action.replace ("right-click", "long press", true)
+                                       .replace ("double-click", "double tap", true)
+                                       .replace ("click", "tap", true);
+            kept.push_back (std::move (entry));
+        }
+
+        return kept;
+    }
+
     std::vector<Entry> entries;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShortcutHelpBar)

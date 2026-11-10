@@ -3,8 +3,10 @@
 #include "EngineSetup.h"
 #include "Fonts.h"
 #include "LegalNotices.h"
+#include "LongPress.h"
 #include "MainComponent.h"
 #include "SandboxAccess.h"
+#include "TouchUi.h"
 #include "model/SampleSongs.h"
 
 namespace carve::app
@@ -45,6 +47,11 @@ public:
         // button in them is drawn (see Fonts.h).
         juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
 
+        // No second mouse button on a touch screen: a long press stands in
+        // for it everywhere (see LongPress.h).
+        if (isTouchUi)
+            juce::Desktop::getInstance().addGlobalMouseListener (&longPress);
+
         // Before the engine and before any window: both read paths the user
         // gave the app on an earlier run (recent songs, the browser's
         // folders), and inside the App Sandbox those are out of reach until
@@ -56,6 +63,14 @@ public:
 
         engine = carve::createEngine (nullptr, CARVE_PLUGIN_HOSTING != 0);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
+
+        // For the logo menu, which is where About lives when there is no
+        // application menu (see TransportBar::showFileMenu).
+        if (auto* main = getMainComponent())
+        {
+            main->onShowAbout = [this] { showAbout(); };
+            main->onShowNotices = [this] { showNotices(); };
+        }
 
        #if JUCE_MAC
         menu = std::make_unique<Menu> (*this);
@@ -96,6 +111,9 @@ public:
 
         mainWindow.reset();   // destroys the Edit before the Engine
         engine.reset();
+
+        if (isTouchUi)
+            juce::Desktop::getInstance().removeGlobalMouseListener (&longPress);
 
         juce::Desktop::getInstance().setDefaultLookAndFeel (nullptr);
     }
@@ -321,8 +339,15 @@ private:
         {
             setUsingNativeTitleBar (true);
             setContentOwned (new MainComponent (engineToUse), true);
+
+           #if JUCE_IOS
+            // The window is the screen; there is nothing to drag or resize.
+            setFullScreen (true);
+           #else
             setResizable (true, true);
             centreWithSize (getWidth(), getHeight());
+           #endif
+
             setVisible (true);
         }
 
@@ -330,10 +355,36 @@ private:
         {
             juce::JUCEApplication::getInstance()->systemRequestedQuit();
         }
+
+       #if JUCE_IOS
+        // The window is the whole screen, and the screen's edges are not all
+        // the app's: the status bar, the home indicator, and corners that are
+        // round. The content stays inside those, and what is left over is the
+        // window's own background.
+        juce::BorderSize<int> getContentComponentBorder() const override
+        {
+            auto border = juce::DocumentWindow::getContentComponentBorder();
+
+            if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            {
+                const auto safe = display->safeAreaInsets;
+
+                // At least the corner's worth at the sides even where the
+                // system reports nothing to avoid.
+                border = { border.getTop() + juce::jmax (safe.getTop(), 4),
+                           border.getLeft() + juce::jmax (safe.getLeft(), 8),
+                           border.getBottom() + juce::jmax (safe.getBottom(), 4),
+                           border.getRight() + juce::jmax (safe.getRight(), 8) };
+            }
+
+            return border;
+        }
+       #endif
     };
 
     // First, so it outlives the windows that are drawn with it.
     CarveLookAndFeel lookAndFeel;
+    LongPressAsRightClick longPress;
 
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<MainWindow> mainWindow;

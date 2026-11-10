@@ -6,6 +6,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "PresetManager.h"
+#include "TouchUi.h"
 
 namespace te = tracktion;
 
@@ -51,7 +52,7 @@ private:
           onClose (std::move (onCloseCallback))
     {
         setContentOwned (new Content (instance, pluginForPresets), true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         centreWithSize (juce::jmax (300, getWidth()), juce::jmax (200, getHeight()));
         setVisible (true);
         toFront (true);
@@ -128,7 +129,7 @@ public:
         list->setSize (640, 420);
 
         setContentOwned (list.release(), true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
