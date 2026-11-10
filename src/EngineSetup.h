@@ -17,6 +17,7 @@
 #include "plugins/OvertopPlugin.h"
 #include "plugins/NoteMonitorPlugin.h"
 #include "plugins/SaturationPlugin.h"
+#include "plugins/BitcrusherPlugin.h"
 
 namespace te = tracktion;
 
@@ -164,6 +165,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::DistortionPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::DelayPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::SaturationPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::BitcrusherPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::MeteredCompressorPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::LimiterPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::OvertopPlugin>();
