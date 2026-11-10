@@ -212,6 +212,11 @@ EffectChain makeMasterEffectChain (model::MasterBus busToShow, juce::UndoManager
     return makeOwnedEffectChain (std::move (busToShow), undoManager);
 }
 
+EffectChain makeMasteringEffectChain (model::MasteringChain chainToShow, juce::UndoManager& undoManager)
+{
+    return makeOwnedEffectChain (std::move (chainToShow), undoManager);
+}
+
 EffectChain makeReturnEffectChain (model::Return returnToShow, juce::UndoManager& undoManager)
 {
     return makeOwnedEffectChain (std::move (returnToShow), undoManager);

@@ -1656,6 +1656,80 @@ MasterBus Song::getMasterBus() const
     return MasterBus (getOrCreateChild (state, ids::MASTER));
 }
 
+//==============================================================================
+// MasteringChain
+//
+// The master's effect list again, one node further down -- and that node made
+// on the first add rather than on the first read, so a song that never opens
+// the chain is saved byte for byte as before.
+
+std::vector<Effect> MasteringChain::getEffects() const
+{
+    return collectChildren<Effect> (getState().getChildWithName (ids::EFFECTS), ids::EFFECT);
+}
+
+std::optional<Effect> MasteringChain::findEffect (const juce::String& effectId) const
+{
+    auto found = getState().getChildWithName (ids::EFFECTS).getChildWithProperty (ids::id, effectId);
+    return found.isValid() ? std::optional<Effect> (Effect (found)) : std::nullopt;
+}
+
+Effect MasteringChain::addEffect (const juce::String& type,
+                                  const juce::PluginDescription* description,
+                                  juce::UndoManager* um)
+{
+    juce::ValueTree effect (ids::EFFECT);
+    effect.setProperty (ids::id, newId(), nullptr);
+    effect.setProperty (ids::type, type, nullptr);
+
+    // Each level through the UndoManager, so undoing the first add takes
+    // the nodes it made away with it.
+    auto chain = master.getChildWithName (ids::MASTERING);
+
+    if (! chain.isValid())
+    {
+        chain = juce::ValueTree (ids::MASTERING);
+        master.appendChild (chain, um);
+    }
+
+    auto effects = chain.getChildWithName (ids::EFFECTS);
+
+    if (! effects.isValid())
+    {
+        effects = juce::ValueTree (ids::EFFECTS);
+        chain.appendChild (effects, um);
+    }
+
+    effects.appendChild (effect, um);
+
+    Effect wrapper (effect);
+    if (description != nullptr)
+        wrapper.setPlugin (*description, um);
+
+    return wrapper;
+}
+
+void MasteringChain::removeEffect (const Effect& effect, juce::UndoManager* um)
+{
+    getState().getChildWithName (ids::EFFECTS).removeChild (effect.state, um);
+}
+
+void MasteringChain::moveEffect (const Effect& effect, int newIndex, juce::UndoManager* um)
+{
+    auto effects = getState().getChildWithName (ids::EFFECTS);
+    const auto from = effects.indexOf (effect.state);
+
+    if (from < 0)
+        return;
+
+    effects.moveChild (from, juce::jlimit (0, effects.getNumChildren() - 1, newIndex), um);
+}
+
+MasteringChain Song::getMasteringChain() const
+{
+    return MasteringChain (getOrCreateChild (state, ids::MASTER));
+}
+
 
 
 

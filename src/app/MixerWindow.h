@@ -42,7 +42,7 @@ public:
                               { "drag", "reorder FX" },
                               { "dot", "bypass" },
                               { "right-click", "FX menu" },
-                              { "master", "not saved yet" } });
+                              { "MASTERING", "mastering mode (shift-cmd-M)" } });
 
         content.setSize (mixer.getWidth(), defaultHeight + ShortcutHelpBar::preferredHeight);
 
@@ -69,6 +69,15 @@ public:
     void setOpenGeneratorHandler (std::function<void (const juce::String& generatorId)> handler)
     {
         mixer.onOpenGenerator = std::move (handler);
+    }
+
+    // Mastering mode belongs to the app; the master strip shows it and asks
+    // to change it.
+    void setMasteringMode (bool on)  { mixer.setMasteringMode (on); }
+
+    void setMasteringModeHandler (std::function<void (bool)> handler)
+    {
+        mixer.onMasteringModeChanged = std::move (handler);
     }
 
     void closeButtonPressed() override

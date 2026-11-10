@@ -46,6 +46,9 @@ EffectChain makeGeneratorEffectChain (model::Generator, juce::UndoManager&);
 // song like everything else.
 EffectChain makeMasterEffectChain (model::MasterBus, juce::UndoManager&);
 
+// The mastering chain, after the master's -- the same shape again.
+EffectChain makeMasteringEffectChain (model::MasteringChain, juce::UndoManager&);
+
 // A return bus's chain -- the same shape again.
 EffectChain makeReturnEffectChain (model::Return, juce::UndoManager&);
 

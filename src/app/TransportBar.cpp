@@ -301,6 +301,15 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     addAndMakeVisible (saveButton);
     saveButton.onClick = [this] { if (onSave) onSave(); };
 
+    masteringButton.setClickingTogglesState (false);   // MainComponent sets the state
+    masteringButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff8a5a1f));
+    masteringButton.setTooltip ("Mastering mode (shift-cmd-M): hear the master's mastering chain");
+    masteringButton.onClick = [this]
+    {
+        if (onMasteringModeChanged)
+            onMasteringModeChanged (! masteringButton.getToggleState());
+    };
+
     masterKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     masterKnob.setRange (0.0, 1.0);
@@ -320,10 +329,15 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
              &logoButton, &bpmDisplay, &playMode,
              &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
              &keyboardButton, &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
-             &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter, &documentLabel })
+             &undoButton, &redoButton, &browserButton, &mixerButton, &masteringButton, &masterKnob, &masterMeter, &documentLabel })
         addAndMakeVisible (c);
 
     startTimerHz (30);
+}
+
+void TransportBar::setMasteringMode (bool on)
+{
+    masteringButton.setToggleState (on, juce::dontSendNotification);
 }
 
 void TransportBar::showFileMenu()
@@ -722,7 +736,8 @@ void TransportBar::resized()
     gap();
 
     browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
-    mixerButton.setBounds (take (76, 10).withSizeKeepingCentre (76, 28));
+    mixerButton.setBounds (take (76, 6).withSizeKeepingCentre (76, 28));
+    masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
 
     // Master: knob and a lying-down meter
     masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));

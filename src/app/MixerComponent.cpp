@@ -388,9 +388,27 @@ public:
           bus (std::move (busToShow)),
           undoManager (um),
           masterPluginsState (bus.state),
-          effectSlots (makeMasterEffectChain (bus, um), editToShow.engine)
+          effectSlots (makeMasterEffectChain (bus, um), editToShow.engine),
+          masteringSlots (makeMasteringEffectChain (model::MasteringChain (bus.state), um),
+                          editToShow.engine)
     {
         masterPluginsState.addListener (this);
+
+        // The mastering chain's header doubles as mastering mode's switch: the
+        // chain is what the mode turns on, so the two are one control.
+        masteringButton.setClickingTogglesState (false);   // the app owns the mode
+        masteringButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a2a30));
+        masteringButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff8a5a1f));
+        masteringButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
+        masteringButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xfff2d2a0));
+        masteringButton.setTooltip ("Mastering mode (shift-cmd-M): hear the mastering chain. "
+                                    "Off, it is bypassed -- no CPU, no latency -- "
+                                    "but a mixdown export still goes through it");
+        masteringButton.onClick = [this]
+        {
+            if (onMasteringModeChanged != nullptr)
+                onMasteringModeChanged (! masteringButton.getToggleState());
+        };
 
         nameLabel.setJustificationType (juce::Justification::centred);
         nameLabel.setFont (uiFont (fonts::normal, juce::Font::bold));
@@ -424,9 +442,17 @@ public:
         effectViewport.setScrollBarsShown (true, false);
         effectViewport.setScrollBarThickness (6);
 
+        masteringSlots.onPreferredHeightChanged = [this] { resized(); };
+        masteringViewport.setViewedComponent (&masteringSlots, false);
+        masteringViewport.setScrollBarsShown (true, false);
+        masteringViewport.setScrollBarThickness (6);
+
         for (auto* c : std::initializer_list<juce::Component*> {
-                 &nameLabel, &effectViewport, &meter, &volumeSlider, &dbLabel })
+                 &nameLabel, &effectViewport, &masteringButton, &masteringViewport,
+                 &meter, &volumeSlider, &dbLabel })
             addAndMakeVisible (c);
+
+        setMasteringMode (false);
 
         refresh();
     }
@@ -437,6 +463,20 @@ public:
     }
 
     EffectSlotList& getEffectSlots()  { return effectSlots; }
+    EffectSlotList& getMasteringSlots()  { return masteringSlots; }
+
+    // The header was clicked: asks to switch mastering mode to this.
+    std::function<void (bool)> onMasteringModeChanged;
+
+    // What mastering mode is, which the header shows. The chain stays
+    // editable either way -- set up while bypassed, heard once switched on --
+    // and is dimmed while it is not heard.
+    void setMasteringMode (bool on)
+    {
+        masteringButton.setToggleState (on, juce::dontSendNotification);
+        masteringButton.setButtonText (on ? "MASTERING ON" : "MASTERING");
+        masteringViewport.setAlpha (on ? 1.0f : 0.55f);
+    }
 
     // Nothing tells us when the master volume moves -- there is no model
     // property to listen to -- so it is polled, and left alone while the user
@@ -484,22 +524,43 @@ public:
         dbLabel.setBounds (area.removeFromBottom (16));
         area.removeFromBottom (4);
 
-        const auto slotsHeight = juce::jlimit (0,
-                                               juce::jmax (0, area.getHeight() - minFaderHeight),
-                                               effectSlots.getPreferredHeight());
+        // Two chains above the fader now, the master's and then the mastering
+        // one under its header. Each gets what it asks for while both fit;
+        // past that they share what is left, half each at least, and scroll.
+        constexpr int masteringHeaderHeight = 18;
+        const auto spare = juce::jmax (0, area.getHeight() - minFaderHeight - masteringHeaderHeight - 8);
+        const auto wantedMaster = effectSlots.getPreferredHeight();
+        const auto wantedMastering = masteringSlots.getPreferredHeight();
 
-        if (slotsHeight > 0)
+        auto masterHeight = wantedMaster, masteringHeight = wantedMastering;
+
+        if (wantedMaster + wantedMastering > spare)
         {
-            effectViewport.setVisible (true);
-            effectViewport.setBounds (area.removeFromTop (slotsHeight));
-            effectSlots.setSize (effectViewport.getMaximumVisibleWidth(),
-                                 effectSlots.getPreferredHeight());
-            area.removeFromTop (4);
+            const auto half = spare / 2;
+            masterHeight = wantedMaster <= half ? wantedMaster
+                                                : juce::jmax (half, spare - wantedMastering);
+            masteringHeight = spare - masterHeight;
         }
-        else
+
+        auto placeSlots = [&area] (juce::Viewport& viewport, EffectSlotList& slots, int height)
         {
-            effectViewport.setVisible (false);
-        }
+            if (height > 0)
+            {
+                viewport.setVisible (true);
+                viewport.setBounds (area.removeFromTop (height));
+                slots.setSize (viewport.getMaximumVisibleWidth(), slots.getPreferredHeight());
+            }
+            else
+            {
+                viewport.setVisible (false);
+            }
+        };
+
+        placeSlots (effectViewport, effectSlots, masterHeight);
+        area.removeFromTop (4);
+        masteringButton.setBounds (area.removeFromTop (masteringHeaderHeight));
+        placeSlots (masteringViewport, masteringSlots, masteringHeight);
+        area.removeFromTop (4);
 
         meter.setBounds (area.removeFromLeft (12));
         area.removeFromLeft (4);
@@ -512,9 +573,18 @@ private:
     // The plugin list is a ValueTree like everything else, so the chain can be
     // watched rather than polled -- including changes made from somewhere other
     // than these slots.
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override         { effectSlots.refreshFromChain(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override  { effectSlots.refreshFromChain(); }
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override          { effectSlots.refreshFromChain(); }
+    //
+    // The mastering chain hangs off the same MASTER node, so one listener
+    // hears both; re-reading both lists is cheaper than working out which.
+    void refreshChains()
+    {
+        effectSlots.refreshFromChain();
+        masteringSlots.refreshFromChain();
+    }
+
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override         { refreshChains(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override  { refreshChains(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override          { refreshChains(); }
     void valueTreeParentChanged (juce::ValueTree&) override                        {}
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier& property) override
@@ -522,7 +592,7 @@ private:
         // A plugin writes to its own state constantly while a knob is moved;
         // only the bypass flag changes what a slot row looks like.
         if (property == te::IDs::enabled)
-            effectSlots.refreshFromChain();
+            refreshChains();
     }
 
     te::Edit& edit;
@@ -534,6 +604,9 @@ private:
     juce::Slider volumeSlider;
     juce::Viewport effectViewport;
     EffectSlotList effectSlots;
+    juce::TextButton masteringButton { "MASTERING" };
+    juce::Viewport masteringViewport;
+    EffectSlotList masteringSlots;
     LevelMeterView meter;
 
     bool isRefreshing = false;
@@ -1067,6 +1140,23 @@ void MixerComponent::rebuildStrips()
         closeEffectWindow (effectId);
     };
 
+    auto& masteringSlots = masterStrip->getMasteringSlots();
+    masteringSlots.onOpenEffectEditor = [this] (const juce::String& effectId)
+    {
+        openEffectEditor (model::MasteringChain::ownerId, effectId);
+    };
+    masteringSlots.onEffectAboutToBeRemoved = [this] (const juce::String& effectId)
+    {
+        closeEffectWindow (effectId);
+    };
+
+    masterStrip->setMasteringMode (masteringMode);
+    masterStrip->onMasteringModeChanged = [this] (bool on)
+    {
+        if (onMasteringModeChanged != nullptr)
+            onMasteringModeChanged (on);
+    };
+
     addAndMakeVisible (*masterStrip);
 
     strips.clear();
@@ -1248,6 +1338,14 @@ void MixerComponent::assignToGroup (const juce::String& generatorId, const juce:
 
     undoManager.beginNewTransaction();
     generator->setGroupId (groupId, &undoManager);
+}
+
+void MixerComponent::setMasteringMode (bool on)
+{
+    masteringMode = on;
+
+    if (masterStrip != nullptr)
+        masterStrip->setMasteringMode (on);
 }
 
 void MixerComponent::openEffectEditor (const juce::String& generatorId, const juce::String& effectId)

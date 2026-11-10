@@ -48,7 +48,7 @@ public:
     }
 
     // See ExportComponent::onRenderingChanged.
-    void setOnRenderingChanged (std::function<void (bool)> callback)
+    void setOnRenderingChanged (std::function<void (bool, bool)> callback)
     {
         content.onRenderingChanged = std::move (callback);
     }

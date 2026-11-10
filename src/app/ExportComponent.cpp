@@ -134,7 +134,7 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
         // The button says what the chooser is about to ask for: a file for a
         // mixdown, a folder for a set of stems.
         exportButton.setButtonText (isStemExport() ? "Export stems..." : "Export...");
-        updateRangeSummary();
+        refreshOptions();
     };
 
     formatBox.addItem ("WAV", (int) Format::wav);
@@ -198,6 +198,11 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     tailButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
     tailButton.onClick = [this] { updateRangeSummary(); };
 
+    masteringButton.setToggleState (true, juce::dontSendNotification);
+    masteringButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
+    masteringButton.setTooltip ("Render the mixdown through the master's mastering chain, "
+                                "whether or not mastering mode is on");
+
     styleLabel (summaryLabel, dimTextColour, fonts::small);
     summaryLabel.setJustificationType (juce::Justification::topLeft);
     styleLabel (statusLabel, dimTextColour, fonts::small);
@@ -221,7 +226,7 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     for (auto* c : std::initializer_list<juce::Component*> {
              &headingLabel, &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
              &contentBox, &formatBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
-             &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton })
+             &masteringButton, &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton })
         addAndMakeVisible (c);
 
     addChildComponent (qualityBox);
@@ -285,6 +290,10 @@ void ExportComponent::refreshOptions()
         c->setEnabled (! rendering);
 
     tailButton.setEnabled (! rendering && ! isGameLoopExport());
+
+    // Stems leave the master's plugins out, the mastering chain with them, so
+    // the box would be a promise the render does not keep.
+    masteringButton.setEnabled (! rendering && ! isStemExport());
 
     closeButton.setButtonText (rendering ? "Cancel" : "Close");
     progressBar.setVisible (rendering);
@@ -836,7 +845,7 @@ void ExportComponent::setToldRendering (bool rendering)
     toldRendering = rendering;
 
     if (onRenderingChanged != nullptr)
-        onRenderingChanged (rendering);
+        onRenderingChanged (rendering, masteringButton.getToggleState());
 }
 
 void ExportComponent::setStatus (const juce::String& text, juce::Colour colour)
@@ -874,6 +883,8 @@ void ExportComponent::resized()
     qualityBox.setBounds (bitDepthBox.getBounds());
 
     tailButton.setBounds (area.removeFromTop (22).withTrimmedLeft (labelColumnWidth));
+    area.removeFromTop (4);
+    masteringButton.setBounds (area.removeFromTop (22).withTrimmedLeft (labelColumnWidth));
     area.removeFromTop (4);
     summaryLabel.setBounds (area.removeFromTop (32));   // two lines for a game loop
     area.removeFromTop (4);

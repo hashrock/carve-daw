@@ -547,9 +547,19 @@ namespace
     // close its editor window, so the plugins' own ValueTrees are reordered
     // instead -- which also means the live plugin objects, and everything the
     // user has tweaked on them, are left alone.
+    //
+    // Only this chain's plugins are moved, and only among the places they
+    // already hold: the master's list carries the mastering chain's plugins
+    // too, behind the master's own, and ordering one chain must not drag the
+    // other's into it.
     void orderEffects (juce::ValueTree ownerState, const std::vector<model::Effect>& effects)
     {
         auto trackState = ownerState;
+
+        juce::StringArray chainIds;
+
+        for (const auto& effect : effects)
+            chainIds.add (effect.getId());
 
         for (size_t position = 0; position < effects.size(); ++position)
         {
@@ -561,7 +571,7 @@ namespace
             {
                 auto child = trackState.getChild (i);
 
-                if (child.hasProperty (effectIdProperty))
+                if (chainIds.contains (child.getProperty (effectIdProperty).toString()))
                 {
                     effectSlots.add (i);
                     effectTrees.add (child);
@@ -589,18 +599,24 @@ namespace
     // kind of chain -- a generator's, a return's, the master's -- comes in as
     // an EffectChainSite, so none of them can be forgotten by being spelled
     // out separately (see EffectChains.h).
-    void syncEffectChain (te::Edit& edit, const sync::EffectChainSite& site)
+    //
+    // keepAlso names effects that are in the same plugin list but belong to
+    // another chain -- the mastering chain's, seen from the master's -- and
+    // so are not this chain's to delete.
+    void syncEffectChain (te::Edit& edit, const sync::EffectChainSite& site,
+                          const std::vector<model::Effect>& keepAlso = {})
     {
         auto& plugins = *site.plugins;
         const auto& effects = site.effects;
         const auto& ownerState = site.ownerState;
         const auto insertAt = site.insertAt;
 
-        auto stillWanted = [&effects] (const juce::String& id)
+        auto stillWanted = [&effects, &keepAlso] (const juce::String& id)
         {
-            for (const auto& effect : effects)
-                if (effect.getId() == id)
-                    return true;
+            for (const auto* list : { &effects, &keepAlso })
+                for (const auto& effect : *list)
+                    if (effect.getId() == id)
+                        return true;
 
             return false;
         };
@@ -621,10 +637,12 @@ namespace
 
         orderEffects (ownerState, effects);
 
+        // A chain that is not heard keeps its plugins, bypassed: out of the
+        // graph, but with every knob where the user left it.
         for (const auto& effect : effects)
             if (auto plugin = findEffectPlugin (plugins, effect.getId()))
-                if (plugin->isEnabled() != effect.isEnabled())
-                    plugin->setEnabled (effect.isEnabled());
+                if (plugin->isEnabled() != (effect.isEnabled() && site.active))
+                    plugin->setEnabled (effect.isEnabled() && site.active);
     }
 
     void syncEffects (te::Edit& edit, te::AudioTrack& track, const model::Generator& generator)
@@ -636,9 +654,15 @@ namespace
     {
         const auto master = song.getMasterBus();
 
-        // Master effects go at the head of the list, so the Edit's own master
-        // volume and meter stay last and stay post-fader.
-        syncEffectChain (edit, sync::masterChainSite (master, edit));
+        // One plugin list, two chains: the master's effects at its head, the
+        // mastering chain's behind them. Each leaves the other's plugins
+        // alone. (The Edit's master volume is not in the list; tracktion
+        // always applies it last, after both.)
+        const auto masterSite = sync::masterChainSite (master, edit);
+        const auto masteringSite = sync::masteringChainSite (song.getMasteringChain(), edit);
+
+        syncEffectChain (edit, masterSite, masteringSite.effects);
+        syncEffectChain (edit, masteringSite, masterSite.effects);
 
         if (auto volume = edit.getMasterVolumePlugin())
             if (std::abs (volume->getVolumeDb() - master.getVolumeDb()) > 0.01f)
@@ -2237,6 +2261,20 @@ void EditSync::setAudition (std::optional<Audition> newAudition)
 
     audition = std::move (newAudition);
     resyncNow();
+}
+
+void EditSync::setMasteringActive (bool shouldBeActive)
+{
+    if (isMasteringActive() == shouldBeActive)
+        return;
+
+    sync::setMasteringActive (edit, shouldBeActive);
+    resyncNow();
+}
+
+bool EditSync::isMasteringActive() const
+{
+    return sync::isMasteringActive (edit);
 }
 
 void EditSync::applyTempoOnly()

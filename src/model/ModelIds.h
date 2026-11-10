@@ -16,8 +16,12 @@
 // │                                         group's fader and effects apply to
 // │                                         everything in it at once.
 // ├─ MASTER {volumeDb}                      the mix bus: its fader and the
-// │  └─ EFFECTS                            effects across the whole mix. Same
-// │     └─ EFFECT {...}                    EFFECT nodes a generator carries.
+// │  ├─ EFFECTS                            effects across the whole mix. Same
+// │  │  └─ EFFECT {...}                    EFFECT nodes a generator carries.
+// │  └─ MASTERING                          the mastering chain: after the
+// │     └─ EFFECTS / EFFECT {...}          master's own effects, heard only in
+// │                                         mastering mode and always rendered
+// │                                         into a mixdown. Absent = empty.
 // ├─ TEMPOS                                 changes after the first; the song's
 // │  └─ TEMPO {start, bpm}                  own "tempo" is what plays until the
 // │                                         first one. Absent = one tempo.
@@ -149,6 +153,7 @@ CARVE_DECLARE_ID (ASSIGN)
 CARVE_DECLARE_ID (SENDS)
 CARVE_DECLARE_ID (SEND)
 CARVE_DECLARE_ID (MASTER)
+CARVE_DECLARE_ID (MASTERING)
 CARVE_DECLARE_ID (TEMPOS)
 CARVE_DECLARE_ID (TEMPO)
 CARVE_DECLARE_ID (TIMESIGS)
