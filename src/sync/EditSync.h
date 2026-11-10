@@ -112,6 +112,13 @@ public:
     void setAudition (std::optional<Audition> newAudition);
     const std::optional<Audition>& getAudition() const  { return audition; }
 
+    // Mastering mode: whether the song's mastering chain is heard (see
+    // model::MasteringChain and sync::setMasteringActive). Resyncs on the
+    // spot, like setAudition; switching it off bypasses the chain's plugins,
+    // which takes their CPU and their latency out of playback at once.
+    void setMasteringActive (bool);
+    bool isMasteringActive() const;
+
     // Fired after every full sync. The views that hold a pointer into the
     // Edit -- the generator window's instrument editor above all -- are
     // told about a model change before the sync that acts on it has run

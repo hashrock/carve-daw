@@ -1145,6 +1145,48 @@ public:
     juce::ValueTree state;
 };
 
+// The mastering chain: what turns the finished mix into the finished file --
+// the heavy limiter, the loudness-maximising, the tone-shaping that only
+// makes sense once nothing in the mix is going to move again.
+//
+// It is a chain of its own rather than the tail of the master's because of
+// when it is heard. Those effects are expensive and they lie: a lookahead
+// limiter adds latency to everything played live, and a mix balanced through
+// one is balanced against how hard it squashes. So the chain is heard only in
+// mastering mode (an app state, not a song one -- see sync::setMasteringActive)
+// and always rendered into a mixdown, whatever the mode, since the file is
+// what it exists for. Signal-wise it sits after the master's own effects and
+// before the master fader, which the engine always keeps last.
+//
+// The EFFECT nodes are the generator's again, under MASTER/MASTERING, which
+// is only created when the first effect is added: a song that never uses the
+// chain saves exactly as it did before there was one.
+class MasteringChain
+{
+public:
+    // Wraps the MASTER node, not MASTERING, so that reading an empty chain
+    // creates nothing.
+    explicit MasteringChain (juce::ValueTree masterState) : master (std::move (masterState)) {}
+
+    // How effect-chain sites and automation tell this chain from the master's
+    // (whose owner id is empty) and from every generator and bus (whose ids
+    // are UUIDs, and never start with '#').
+    static constexpr const char* ownerId = "#mastering";
+
+    std::vector<Effect> getEffects() const;
+    std::optional<Effect> findEffect (const juce::String& effectId) const;
+
+    Effect addEffect (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+    void removeEffect (const Effect&, juce::UndoManager*);
+    void moveEffect (const Effect&, int newIndex, juce::UndoManager*);
+
+    // The MASTERING node, or an invalid tree while the chain has never had
+    // anything in it.
+    juce::ValueTree getState() const  { return master.getChildWithName (ids::MASTERING); }
+
+    juce::ValueTree master;
+};
+
 class Song
 {
 public:
@@ -1268,6 +1310,10 @@ public:
     // Materialised on first use, like the playlist, so songs written before the
     // master bus existed gain nothing until something touches it.
     MasterBus getMasterBus() const;
+
+    // The chain after the master's effects that only mastering mode plays
+    // (see MasteringChain).
+    MasteringChain getMasteringChain() const;
 
     // The group busses, in the order they were made -- which is the order the
     // mixer shows them in and the order their tracks sit in the Edit.

@@ -42,16 +42,25 @@ struct EffectChainSite
 
     // What a plugin built for this chain is parented to, and where in the list
     // an insert belongs: after a generator's instrument, after a return's aux
-    // return, at the top of the master's.
+    // return, at the top of the master's, at the end for the mastering chain
+    // (negative = append).
     juce::ValueTree ownerState;
     int insertAt = 0;
+
+    // Whether the chain is heard at all. Only the mastering chain is ever
+    // silent, outside mastering mode: its plugins are then disabled, which
+    // takes them out of the playback graph -- no CPU, no latency -- while
+    // keeping every knob where it was. A live plugin is enabled exactly when
+    // its effect is and its chain is active.
+    bool active = true;
 
     // The live plugin EditSync stamped with this effect's id, or null.
     te::Plugin* findPlugin (const juce::String& effectId) const;
 };
 
 // Every chain in the song, in the order the mixer lays them out: the
-// generators, then the group busses, then the return busses, then the master.
+// generators, then the group busses, then the return busses, then the master,
+// then the mastering chain (which shares the master's plugin list, after it).
 std::vector<EffectChainSite> getEffectChainSites (const model::Song&, te::Edit&);
 
 // The site one owner id names, or nothing if the song has no such owner.
@@ -84,5 +93,15 @@ EffectChainSite generatorChainSite (const model::Generator&, te::AudioTrack&);
 EffectChainSite groupChainSite (const model::Group&, te::AudioTrack&);
 EffectChainSite returnChainSite (const model::Return&, te::AudioTrack&);
 EffectChainSite masterChainSite (const model::MasterBus&, te::Edit&);
+EffectChainSite masteringChainSite (const model::MasteringChain&, te::Edit&);
+
+// Mastering mode, as far as the Edit is concerned: whether the mastering
+// chain is in the graph. Kept on the Edit rather than in the song, because it
+// is a way of listening, not part of the piece -- and defaulting to on, so a
+// headless render, which never sets it, renders the chain like an export does.
+// The app turns it off for playback until the user asks for it. Only takes
+// effect at the next sync (EditSync::setMasteringActive does both).
+void setMasteringActive (te::Edit&, bool);
+bool isMasteringActive (const te::Edit&);
 
 } // namespace carve::sync

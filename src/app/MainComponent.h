@@ -164,6 +164,13 @@ private:
     // While an export renders: the Edit plays the song even in Pattern mode
     // (see ExportComponent::onRenderingChanged).
     bool exportingSong = false;
+
+    // Mastering mode (shift-cmd-M, the transport bar's Master button, the
+    // mixer's MASTERING header): whether the song's mastering chain is heard.
+    // Off by default and not saved -- it is a way of listening, like Pattern
+    // mode. A mixdown export goes through the chain either way.
+    bool masteringMode = false;
+    void setMasteringMode (bool on);
     void updateAudition();
     double auditionLengthBeats() const;
 

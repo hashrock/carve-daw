@@ -425,7 +425,12 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
         {
             static const char* types[] { "compressor", "reverb", "delay", "4bandEq" };
 
-            if (auto generator = pick (song.getGenerators(), a))
+            // Now and then onto the mastering chain instead, whose node only
+            // exists once something is in it -- which undo has to take away
+            // again with the first effect.
+            if (c % 5 == 4)
+                song.getMasteringChain().addEffect (types[b % 4], nullptr, &um);
+            else if (auto generator = pick (song.getGenerators(), a))
                 generator->addEffect (types[b % 4], nullptr, &um);
             return;
         }
@@ -439,6 +444,16 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
         case removeEffect:
         {
+            if (c % 5 == 4)
+            {
+                auto chain = song.getMasteringChain();
+
+                if (auto effect = pick (chain.getEffects(), b))
+                    chain.removeEffect (*effect, &um);
+
+                return;
+            }
+
             if (auto picked = pickEffect (song, a, b))
                 picked->generator.removeEffect (picked->effect, &um);
             return;
@@ -701,6 +716,8 @@ juce::String describe (const Song& song)
 
     out << " master vol " << song.getMasterBus().getVolumeDb() << "\n";
     describeEffects (out, song.getMasterBus().getEffects());
+    out << " mastering\n";
+    describeEffects (out, song.getMasteringChain().getEffects());
 
     const auto playlist = song.getPlaylist();
 
@@ -1104,6 +1121,36 @@ TEST_CASE ("A loaded song saves back to itself", "[song][xml]")
 // The one property that has to touch the disk: relinking is a search of a
 // real folder for real files, so the test lays a small tree of empty files
 // out under the temp directory and takes it away again.
+
+TEST_CASE ("An unused mastering chain leaves no trace in the file", "[song][xml][mastering]")
+{
+    auto song = Song::create ("Mastering");
+    auto um = makeUndoManager();
+
+    // Reading the chain -- the mixer does it the moment it opens -- is not
+    // a reason for the file to change.
+    CHECK (song.getMasteringChain().getEffects().empty());
+    CHECK (! song.toXmlString().contains ("MASTERING"));
+
+    // The first effect brings the node with it; undoing it takes both away.
+    um.beginNewTransaction();
+    auto limiter = song.getMasteringChain().addEffect ("carveLimiter", nullptr, &um);
+
+    CHECK (song.getMasteringChain().getEffects().size() == 1);
+    CHECK (song.getMasteringChain().findEffect (limiter.getId()).has_value());
+
+    // It is its own chain, not the master's.
+    for (const auto& effect : song.getMasterBus().getEffects())
+        CHECK (effect.getId() != limiter.getId());
+
+    const auto loaded = Song::fromXml (song.toXmlString());
+    REQUIRE (loaded.has_value());
+    CHECK (loaded->getMasteringChain().getEffects().size() == 1);
+
+    um.undo();
+    CHECK (song.getMasteringChain().getEffects().empty());
+    CHECK (! song.toXmlString().contains ("MASTERING"));
+}
 
 TEST_CASE ("Missing media is found again by name under a folder", "[song][media]")
 {

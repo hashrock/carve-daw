@@ -1,6 +1,7 @@
 #include "EffectChains.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "EngineIds.h"
 
@@ -62,13 +63,44 @@ EffectChainSite returnChainSite (const model::Return& bus, te::AudioTrack& track
 
 EffectChainSite masterChainSite (const model::MasterBus& bus, te::Edit& edit)
 {
-    // At the head, so the Edit's own master volume stays last.
+    // At the head, ahead of the mastering chain. (The master volume is not in
+    // this list at all: tracktion applies it after everything in it.)
     EffectChainSite site;
     site.effects = bus.getEffects();
     site.plugins = &edit.getMasterPluginList();
-    site.ownerState = edit.state;
+    site.ownerState = edit.getMasterPluginList().state;
     site.insertAt = 0;
     return site;
+}
+
+EffectChainSite masteringChainSite (const model::MasteringChain& chain, te::Edit& edit)
+{
+    // The same list as the master's, appended to: the master's effects go in
+    // at the head, so this chain stays behind them for good -- the sync only
+    // ever reorders a chain's plugins among the places they already hold.
+    EffectChainSite site;
+    site.ownerId = model::MasteringChain::ownerId;
+    site.effects = chain.getEffects();
+    site.plugins = &edit.getMasterPluginList();
+    site.ownerState = edit.getMasterPluginList().state;
+    site.insertAt = -1;
+    site.active = isMasteringActive (edit);
+    return site;
+}
+
+namespace
+{
+    const juce::Identifier masteringActiveProperty ("carveMasteringActive");
+}
+
+void setMasteringActive (te::Edit& edit, bool active)
+{
+    edit.state.setProperty (masteringActiveProperty, active, nullptr);
+}
+
+bool isMasteringActive (const te::Edit& edit)
+{
+    return edit.state.getProperty (masteringActiveProperty, true);
 }
 
 //==============================================================================
@@ -149,6 +181,7 @@ std::vector<EffectChainSite> getEffectChainSites (const model::Song& song, te::E
     }
 
     sites.push_back (masterChainSite (song.getMasterBus(), edit));
+    sites.push_back (masteringChainSite (song.getMasteringChain(), edit));
 
     return sites;
 }
@@ -169,11 +202,18 @@ std::vector<juce::String> findSyncProblems (const model::Song& song, te::Edit& e
 
     auto describe = [] (const EffectChainSite& site)
     {
-        return site.ownerId.isEmpty() ? juce::String ("the master chain")
-                                      : "chain of owner " + site.ownerId;
+        if (site.ownerId.isEmpty())
+            return juce::String ("the master chain");
+
+        if (site.ownerId == model::MasteringChain::ownerId)
+            return juce::String ("the mastering chain");
+
+        return "chain of owner " + site.ownerId;
     };
 
-    for (auto& site : getEffectChainSites (song, edit))
+    const auto sites = getEffectChainSites (song, edit);
+
+    for (auto& site : sites)
     {
         // A generator added this tick has no track until the next sync, which
         // is a state the app passes through rather than one it rests in.
@@ -185,9 +225,36 @@ std::vector<juce::String> findSyncProblems (const model::Song& song, te::Edit& e
             if (effect.isExternal())
                 continue;   // may be a plugin this machine does not have
 
-            if (site.findPlugin (effect.getId()) == nullptr)
+            if (auto plugin = site.findPlugin (effect.getId()))
+            {
+                if (plugin->isEnabled() != (effect.isEnabled() && site.active))
+                    problems.push_back ("effect " + effect.getType() + " (" + effect.getId()
+                                         + ") in " + describe (site) + " is "
+                                         + (plugin->isEnabled() ? "enabled" : "bypassed")
+                                         + " but should not be");
+            }
+            else
+            {
                 problems.push_back ("effect " + effect.getType() + " (" + effect.getId()
                                      + ") in " + describe (site) + " has no live plugin");
+            }
+        }
+
+        // The live plugins in the model's order. Only the effects that are
+        // there are compared: a missing one is reported above.
+        {
+            juce::StringArray wanted, live;
+
+            for (const auto& effect : site.effects)
+                if (site.findPlugin (effect.getId()) != nullptr)
+                    wanted.add (effect.getId());
+
+            for (auto plugin : site.plugins->getPlugins())
+                if (wanted.contains (getEffectId (*plugin)))
+                    live.add (getEffectId (*plugin));
+
+            if (wanted != live)
+                problems.push_back ("the plugins of " + describe (site) + " are not in the song's order");
         }
 
         for (auto plugin : site.plugins->getPlugins())
@@ -197,13 +264,38 @@ std::vector<juce::String> findSyncProblems (const model::Song& song, te::Edit& e
             if (id.isEmpty())
                 continue;   // the instrument, the fader, the meter
 
-            const auto known = std::any_of (site.effects.begin(), site.effects.end(),
-                                            [&id] (const model::Effect& e) { return e.getId() == id; });
+            // Any chain that shares this list may own it: the master and
+            // the mastering chain are one plugin list between them.
+            const auto known = std::any_of (sites.begin(), sites.end(), [&] (const EffectChainSite& other)
+            {
+                return other.plugins == site.plugins
+                        && std::any_of (other.effects.begin(), other.effects.end(),
+                                        [&id] (const model::Effect& e) { return e.getId() == id; });
+            });
 
             if (! known)
                 problems.push_back ("live plugin " + plugin->getPluginType() + " (" + id + ") in "
                                      + describe (site) + " is in no chain the song has");
         }
+    }
+
+    // The mastering chain comes after the master's own effects: it is what
+    // the finished mix goes through, not part of making it.
+    {
+        const auto master = masterChainSite (song.getMasterBus(), edit);
+        const auto mastering = masteringChainSite (song.getMasteringChain(), edit);
+        int lastMaster = -1, firstMastering = std::numeric_limits<int>::max();
+
+        for (const auto& effect : master.effects)
+            if (auto plugin = master.findPlugin (effect.getId()))
+                lastMaster = juce::jmax (lastMaster, master.plugins->indexOf (plugin));
+
+        for (const auto& effect : mastering.effects)
+            if (auto plugin = mastering.findPlugin (effect.getId()))
+                firstMastering = juce::jmin (firstMastering, mastering.plugins->indexOf (plugin));
+
+        if (lastMaster > firstMastering)
+            problems.push_back ("a mastering effect sits in front of a master effect");
     }
 
     // The mapping every one of those sites was built on.

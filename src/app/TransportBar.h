@@ -204,6 +204,12 @@ public:
 
     bool isPatternMode() const  { return playMode.isPatternMode(); }
 
+    // Mastering mode: the Master button beside the master level asks for it
+    // to be switched, and the owner says what it is (see
+    // MainComponent::masteringMode).
+    std::function<void (bool on)> onMasteringModeChanged;
+    void setMasteringMode (bool on);
+
     static constexpr int preferredHeight = 48;
 
     void setSong (model::Song newSong);
@@ -265,6 +271,7 @@ private:
     IconButton mixerButton { "Mixer", Icon::mixer };
     IconButton saveButton { "Save", Icon::save };
     IconButton browserButton { "Browser", Icon::folder };
+    IconButton masteringButton { "Master", Icon::star };
     juce::Slider masterKnob;
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;

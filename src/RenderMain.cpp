@@ -5,6 +5,7 @@
 #include "model/DemoSong.h"
 #include "model/SampleSongs.h"
 #include "sync/EditSync.h"
+#include "sync/EffectChains.h"
 #include "sync/RenderPreroll.h"
 #include "NoteOffPlayback.h"
 
@@ -56,6 +57,8 @@ void printUsage()
                  "  --rate <hz>    sample rate of the rendered file (default 44100)\n"
                  "  --game-loop    render from the song's start to the end of its LOOP range,\n"
                  "                 and (for .ogg) write LOOPSTART / LOOPLENGTH in samples\n"
+                 "  --no-mastering leave the song's mastering chain out (it is rendered by\n"
+                 "                 default, as an export from the app does)\n"
                  "\n"
                  "The output's extension picks the format: .ogg writes Ogg Vorbis (192 kbps),\n"
                  "anything else 24-bit WAV.\n";
@@ -69,6 +72,23 @@ double renderSampleRate = defaultSampleRate;
 
 // --game-loop: the same kind of run-wide setting as the rate.
 bool renderGameLoop = false;
+
+// --no-mastering: render the song without its mastering chain, the way the
+// export window's "Through the mastering chain" box does when unticked.
+bool renderMastering = true;
+
+bool takeMasteringOption (juce::StringArray& args)
+{
+    const auto index = args.indexOf ("--no-mastering");
+
+    if (index >= 0)
+    {
+        renderMastering = false;
+        args.remove (index);
+    }
+
+    return true;
+}
 
 bool takeGameLoopOption (juce::StringArray& args)
 {
@@ -281,6 +301,7 @@ int renderEditToWav (te::Edit& edit, const juce::File& outputFile, const juce::S
 int renderSongToWav (te::Engine& engine, const carve::model::Song& song, const juce::File& outputFile)
 {
     auto edit = te::Edit::createSingleTrackEdit (engine);
+    carve::sync::setMasteringActive (*edit, renderMastering);
     carve::sync::syncSongToEdit (song, *edit);
 
     // No message loop is running here, so nothing would otherwise deliver the
@@ -389,7 +410,7 @@ int main (int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     juce::StringArray args (argv + 1, argc - 1);
 
-    if (! takeSampleRateOption (args) || ! takeGameLoopOption (args))
+    if (! takeSampleRateOption (args) || ! takeGameLoopOption (args) || ! takeMasteringOption (args))
         return 1;
 
     const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs" ? 1

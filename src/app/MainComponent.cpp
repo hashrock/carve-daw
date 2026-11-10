@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "sync/EffectChains.h"
 #include "sync/EngineIds.h"
 
 #include "EngineSetup.h"
@@ -18,6 +19,11 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     : engine (engineToUse)
 {
     edit = te::Edit::createSingleTrackEdit (engine);
+
+    // Playback starts out of mastering mode: the chain is for the end, and
+    // its lookahead and CPU are in the way of everything before that. Kept on
+    // the Edit, so it outlives the songs loaded into it.
+    sync::setMasteringActive (*edit, false);
 
     transportBar = std::make_unique<TransportBar> (*edit, song, undoManager);
     transportBar->onNew = [this] { newSong(); };
@@ -89,6 +95,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     transportBar->getAuditionLengthBeats = [this] { return auditionLengthBeats(); };
     transportBar->onExport = [this] { openExport(); };
+    transportBar->onMasteringModeChanged = [this] (bool on) { setMasteringMode (on); };
     transportBar->onToggleBrowser = [this] { toggleBrowser(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
@@ -721,12 +728,18 @@ void MainComponent::openExport()
     exportWindow = std::make_unique<ExportWindow> (*edit, song, std::move (onClose));
 
     // An export is of the song, whichever mode the transport is in.
-    exportWindow->setOnRenderingChanged ([safe = juce::Component::SafePointer (this)] (bool rendering)
+    exportWindow->setOnRenderingChanged ([safe = juce::Component::SafePointer (this)] (bool rendering,
+                                                                                    bool withMastering)
     {
         if (safe != nullptr)
         {
             safe->exportingSong = rendering;
             safe->updateAudition();
+
+            // ...and through the mastering chain unless asked not to, whether
+            // or not it is being listened to: then back to how it was.
+            if (safe->editSync != nullptr)
+                safe->editSync->setMasteringActive (rendering ? withMastering : safe->masteringMode);
         }
     });
 }
@@ -799,7 +812,29 @@ void MainComponent::openMixer()
         safe->openGeneratorWindow (GeneratorWindow::Tab::instrument);
     });
 
+    mixerWindow->setMasteringMode (masteringMode);
+    mixerWindow->setMasteringModeHandler ([safe = juce::Component::SafePointer (this)] (bool on)
+    {
+        if (safe != nullptr)
+            safe->setMasteringMode (on);
+    });
+
     mixerWindow->setSong (song);
+}
+
+void MainComponent::setMasteringMode (bool on)
+{
+    masteringMode = on;
+
+    // An export holds the chain the way the export asked for until it is
+    // done, and puts this back afterwards (see openExport).
+    if (editSync != nullptr && ! exportingSong)
+        editSync->setMasteringActive (on);
+
+    transportBar->setMasteringMode (on);
+
+    if (mixerWindow != nullptr)
+        mixerWindow->setMasteringMode (on);
 }
 
 void MainComponent::toggleBrowser()
@@ -1141,6 +1176,12 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
     if (key == juce::KeyPress ('k', juce::ModifierKeys::commandModifier, 0))
     {
         toggleTypingKeyboard();
+        return true;
+    }
+    if (key == juce::KeyPress ('m', juce::ModifierKeys::commandModifier
+                                        | juce::ModifierKeys::shiftModifier, 0))
+    {
+        setMasteringMode (! masteringMode);
         return true;
     }
     if (key == juce::KeyPress (',', juce::ModifierKeys::commandModifier, 0))

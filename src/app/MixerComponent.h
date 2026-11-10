@@ -27,10 +27,9 @@ namespace carve::app
 // edit; EditSync pushes them on to the track. Only the meters read the engine
 // directly.
 //
-// The master strip is the exception, and knowingly so: the song model has no
-// node for a master fader or a master chain, so those edits go straight at the
-// Edit. They are neither undoable nor saved. Giving them a home in the model is
-// a change to src/model plus EditSync -- see the strip's own comment.
+// The master strip carries two chains: the master's own effects, and under
+// them the mastering chain, which is heard only in mastering mode (see
+// model::MasteringChain). Its header is the mode's switch.
 //
 // Sized to its content — put it in a Viewport.
 class MixerComponent : public juce::Component,
@@ -52,6 +51,12 @@ public:
     // the same way a double click on the playlist's row label does. The mixer
     // is where you look at a generator's level, so it wants the same way in.
     std::function<void (const juce::String& generatorId)> onOpenGenerator;
+
+    // Mastering mode, which the master strip's mastering header shows and
+    // switches. The app owns it (it outlives the mixer window): a click asks
+    // through onMasteringModeChanged, and the answer comes back here.
+    void setMasteringMode (bool on);
+    std::function<void (bool on)> onMasteringModeChanged;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -132,6 +137,7 @@ private:
     std::vector<std::unique_ptr<GroupStrip>> groupStrips;
     juce::TextButton addReturnButton { "+ Return" };
     std::map<juce::String, OpenEffectWindow> effectWindows;
+    bool masteringMode = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)
 };

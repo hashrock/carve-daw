@@ -66,8 +66,11 @@ enum class Op
     addSynth, addDrumSynth, addGabberKick, addSampler, addSoundFont, addUtau, addBreak, addAudioGenerator, removeGenerator,
     addReturn, removeReturn,
     addGroup, removeGroup, setGroup,
-    addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect,
+    addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect, addMasteringEffect,
     removeEffect, moveEffect, toggleEffect,
+    // The master's list holds two chains, so moving within either must leave
+    // the other where it is -- and mastering mode bypasses one of them.
+    moveMasterEffect, moveMasteringEffect, toggleMasteringEffect, setMasteringActive,
     addPattern, addClip,
     setSend,
     numOps
@@ -107,7 +110,7 @@ const char* effectTypeFor (int index)
     return types[(size_t) wrapIndex (index, 6)];
 }
 
-void apply (Song& song, juce::UndoManager& um, const Step& step)
+void apply (Song& song, juce::UndoManager& um, te::Edit& edit, const Step& step)
 {
     const auto [rawOp, a, b] = step;
     const auto op = (Op) rawOp;
@@ -236,13 +239,51 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
             song.getMasterBus().addEffect (effectTypeFor (b), nullptr, &um);
             break;
 
+        case Op::addMasteringEffect:
+            song.getMasteringChain().addEffect (effectTypeFor (b), nullptr, &um);
+            break;
+
+        case Op::moveMasterEffect:
+        {
+            auto owner = song.getMasterBus();
+
+            if (const auto effects = owner.getEffects(); ! effects.empty())
+                owner.moveEffect (effects[(size_t) wrapIndex (b, (int) effects.size())],
+                                  wrapIndex (a, (int) effects.size()), &um);
+            break;
+        }
+
+        case Op::moveMasteringEffect:
+        {
+            auto owner = song.getMasteringChain();
+
+            if (const auto effects = owner.getEffects(); ! effects.empty())
+                owner.moveEffect (effects[(size_t) wrapIndex (b, (int) effects.size())],
+                                  wrapIndex (a, (int) effects.size()), &um);
+            break;
+        }
+
+        case Op::toggleMasteringEffect:
+            if (const auto effects = song.getMasteringChain().getEffects(); ! effects.empty())
+            {
+                auto effect = effects[(size_t) wrapIndex (b, (int) effects.size())];
+                effect.setEnabled (! effect.isEnabled(), &um);
+            }
+            break;
+
+        case Op::setMasteringActive:
+            // Not a song edit -- nothing to undo -- but the next sync has to
+            // honour it all the same.
+            sync::setMasteringActive (edit, (a % 2) == 0);
+            break;
+
         case Op::removeEffect:
         {
             // Whichever chain the first number lands in, counting the
             // generators, then the groups, then the returns, then the master
-            // as one more.
+            // and the mastering chain as two more.
             const auto chains = (int) generators.size() + (int) groups.size()
-                                 + (int) returns.size() + 1;
+                                 + (int) returns.size() + 2;
             const auto which = wrapIndex (a, chains);
 
             if (which < (int) generators.size())
@@ -266,9 +307,16 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
                 if (const auto effects = owner.getEffects(); ! effects.empty())
                     owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
             }
-            else
+            else if (which == chains - 2)
             {
                 auto owner = song.getMasterBus();
+
+                if (const auto effects = owner.getEffects(); ! effects.empty())
+                    owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
+            }
+            else
+            {
+                auto owner = song.getMasteringChain();
 
                 if (const auto effects = owner.getEffects(); ! effects.empty())
                     owner.removeEffect (effects[(size_t) wrapIndex (b, (int) effects.size())], &um);
@@ -340,7 +388,7 @@ TEST_CASE ("The edit the sync builds agrees with the song that built it", "[sync
 
         for (const auto& step : *genSteps())
         {
-            apply (song, um, step);
+            apply (song, um, *edit, step);
             sync::syncSongToEdit (song, *edit);
 
             const auto problems = sync::findSyncProblems (song, *edit);
@@ -361,7 +409,7 @@ TEST_CASE ("Undoing a sequence leaves an edit that still agrees", "[sync][undo]"
         auto edit = te::Edit::createSingleTrackEdit (testEngine());
 
         for (const auto& step : *genSteps())
-            apply (song, um, step);
+            apply (song, um, *edit, step);
 
         sync::syncSongToEdit (song, *edit);
 
@@ -411,7 +459,13 @@ TEST_CASE ("What the plugins hold comes back into the song", "[sync][capture]")
         for (int i = 0; i < effectsPerChain; ++i)
             song.getMasterBus().addEffect (effectTypeFor (i), nullptr, &um);
 
+        for (int i = 0; i < effectsPerChain; ++i)
+            song.getMasteringChain().addEffect (effectTypeFor (i), nullptr, &um);
+
         auto edit = te::Edit::createSingleTrackEdit (testEngine());
+
+        // Bypassed or not, a mastering effect's settings are the song's.
+        sync::setMasteringActive (*edit, *rc::gen::arbitrary<bool>());
         sync::syncSongToEdit (song, *edit);
         RC_ASSERT (sync::findSyncProblems (song, *edit).empty());
 

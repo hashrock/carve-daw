@@ -44,7 +44,7 @@ public:
     ~ExportComponent() override;
 
     static constexpr int preferredWidth = 400;
-    static constexpr int preferredHeight = 342;
+    static constexpr int preferredHeight = 368;
 
     // The song is where the loop range and the default file name come from;
     // the Edit only knows about seconds.
@@ -77,7 +77,13 @@ public:
     // in Pattern mode the live Edit holds the auditioned patterns looping
     // instead of the playlist, and a render is of whatever the Edit holds.
     // Not called on destruction -- nothing is left to restore by then.
-    std::function<void (bool rendering)> onRenderingChanged;
+    //
+    // withMastering says whether the song's mastering chain is to be in the
+    // render, whatever mastering mode the transport is in: the chain is what a
+    // mixdown is finished with, so it is on unless the user unticks it (to
+    // hand an unmastered mix to someone else). A stem render leaves the
+    // master's plugins out entirely, so it does not care either way.
+    std::function<void (bool rendering, bool withMastering)> onRenderingChanged;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -186,6 +192,7 @@ private:
     // bitDepthBox and qualityBox share a row: WAV has a depth, Ogg a bitrate.
     juce::ComboBox contentBox, formatBox, rangeBox, sampleRateBox, bitDepthBox, qualityBox;
     juce::ToggleButton tailButton { "Add a 1 second tail" };
+    juce::ToggleButton masteringButton { "Through the mastering chain" };
     juce::Label summaryLabel, statusLabel;
     juce::ProgressBar progressBar { progressForBar };
     juce::TextButton exportButton { "Export..." }, closeButton { "Close" };
