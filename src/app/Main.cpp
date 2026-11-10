@@ -23,6 +23,10 @@ public:
         // re-launched with a command line the engine recognises. This has to
         // come first: a scanner process must not start an engine or open a
         // window. Paired with canScanPluginsOutOfProcess() in EngineSetup.h.
+        //
+        // A build that hosts no plugins never scans, so it never relaunches
+        // itself -- which the App Sandbox would have something to say about.
+       #if CARVE_PLUGIN_HOSTING
         if (te::PluginManager::startChildProcessPluginScan (commandLine))
         {
             // The scanner is this same executable launched again, so on macOS
@@ -32,12 +36,15 @@ public:
            #endif
             return;
         }
+       #else
+        juce::ignoreUnused (commandLine);
+       #endif
 
         // Before any window exists: it decides how every label, menu and
         // button in them is drawn (see Fonts.h).
         juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
 
-        engine = carve::createEngine (nullptr, true);
+        engine = carve::createEngine (nullptr, CARVE_PLUGIN_HOSTING != 0);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
 
        #if JUCE_MAC

@@ -7,6 +7,7 @@
 #include "EngineIds.h"
 #include "model/Singing.h"
 #include "../plugins/MeteredCompressorPlugin.h"
+#include "../plugins/PitchShifterPlugin.h"
 
 namespace carve::sync
 {
@@ -498,6 +499,11 @@ namespace
     {
         if (modelType == te::CompressorPlugin::xmlTypeName)
             return plugins::MeteredCompressorPlugin::xmlTypeName;
+
+        // tracktion's pitch shifter needs a time-stretcher the build no longer
+        // has (see PitchShifterPlugin.h); ours reads the same saved state.
+        if (modelType == plugins::PitchShifterPlugin::legacyXmlTypeName)
+            return plugins::PitchShifterPlugin::xmlTypeName;
 
         return modelType;
     }

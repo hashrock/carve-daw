@@ -4,6 +4,7 @@
 #include "../plugins/DelayPlugin.h"
 #include "../plugins/LimiterPlugin.h"
 #include "../plugins/OvertopPlugin.h"
+#include "../plugins/PitchShifterPlugin.h"
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
 
@@ -39,7 +40,7 @@ namespace
         { plugins::DelayPlugin::xmlTypeName, "Delay", "Delay" },
         { "chorus",       "Chorus",               "Chorus" },
         { "phaser",       "Phaser",               "Phaser" },
-        { "pitchShifter", "Pitch Shifter",        "Pitch" },
+        { plugins::PitchShifterPlugin::xmlTypeName, "Pitch Shifter", "Pitch" },
     };
 
     constexpr int numInternalEffects = (int) (sizeof (internalEffects) / sizeof (internalEffects[0]));
@@ -57,9 +58,15 @@ namespace
     {
         juce::Array<juce::PluginDescription> result;
 
+        // None in a build that hosts no plugins; see GeneratorController's
+        // add menu for why this is not left to the list being empty.
+       #if CARVE_PLUGIN_HOSTING
         for (const auto& type : engine.getPluginManager().knownPluginList.getTypes())
             if (! type.isInstrument)
                 result.add (type);
+       #else
+        juce::ignoreUnused (engine);
+       #endif
 
         return result;
     }
@@ -75,6 +82,10 @@ namespace
         }
 
         const auto type = effect.getType();
+
+        // A song from before our own pitch shifter stores tracktion's type.
+        if (type == plugins::PitchShifterPlugin::legacyXmlTypeName)
+            return "Pitch";
 
         for (const auto& internal : internalEffects)
             if (type == internal.type)

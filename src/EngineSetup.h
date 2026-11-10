@@ -12,6 +12,7 @@
 #include "plugins/BreakPlugin.h"
 #include "plugins/UtauPlugin.h"
 #include "plugins/LimiterPlugin.h"
+#include "plugins/PitchShifterPlugin.h"
 #include "plugins/MeteredCompressorPlugin.h"
 #include "plugins/OvertopPlugin.h"
 #include "plugins/NoteMonitorPlugin.h"
@@ -166,6 +167,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::MeteredCompressorPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::LimiterPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::OvertopPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::PitchShifterPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::DrumSynthPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::GabberKickPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::SoundFontPlugin>();

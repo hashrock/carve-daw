@@ -1,5 +1,7 @@
 #include "RenderPreroll.h"
 
+#include "VorbisComments.h"
+
 namespace carve::sync
 {
 
@@ -120,6 +122,19 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, con
     {
         render.destination.deleteFile();
         return "could not write " + render.destination.getFileName();
+    }
+
+    // JUCE's Ogg writer has a fixed list of comments it will write and drops
+    // the rest, the game loop's among them, so those go in now that the file
+    // is closed. A game loop without its loop points is not what was asked
+    // for, so failing here fails the export.
+    if (dynamic_cast<juce::OggVorbisAudioFormat*> (format) != nullptr && output.metadata.size() > 0)
+    {
+        if (const auto error = setVorbisComments (render.destination, output.metadata); error.isNotEmpty())
+        {
+            render.destination.deleteFile();
+            return error;
+        }
     }
 
     return {};
