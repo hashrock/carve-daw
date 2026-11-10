@@ -35,6 +35,9 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->getRecentSongs = [this] { return recentSongNames(); };
     transportBar->onOpenRecent = [this] (int index) { openRecentSong (index); };
     transportBar->onOpenSampleSong = [this] (int index) { openSampleSong (index); };
+    transportBar->onSettings = [this] { openSettings(); };
+    transportBar->onAbout = [this] { if (onShowAbout) onShowAbout(); };
+    transportBar->onNotices = [this] { if (onShowNotices) onShowNotices(); };
 
     recentSongs.setMaxNumberOfItems (10);
     recentSongs.restoreFromString (engine.getPropertyStorage().getPropertiesFile()

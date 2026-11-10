@@ -50,6 +50,11 @@ public:
     };
 
     void perform (Action);
+
+    // About and the third-party notices are the application's windows, not
+    // this component's; the logo menu asks for them through these wherever
+    // there is no menu bar to do it.
+    std::function<void()> onShowAbout, onShowNotices;
     bool isBrowserShown() const  { return browser.isVisible(); }
 
     // The songs opened or saved most recently, newest first, for the File

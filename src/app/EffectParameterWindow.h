@@ -14,6 +14,7 @@
 #include "PresetManager.h"
 #include "../plugins/GainReduction.h"
 #include "../plugins/MeteredCompressorPlugin.h"
+#include "TouchUi.h"
 
 namespace te = tracktion;
 
@@ -214,7 +215,7 @@ public:
                          panelHeight + PresetBar::height + content.getExtraRowsHeight());
 
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         setResizeLimits (EffectParameterPanel::width, 60 + PresetBar::height,
                          EffectParameterPanel::width, maxHeight + PresetBar::height);

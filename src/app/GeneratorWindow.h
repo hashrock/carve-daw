@@ -20,6 +20,7 @@
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
 #include "model/SongModel.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -923,7 +924,7 @@ public:
         content.setSize (rollContentSize.x, rollContentSize.y);
 
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);

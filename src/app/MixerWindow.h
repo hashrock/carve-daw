@@ -6,6 +6,7 @@
 
 #include "MixerComponent.h"
 #include "ShortcutHelpBar.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -47,7 +48,7 @@ public:
         content.setSize (mixer.getWidth(), defaultHeight + ShortcutHelpBar::preferredHeight);
 
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
 
         mixer.onContentWidthChanged = [this] { fitToContent(); };

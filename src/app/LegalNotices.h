@@ -5,6 +5,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "Fonts.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -94,7 +95,7 @@ inline juce::String aboutBody()
    #if CARVE_APP_STORE
     return "This program comes with ABSOLUTELY NO WARRANTY.\n"
            "\n"
-           "This Mac App Store copy is not offered under the GNU Affero General "
+           "This " + juce::String (isTouchUi ? "App Store" : "Mac App Store") + " copy is not offered under the GNU Affero General "
            "Public License. You receive it under Apple's App Store terms. It is "
            "built with JUCE under the JUCE 8 Starter licence "
            "(https://juce.com/legal/juce-8-licence/) and with Tracktion Engine "
@@ -290,7 +291,7 @@ public:
           content (applicationName, applicationVersion, std::move (onShowNotices))
     {
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         setResizeLimits (420, 480, 900, 1000);
         centreWithSize (getWidth(), getHeight());
@@ -320,7 +321,7 @@ public:
           content()
     {
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (true, false);
         setResizeLimits (420, 320, 1100, 1200);
         centreWithSize (getWidth(), getHeight());

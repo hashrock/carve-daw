@@ -8,6 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "model/SongModel.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -76,7 +77,7 @@ public:
           content (std::move (song), [this] { requestClose(); })
     {
         setContentNonOwned (&content, true);
-        setUsingNativeTitleBar (true);
+        useSystemTitleBar (*this);
         setResizable (false, false);
         centreWithSize (getWidth(), getHeight());
         setAlwaysOnTop (true);

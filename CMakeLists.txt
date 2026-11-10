@@ -5,8 +5,20 @@ project(CarveDAW VERSION 0.17.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(APPLE)
+# The iPad build is a prototype. Configure it with the Xcode generator:
+#
+#   cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
+#         -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
+#         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
+#   cmake --build build-ios --config Debug --target carve -- -sdk iphonesimulator
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(CARVE_IOS TRUE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "16.0" CACHE STRING "Minimum iOS version")
+elseif(APPLE)
+    set(CARVE_IOS FALSE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+else()
+    set(CARVE_IOS FALSE)
 endif()
 
 # The default build is the AGPL binary described in LICENSE. The App Store
@@ -23,6 +35,12 @@ endif()
 option(CARVE_APP_STORE
     "Mac App Store build: commercial JUCE/Tracktion notices, no plugin hosting"
     OFF)
+
+# An iOS app reaches its users through the App Store and no other way, so
+# there is no AGPL iPad binary to build: it is always the store's licences.
+if(CARVE_IOS)
+    set(CARVE_APP_STORE ON CACHE BOOL "" FORCE)
+endif()
 
 if(CARVE_APP_STORE)
     set(CARVE_PLUGIN_HOSTING 0)
@@ -226,7 +244,16 @@ juce_add_gui_app(carve
     COMPANY_COPYRIGHT "Copyright (C) 2026 hashrock. Powered by Tracktion Engine."
     COMPANY_WEBSITE "https://github.com/hashrock/carve-daw"
     ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
-    MICROPHONE_PERMISSION_ENABLED TRUE)
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    # iOS only; a Mac build ignores these. iPad alone, any way up, and the
+    # app's Documents folder shows in Files so songs can get in and out.
+    TARGETED_DEVICE_FAMILY "2"
+    IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    REQUIRES_FULL_SCREEN TRUE
+    STATUS_BAR_HIDDEN TRUE
+    FILE_SHARING_ENABLED TRUE
+    DOCUMENT_BROWSER_ENABLED TRUE
+    BACKGROUND_AUDIO_ENABLED TRUE)
 target_sources(carve PRIVATE
     src/app/Main.cpp
     src/app/LegalNotices.h
@@ -284,9 +311,12 @@ target_sources(carve PRIVATE
     src/app/TypingKeyboard.h
     src/app/TypingKeyboard.cpp
     src/app/TimeSigSupport.h
+    src/app/TouchUi.h
     src/app/SandboxAccess.h)
 # Security-scoped bookmarks are Foundation, so the real thing is Objective-C++.
-if(APPLE)
+# It is the macOS App Sandbox's scheme; iOS has no app-scoped bookmarks, and
+# the prototype keeps its songs in its own Documents folder.
+if(APPLE AND NOT CARVE_IOS)
     target_sources(carve PRIVATE src/app/SandboxAccess.mm)
 else()
     target_sources(carve PRIVATE src/app/SandboxAccess.cpp)
@@ -310,7 +340,10 @@ target_compile_definitions(carve PRIVATE
     CARVE_SOURCE_NOTICES_FILE="${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
     CARVE_SOURCE_TRACKTION_LOGO="${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png")
 
-if(APPLE)
+if(CARVE_IOS)
+    # An iOS bundle is flat: no Contents/, the executable at the top.
+    set(CARVE_CONTENT_DESTINATION "$<TARGET_BUNDLE_DIR:carve>/Content")
+elseif(APPLE)
     set(CARVE_CONTENT_DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources/Content")
 else()
     set(CARVE_CONTENT_DESTINATION "$<TARGET_FILE_DIR:carve>/Content")
@@ -324,7 +357,9 @@ add_custom_command(TARGET carve POST_BUILD
 # Beside the factory content: the notices a review of the binary can open,
 # and the Tracktion lockup the About window draws. Same two places
 # FactoryContent.h searches, plus the source-tree fallback compiled in above.
-if(APPLE)
+if(CARVE_IOS)
+    set(CARVE_RESOURCE_DIR "$<TARGET_BUNDLE_DIR:carve>")
+elseif(APPLE)
     set(CARVE_RESOURCE_DIR "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources")
 else()
     set(CARVE_RESOURCE_DIR "$<TARGET_FILE_DIR:carve>")
@@ -340,6 +375,8 @@ add_custom_command(TARGET carve POST_BUILD
     COMMENT "Copying third-party notices into the app")
 
 # --- Headless renderer CLI ---
+# Console programs, here and in the tests below, are for the desktop only.
+if(NOT CARVE_IOS)
 juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
 # NoteOffPlayback and SignalPathChecks are tests, but they need a playing
@@ -348,6 +385,7 @@ juce_add_console_app(carve-render
 target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp tests/SignalPathChecks.cpp)
 target_include_directories(carve-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 carve_configure_target(carve-render)
+endif()
 
 
 # --- Tests ---
@@ -381,7 +419,7 @@ carve_configure_target(carve-render)
 #   RC_PARAMS="max_success=20000 max_size=200 seed=1" ...carve-tests
 option(CARVE_BUILD_TESTS "Fetch Catch2/RapidCheck and build the test target" ON)
 
-if(CARVE_BUILD_TESTS)
+if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
     FetchContent_Declare(Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
         GIT_TAG        v3.9.1
