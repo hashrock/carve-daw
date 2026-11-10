@@ -3,6 +3,7 @@
 #include "EngineSetup.h"
 #include "Fonts.h"
 #include "LegalNotices.h"
+#include "LongPress.h"
 #include "MainComponent.h"
 #include "SandboxAccess.h"
 #include "TouchUi.h"
@@ -45,6 +46,11 @@ public:
         // Before any window exists: it decides how every label, menu and
         // button in them is drawn (see Fonts.h).
         juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
+
+        // No second mouse button on a touch screen: a long press stands in
+        // for it everywhere (see LongPress.h).
+        if (isTouchUi)
+            juce::Desktop::getInstance().addGlobalMouseListener (&longPress);
 
         // Before the engine and before any window: both read paths the user
         // gave the app on an earlier run (recent songs, the browser's
@@ -105,6 +111,9 @@ public:
 
         mainWindow.reset();   // destroys the Edit before the Engine
         engine.reset();
+
+        if (isTouchUi)
+            juce::Desktop::getInstance().removeGlobalMouseListener (&longPress);
 
         juce::Desktop::getInstance().setDefaultLookAndFeel (nullptr);
     }
@@ -375,6 +384,7 @@ private:
 
     // First, so it outlives the windows that are drawn with it.
     CarveLookAndFeel lookAndFeel;
+    LongPressAsRightClick longPress;
 
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<MainWindow> mainWindow;

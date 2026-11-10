@@ -257,6 +257,7 @@ juce_add_gui_app(carve
 target_sources(carve PRIVATE
     src/app/Main.cpp
     src/app/LegalNotices.h
+    src/app/LongPress.h
     src/app/MainComponent.h
     src/app/MainComponent.cpp
     src/app/TransportBar.h
