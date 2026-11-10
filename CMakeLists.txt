@@ -9,6 +9,25 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 endif()
 
+# The default build is the AGPL binary described in LICENSE. The App Store
+# binary is a different licence (JUCE 8 Starter and Tracktion Engine Personal):
+# its About text says so, and it does not link the VST3 SDK. JUCE 8.0.6 ships
+# that SDK under Steinberg's proprietary terms or GPL-3.0 only, and this tree
+# has no Steinberg SDK agreement. See LICENSING.md.
+#
+# Do not define JUCE_DISPLAY_SPLASH_SCREEN or JUCE_USE_DARK_SPLASH_SCREEN.
+# JUCE 8.0.6 ignores both and warns if they are defined. JUCE_REPORT_APP_USAGE
+# is not a macro in this JUCE; there is no usage report left to switch off.
+option(CARVE_APP_STORE
+    "Mac App Store build: commercial JUCE/Tracktion notices, no VST3 host"
+    OFF)
+
+if(CARVE_APP_STORE)
+    set(CARVE_PLUGINHOST_VST3 0)
+else()
+    set(CARVE_PLUGINHOST_VST3 1)
+endif()
+
 include(FetchContent)
 
 # tracktion_engine bundles JUCE as a git submodule, so no separate JUCE fetch.
@@ -143,7 +162,7 @@ function(carve_configure_target target)
         TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_PLUGINHOST_VST3=1
+        JUCE_PLUGINHOST_VST3=${CARVE_PLUGINHOST_VST3}
         $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
         JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
@@ -163,10 +182,16 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 juce_add_gui_app(carve
     PRODUCT_NAME "Carve DAW"
     BUNDLE_ID    "com.hashrock.carve"
+    COMPANY_NAME "hashrock"
+    # Finder's Get Info, as well as the About window. The Personal licence
+    # wants the phrase somewhere the binary itself carries.
+    COMPANY_COPYRIGHT "Copyright (C) 2026 hashrock. Powered by Tracktion Engine."
+    COMPANY_WEBSITE "https://github.com/hashrock/carve-daw"
     ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
     MICROPHONE_PERMISSION_ENABLED TRUE)
 target_sources(carve PRIVATE
     src/app/Main.cpp
+    src/app/LegalNotices.h
     src/app/MainComponent.h
     src/app/MainComponent.cpp
     src/app/TransportBar.h
@@ -235,7 +260,18 @@ carve_configure_target(carve)
 # happened, which in practice means a scratch program linked against these
 # objects; see src/app/FactoryContent.h.
 target_compile_definitions(carve PRIVATE
-    CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content")
+    CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content"
+    # Where About looks when the bundle copy below has not happened yet.
+    CARVE_SOURCE_NOTICES_FILE="${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+    CARVE_SOURCE_TRACKTION_LOGO="${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png")
+
+# Always defined, including as 0. LegalNotices.h branches on it, and an
+# undefined macro would trip -Wundef under JUCE's warning flags.
+if(CARVE_APP_STORE)
+    target_compile_definitions(carve PRIVATE CARVE_APP_STORE=1)
+else()
+    target_compile_definitions(carve PRIVATE CARVE_APP_STORE=0)
+endif()
 
 if(APPLE)
     set(CARVE_CONTENT_DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources/Content")
@@ -247,6 +283,24 @@ add_custom_command(TARGET carve POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/content" "${CARVE_CONTENT_DESTINATION}"
     COMMENT "Copying the factory content into the app")
+
+# Beside the factory content: the notices a review of the binary can open,
+# and the Tracktion lockup the About window draws. Same two places
+# FactoryContent.h searches, plus the source-tree fallback compiled in above.
+if(APPLE)
+    set(CARVE_RESOURCE_DIR "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources")
+else()
+    set(CARVE_RESOURCE_DIR "$<TARGET_FILE_DIR:carve>")
+endif()
+
+add_custom_command(TARGET carve POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+            "${CARVE_RESOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png"
+            "${CARVE_RESOURCE_DIR}/powered-by-tracktion-engine.png"
+    COMMENT "Copying third-party notices into the app")
 
 # --- Headless renderer CLI ---
 juce_add_console_app(carve-render

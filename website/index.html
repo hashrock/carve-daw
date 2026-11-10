@@ -78,12 +78,15 @@ h2{font-size:clamp(1.875rem,3.5vw,3rem);letter-spacing:-.045em;line-height:1.5;m
 .closing{display:flex;align-items:center;justify-content:space-between;gap:32px;padding:70px 0 76px}
 .closing h2{font-size:clamp(1.75rem,3vw,2.5rem);margin:0 0 12px}
 .closing p{color:var(--muted);font-size:.875rem;margin:0;line-height:1.8}
-footer{border-top:1px solid var(--line);padding-top:22px;padding-bottom:30px;display:flex;justify-content:space-between;gap:24px;color:var(--muted);font-size:.75rem;line-height:1.8}
+footer{border-top:1px solid var(--line);padding-top:22px;padding-bottom:30px;display:flex;justify-content:space-between;align-items:center;gap:24px;color:var(--muted);font-size:.75rem;line-height:1.8}
 footer a:hover{text-decoration:underline}
+footer .powered{display:flex;align-items:center;flex:0 0 auto}
+footer .powered img{display:block;height:40px;width:auto}
+footer .powered:hover{text-decoration:none}
 @media(min-width:900px){.patterns .clip{animation:appear .7s both}.clip:nth-child(2n){animation-delay:.12s}.clip:nth-child(3n){animation-delay:.24s}@keyframes appear{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}}
 @media(min-width:1600px){.intro{padding-top:76px}}
 @media(max-width:900px){.wrap{width:calc(100% - 48px)}header{height:88px}.hero-copy{grid-template-columns:1fr;gap:28px}.hero-side{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:start}.hero-side p{margin:0;grid-row:1/3}.requirements{grid-column:2}.intro{padding-top:40px}h1{font-size:clamp(3rem,8vw,4.5rem)}.statement{padding:76px 0;grid-template-columns:1fr;gap:24px}.closing{padding:56px 0}.sequence{margin-top:38px}.patterns{height:102px}}
-@media(max-width:600px){.wrap{width:calc(100% - 40px)}header{height:80px}.brand{gap:8px}.brand span{display:none}nav{gap:18px;padding-right:32px}nav a:first-child{display:none}.eyebrow{font-size:.6875rem;letter-spacing:.04em}.eyebrow span:last-child{display:none}h1{font-size:clamp(2.45rem,10vw,3.75rem)}.hero-side{display:block}.hero-side p{margin-bottom:22px}.requirements{font-size:.75rem}.download{padding:16px 20px}.patterns{height:88px;gap:3px}.clip:after{left:5px;right:5px}.product{margin-top:24px}.product img{border-radius:4px}.product figcaption{font-size:.6875rem}.product figcaption span:last-child{display:none}.statement{padding:60px 0}.statement p:not(.section-label){font-size:.9375rem}.closing{align-items:flex-start;flex-direction:column;gap:24px}footer{flex-direction:column;gap:8px}.ruler{font-size:.6875rem}}
+@media(max-width:600px){.wrap{width:calc(100% - 40px)}header{height:80px}.brand{gap:8px}.brand span{display:none}nav{gap:18px;padding-right:32px}nav a:first-child{display:none}.eyebrow{font-size:.6875rem;letter-spacing:.04em}.eyebrow span:last-child{display:none}h1{font-size:clamp(2.45rem,10vw,3.75rem)}.hero-side{display:block}.hero-side p{margin-bottom:22px}.requirements{font-size:.75rem}.download{padding:16px 20px}.patterns{height:88px;gap:3px}.clip:after{left:5px;right:5px}.product{margin-top:24px}.product img{border-radius:4px}.product figcaption{font-size:.6875rem}.product figcaption span:last-child{display:none}.statement{padding:60px 0}.statement p:not(.section-label){font-size:.9375rem}.closing{align-items:flex-start;flex-direction:column;gap:24px}footer{flex-direction:column;align-items:flex-start;gap:8px}.ruler{font-size:.6875rem}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.patterns .clip{animation:none}.download{transition:none}}
 </style>
 </head>
@@ -162,6 +165,6 @@ footer a:hover{text-decoration:underline}
     <a class="download" href="https://github.com/hashrock/carve-daw/releases/latest">Download for macOS<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></a>
   </section>
 </main>
-<footer class="wrap"><span>Carve DAW / Made by <a href="https://github.com/hashrock">hashrock</a></span><span>Built with tracktion_engine &amp; JUCE · <a href="https://github.com/hashrock/carve-daw">Source &amp; documentation ↗</a></span></footer>
+<footer class="wrap"><span>Carve DAW / Made by <a href="https://github.com/hashrock">hashrock</a></span><a class="powered" href="https://www.tracktion.com/develop/tracktion-engine"><img src="img/powered-by-tracktion-engine.png" width="338" height="122" alt="Powered by Tracktion Engine"></a><span>Built with JUCE · <a href="https://github.com/hashrock/carve-daw/blob/main/LICENSING.md">Licensing</a> · <a href="https://github.com/hashrock/carve-daw">Source ↗</a></span></footer>
 </body>
 </html>

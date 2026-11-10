@@ -58,6 +58,9 @@ Synapse Audio の **Orion** を参考にした、Generator 中心・パターン
 
 ## ライセンス
 
-**AGPL-3.0-or-later** ([LICENSE](LICENSE))。土台の tracktion_engine (GPL3) と
-JUCE (AGPL3) から決まる。依存関係の一覧と経緯は [NOTICE.md](NOTICE.md) と
+ソースと GitHub Releases の配布物は **AGPL-3.0-or-later** ([LICENSE](LICENSE))。
+Mac App Store 向けは別ビルドで、JUCE Starter と Tracktion Engine Personal を使う。
+表示義務 (Powered by Tracktion Engine)、売上の上限、`-DCARVE_APP_STORE=ON` は
+[LICENSING.md](LICENSING.md)。依存関係の文言は [NOTICE.md](NOTICE.md) と
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。経緯の短い方は
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
