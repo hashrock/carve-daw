@@ -1,0 +1,290 @@
+Third-party notices for Carve DAW
+==================================
+
+This file is shown from the Carve DAW Apple menu (Third-Party Notices) and
+from the About window, and it is copied into the application bundle at
+Contents/Resources/THIRD_PARTY_NOTICES.txt.
+
+Two distributions are built from the same source. The source and the GitHub
+Releases disk images are under the GNU Affero General Public License, version
+3 or later (see the LICENSE file and https://www.gnu.org/licenses/agpl-3.0.html).
+The Mac App Store build (CMake option CARVE_APP_STORE) is not offered under
+that licence. It is built under the JUCE 8 Starter licence and the Tracktion
+Engine Personal licence, and it is delivered under Apple's App Store terms.
+LICENSING.md in the source tree describes both, including the revenue caps.
+
+The notices below name the components that are, or can be, linked into the
+application. Versions are the ones this tree builds: tracktion_engine v3.2.0
+and the JUCE 8.0.6 submodule inside it.
+
+
+Carve DAW
+---------
+
+Copyright (C) 2026 hashrock
+https://github.com/hashrock/carve-daw
+
+The factory drum kit under content/Drums is synthesised by
+scripts/generate-drums.py. It is not a third-party sample library.
+
+
+Tracktion Engine
+----------------
+
+Copyright Tracktion Software Corporation.
+https://github.com/Tracktion/tracktion_engine
+Version in this tree: 3.2.0
+
+Dual licensed: GNU General Public License, version 3 or later
+(https://www.gnu.org/licenses/gpl-3.0.html), or a commercial Tracktion Engine
+licence (https://engine.tracktion.com/agreement).
+
+The GitHub / Developer ID build uses the GPL-3.0-or-later arm.
+The Mac App Store build uses the Tracktion Engine Personal licence (free,
+individual, revenue or funding limit 50,000 USD). Personal requires this
+attribution:
+
+    Powered by Tracktion Engine
+
+The mark shown in the About window and on the website is the lockup published
+in tracktion_engine v3.2.0 at tutorials/images/tracktion_engine_powered.png.
+
+Local modifications applied at build time, still under the engine's licence:
+
+    patches/tracktion-deterministic-osc-phase.patch
+    patches/tracktion-live-midi-survives-note-edit-rebuild.patch
+    patches/tracktion-soundtouch-optional.patch
+
+Tracktion Engine in turn contains the following, as listed by its v3.2.0
+README. Their licence texts are in those upstream repositories:
+
+    rpmalloc
+        Public domain. https://github.com/mjansson/rpmalloc
+    moodycamel::ConcurrentQueue
+        Simplified BSD or the Boost Software License 1.0.
+        https://github.com/cameron314/concurrentqueue
+    choc
+        ISC. https://github.com/Tracktion/choc
+    crill
+        Boost Software License 1.0. https://github.com/crill-dev/crill
+    expected
+        CC0 1.0. https://github.com/TartanLlama/expected
+    libsamplerate
+        BSD-2-Clause. https://github.com/libsndfile/libsamplerate
+    nanorange
+        Boost Software License 1.0. https://github.com/tcbrindle/NanoRange
+    rigtorp/MPMCQueue
+        MIT. https://github.com/rigtorp/MPMCQueue
+    magic_enum
+        MIT. https://github.com/Neargye/magic_enum
+    farbot
+        MIT. https://github.com/hogliux/farbot
+    doctest
+        MIT. https://github.com/doctest/doctest
+        Used by Tracktion's own tests. The Carve application target does not
+        build that test runner.
+
+SoundTouch (LGPL-2.1-or-later) is also inside the engine's source tree. It
+is not compiled into Carve; see "Not linked into the application" below.
+
+
+Signalsmith Stretch
+-------------------
+
+The phase vocoder behind the Pitch Shifter effect. Fetched at commit
+a670068d9aeb64913331d5cc29337b19a457a7df (1.4.0).
+https://github.com/Signalsmith-Audio/signalsmith-stretch
+
+It uses Signalsmith Linear (0.6.4) for its FFT, under the same licence text:
+https://github.com/Signalsmith-Audio/linear
+
+    MIT License
+
+    Copyright (c) 2022 Geraint Luff / Signalsmith Audio Ltd.
+    Copyright (c) 2025 Signalsmith Audio (Signalsmith Linear)
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+
+JUCE
+----
+
+Copyright Raw Material Software Limited.
+https://juce.com
+Version in this tree: 8.0.6, the submodule of tracktion_engine v3.2.0.
+
+Dual licensed: the GNU Affero General Public License, version 3
+(https://www.gnu.org/licenses/agpl-3.0.html), or the JUCE End User Licence
+Agreement (https://juce.com/legal/juce-8-licence/).
+
+The GitHub / Developer ID build uses the AGPL-3.0 arm.
+The Mac App Store build uses the JUCE 8 Starter licence (free, individual,
+annual revenue or funding limit 20,000 USD). JUCE 8 does not require a splash
+screen under that licence. JUCE is not owned by Tracktion; a Tracktion Engine
+licence does not include a JUCE licence.
+
+JUCE is built as it ships in that submodule. This tree applies no patch to it.
+
+JUCE bundles further components. On the macOS application the ones in use are
+drawn from this set (licence texts live beside the code in the JUCE modules):
+
+    AudioUnit SDK
+        Apache License 2.0.
+        modules/juce_audio_plugin_client/AU/AudioUnitSDK/
+    FLAC
+        BSD. Xiph.Org.
+        modules/juce_audio_formats/codecs/flac/
+    Ogg Vorbis
+        BSD. Xiph.Org.
+        modules/juce_audio_formats/codecs/oggvorbis/
+    zlib
+        zlib licence. Jean-loup Gailly and Mark Adler.
+        modules/juce_core/zip/zlib/
+    libpng
+        zlib/libpng licence.
+        modules/juce_graphics/image_formats/pnglib/
+    libjpeg (Independent JPEG Group)
+        Independent JPEG Group licence.
+        modules/juce_graphics/image_formats/jpglib/
+    HarfBuzz
+        Old MIT licence.
+        modules/juce_graphics/fonts/harfbuzz/
+    SheenBidi
+        Apache License 2.0.
+        modules/juce_graphics/unicode/sheenbidi/
+
+Oboe (Apache-2.0) and ASIO (Steinberg proprietary or GPL-3.0) are in the JUCE
+tree for Android and Windows. They are not part of the macOS build. AAX is
+not enabled. GLEW, Mesa and Khronos headers ship inside juce_opengl under BSD
+and MIT terms; they are linked only if that module is pulled in by the engine.
+
+The VST3 SDK is separate, below.
+
+
+VST3 SDK
+--------
+
+Copyright Steinberg Media Technologies GmbH.
+Bundled with JUCE at
+modules/juce_audio_processors/format_types/VST3_SDK/LICENSE.txt
+
+The SDK is licensed under the proprietary Steinberg VST3 licence, or
+alternatively under the GNU General Public License, version 3.
+https://www.steinberg.net/sdklicenses_vst3
+https://steinbergmedia.github.io/vst3_dev_portal/pages/VST+3+Licensing/Usage+guidelines.html
+
+The default Carve build sets JUCE_PLUGINHOST_VST3=1 and uses the GPL-3.0 arm,
+which is compatible with this repository's AGPL-3.0-or-later.
+
+The Mac App Store build sets JUCE_PLUGINHOST_VST3=0. That binary does not
+contain the SDK. This repository does not include a signed Steinberg
+proprietary SDK agreement, and the App Store binary is not under the GPL.
+The same build sets JUCE_PLUGINHOST_AU=0: it hosts no third-party plugins of
+any format.
+
+
+TinySoundFont
+-------------
+
+The SoundFont player. Fetched at commit 853a0a171759f1ddba0de1442133a75912bbeffa.
+https://github.com/schellingb/TinySoundFont
+
+    Copyright (C) 2017-2023 Bernhard Schelling
+    (Based on SFZero, Copyright (C) 2012 Steve Folta,
+    https://github.com/stevefolta/SFZero)
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+
+WORLD
+-----
+
+The vocoder used by the UTAU singer. Fetched at commit
+c794856b537758a3d300757db2e5e31685a822c2.
+https://github.com/mmorise/World
+
+    WORLD: High-quality speech analysis, manipulation and synthesis system
+    developed by M. Morise
+    http://www.kisc.meiji.ac.jp/~mmorise/world/english/
+
+    Copyright (c) 2010 M. Morise
+
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    - Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    - Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+    - Neither the name of the M. Morise nor the names of its contributors may
+      be used to endorse or promote products derived from this software without
+      specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
+
+
+Not linked into the application
+-------------------------------
+
+    SoundTouch
+        LGPL-2.1-or-later, copyright Olli Parviainen. Present in
+        tracktion_engine at modules/tracktion_engine/3rd_party/soundtouch.
+        The build sets TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0, and
+        patches/tracktion-soundtouch-optional.patch keeps the engine from
+        compiling its tempo detector regardless of that switch. No SoundTouch
+        source is compiled into either build.
+    AirWindows
+        Present in tracktion_engine. TRACKTION_AIR_WINDOWS is left unset,
+        because the bundled copy does not include a licence text. The effect
+        is not compiled into Carve.
+    Catch2 (Boost Software License 1.0) and RapidCheck (BSD)
+        Fetched only when the test targets are built. They are not linked
+        into Carve DAW.app.
+    iconv
+        On macOS the UTAU voicebank reader links the system libiconv. It is
+        not bundled.

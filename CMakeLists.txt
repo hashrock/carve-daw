@@ -9,6 +9,27 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 endif()
 
+# The default build is the AGPL binary described in LICENSE. The App Store
+# binary is a different licence (JUCE 8 Starter and Tracktion Engine Personal):
+# its About text says so, and it hosts no third-party plugins at all. VST3 is
+# out because JUCE 8.0.6 ships that SDK under Steinberg's proprietary terms or
+# GPL-3.0 only, and this tree has no Steinberg SDK agreement; Audio Units are
+# out because the App Sandbox will not load other vendors' code into the
+# process. See LICENSING.md.
+#
+# Do not define JUCE_DISPLAY_SPLASH_SCREEN or JUCE_USE_DARK_SPLASH_SCREEN.
+# JUCE 8.0.6 ignores both and warns if they are defined. JUCE_REPORT_APP_USAGE
+# is not a macro in this JUCE; there is no usage report left to switch off.
+option(CARVE_APP_STORE
+    "Mac App Store build: commercial JUCE/Tracktion notices, no plugin hosting"
+    OFF)
+
+if(CARVE_APP_STORE)
+    set(CARVE_PLUGIN_HOSTING 0)
+else()
+    set(CARVE_PLUGIN_HOSTING 1)
+endif()
+
 include(FetchContent)
 
 # tracktion_engine bundles JUCE as a git submodule, so no separate JUCE fetch.
@@ -38,13 +59,15 @@ FetchContent_Declare(tracktion
     #   * fixed-seed oscillator phase, so two renders of a song are identical
     #   * pending live MIDI (note previews) survives the graph rebuild that
     #     every MIDI note edit triggers
-    #   * JUCE's Ogg Vorbis writer/reader carry the LOOPSTART / LOOPLENGTH
-    #     comments games loop music by. JUCE is a submodule of its own, so
-    #     that patch is applied from inside it.
+    #   * SoundTouch (LGPL) is compiled only when its stretcher is asked
+    #     for, which here it never is
+    # JUCE itself is not patched, and the last step makes sure of it: a
+    # checkout from when this tree did patch JUCE (the Ogg writer) is put
+    # back as JUCE shipped it.
     # Idempotent: CMake re-runs this on reconfigure, so an already-patched
     # tree has to pass. "Reverse would apply" means the patch is in place.
     # (No semicolons in here: CMake would split the command on them.)
-    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch') && (cd modules/juce && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-ogg-loop-comments.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-ogg-loop-comments.patch'))"
+    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch') && git -C modules/juce checkout -- ."
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)
@@ -69,6 +92,24 @@ FetchContent_Declare(world
     GIT_TAG        c794856b537758a3d300757db2e5e31685a822c2)
 FetchContent_MakeAvailable(world)
 
+# Signalsmith Stretch: the phase vocoder behind the Pitch Shifter (MIT, as is
+# the signalsmith-linear it fetches for its FFT). Header-only. It is here
+# instead of the SoundTouch that ships inside tracktion_engine because
+# SoundTouch is LGPL, and a statically linked App Store binary cannot offer
+# the relinking the LGPL asks for.
+#
+# signalsmith-linear is declared here, ahead of the stretcher that would
+# otherwise fetch it itself: that pins it by commit, and it puts
+# signalsmith-linear_SOURCE_DIR in this scope, where the include path below
+# needs it.
+FetchContent_Declare(signalsmith-linear
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+    GIT_TAG        de55e6a50ffcf6f8f43f649692d94691c7025151)   # 0.6.4
+FetchContent_Declare(signalsmith-stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        a670068d9aeb64913331d5cc29337b19a457a7df)   # 1.4.0
+FetchContent_MakeAvailable(signalsmith-linear signalsmith-stretch)
+
 set(CARVE_CORE_SOURCES
     src/model/ModelIds.h
     src/model/SongModel.h
@@ -87,6 +128,8 @@ set(CARVE_CORE_SOURCES
     src/sync/EffectChains.cpp
     src/sync/RenderPreroll.h
     src/sync/RenderPreroll.cpp
+    src/sync/VorbisComments.h
+    src/sync/VorbisComments.cpp
     src/plugins/DistortionPlugin.h
     src/plugins/DistortionPlugin.cpp
     src/plugins/SaturationPlugin.h
@@ -98,6 +141,8 @@ set(CARVE_CORE_SOURCES
     src/plugins/GainReduction.h
     src/plugins/OvertopPlugin.h
     src/plugins/OvertopPlugin.cpp
+    src/plugins/PitchShifterPlugin.h
+    src/plugins/PitchShifterPlugin.cpp
     src/plugins/LimiterPlugin.h
     src/plugins/LimiterPlugin.cpp
     src/plugins/DrumSynthPlugin.h
@@ -132,19 +177,26 @@ endfunction()
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_include_directories(${target} SYSTEM PRIVATE ${tinysoundfont_SOURCE_DIR})
+    # SYSTEM, and by path rather than by linking the interface targets, so
+    # the headers' own warnings stay out of a build with JUCE's flags on.
+    target_include_directories(${target} SYSTEM PRIVATE
+        ${tinysoundfont_SOURCE_DIR}
+        ${signalsmith-stretch_SOURCE_DIR}/include
+        ${signalsmith-linear_SOURCE_DIR}/include)
     target_compile_definitions(${target} PRIVATE
-        # The Pitch Shifter is a wrapper round tracktion's TimeStretcher, and
-        # with no stretching backend compiled in that wrapper is a very
-        # convincing piece of dead weight: it passes audio through untouched
-        # whatever the semitones knob says. SoundTouch ships inside the engine
-        # (3rd_party/soundtouch, LGPL) and is the one that needs no extra
-        # dependency, so it is the one that gets switched on.
-        TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+        # No tracktion time-stretcher is compiled in. Its only user here was
+        # the engine's Pitch Shifter, which src/plugins/PitchShifterPlugin
+        # replaces; SoundTouch (LGPL) stays out of every binary. Spelled out
+        # as 0 so nobody reads its absence as an oversight.
+        TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_PLUGINHOST_VST3=1
-        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+        JUCE_PLUGINHOST_VST3=${CARVE_PLUGIN_HOSTING}
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=${CARVE_PLUGIN_HOSTING}>
+        # Always defined, including as 0: the sources branch on them with #if,
+        # and an undefined macro would trip -Wundef under JUCE's warning flags.
+        CARVE_PLUGIN_HOSTING=${CARVE_PLUGIN_HOSTING}
+        CARVE_APP_STORE=$<BOOL:${CARVE_APP_STORE}>
         JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
@@ -163,10 +215,16 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 juce_add_gui_app(carve
     PRODUCT_NAME "Carve DAW"
     BUNDLE_ID    "com.hashrock.carve"
+    COMPANY_NAME "hashrock"
+    # Finder's Get Info, as well as the About window. The Personal licence
+    # wants the phrase somewhere the binary itself carries.
+    COMPANY_COPYRIGHT "Copyright (C) 2026 hashrock. Powered by Tracktion Engine."
+    COMPANY_WEBSITE "https://github.com/hashrock/carve-daw"
     ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
     MICROPHONE_PERMISSION_ENABLED TRUE)
 target_sources(carve PRIVATE
     src/app/Main.cpp
+    src/app/LegalNotices.h
     src/app/MainComponent.h
     src/app/MainComponent.cpp
     src/app/TransportBar.h
@@ -220,7 +278,14 @@ target_sources(carve PRIVATE
     src/app/TimelineView.h
     src/app/TypingKeyboard.h
     src/app/TypingKeyboard.cpp
-    src/app/TimeSigSupport.h)
+    src/app/TimeSigSupport.h
+    src/app/SandboxAccess.h)
+# Security-scoped bookmarks are Foundation, so the real thing is Objective-C++.
+if(APPLE)
+    target_sources(carve PRIVATE src/app/SandboxAccess.mm)
+else()
+    target_sources(carve PRIVATE src/app/SandboxAccess.cpp)
+endif()
 carve_configure_target(carve)
 
 # --- Factory content ---
@@ -235,7 +300,10 @@ carve_configure_target(carve)
 # happened, which in practice means a scratch program linked against these
 # objects; see src/app/FactoryContent.h.
 target_compile_definitions(carve PRIVATE
-    CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content")
+    CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content"
+    # Where About looks when the bundle copy below has not happened yet.
+    CARVE_SOURCE_NOTICES_FILE="${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+    CARVE_SOURCE_TRACKTION_LOGO="${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png")
 
 if(APPLE)
     set(CARVE_CONTENT_DESTINATION "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources/Content")
@@ -247,6 +315,24 @@ add_custom_command(TARGET carve POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/content" "${CARVE_CONTENT_DESTINATION}"
     COMMENT "Copying the factory content into the app")
+
+# Beside the factory content: the notices a review of the binary can open,
+# and the Tracktion lockup the About window draws. Same two places
+# FactoryContent.h searches, plus the source-tree fallback compiled in above.
+if(APPLE)
+    set(CARVE_RESOURCE_DIR "$<TARGET_BUNDLE_CONTENT_DIR:carve>/Resources")
+else()
+    set(CARVE_RESOURCE_DIR "$<TARGET_FILE_DIR:carve>")
+endif()
+
+add_custom_command(TARGET carve POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+            "${CARVE_RESOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png"
+            "${CARVE_RESOURCE_DIR}/powered-by-tracktion-engine.png"
+    COMMENT "Copying third-party notices into the app")
 
 # --- Headless renderer CLI ---
 juce_add_console_app(carve-render
@@ -329,10 +415,12 @@ if(CARVE_BUILD_TESTS)
         src/voice/Voicebank.cpp
         src/plugins/BreakAnalysis.cpp
         src/plugins/GabberKickDsp.cpp
+        src/sync/VorbisComments.cpp
         tests/BreakSliceProperties.cpp
         tests/GabberKickTests.cpp
         tests/CaptureProperties.cpp
         tests/VoicebankTests.cpp
+        tests/VorbisCommentTests.cpp
         tests/NoteGestureProperties.cpp
         tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)

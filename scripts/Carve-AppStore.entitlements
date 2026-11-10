@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    For the Mac App Store build (-DCARVE_APP_STORE=ON) only. The Developer ID
+    disk image is signed with Carve.entitlements instead; see LICENSING.md.
+
+    The store requires the App Sandbox. Inside it the app can reach its own
+    container and nothing else, so what it needs beyond that is asked for
+    here, and it is not much:
+
+      * the files the user points at in an open or save panel, read and
+        written: songs, samples, SoundFonts, voicebanks, and exports.
+      * the right to keep that access across launches, as security-scoped
+        bookmarks. A song is a list of paths to samples picked on some
+        earlier day, and without this every one of them would be out of
+        reach the next time the app opened. See src/app/SandboxAccess.h.
+
+    What is deliberately absent:
+
+      * disable-library-validation. The other entitlements file has it so
+        that a plugin host can load other vendors' AU/VST3 bundles. This
+        build hosts none, and the store does not take that exception.
+      * audio input. The app never records audio. MIDI input needs no
+        entitlement.
+      * network. The app talks to nobody.
+    -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+</dict>
+</plist>

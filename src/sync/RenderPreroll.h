@@ -56,7 +56,9 @@ struct RenderOutput
     juce::AudioFormat* format = nullptr;   // nullptr: WAV
     int bitDepth = 24;                     // ignored by formats with one depth (Ogg)
     int qualityIndex = 0;                  // into format->getQualityOptions(), where it has any
-    juce::StringPairArray metadata;        // e.g. gameLoopMetadata()
+    // e.g. gameLoopMetadata(). For Ogg these are written as Vorbis comments
+    // under their own names, once the file is finished.
+    juce::StringPairArray metadata;
 
     // The exact number of samples to write, or negative for "everything the
     // render produced". A game loop needs this: its loop points are sample
@@ -95,7 +97,8 @@ void discardPreroll (const PrerollRender&);
 // The loop is the song's LOOP range, the same one the transport plays, and
 // the points are written as the two Vorbis comments games read: LOOPSTART,
 // the first sample of the loop, and LOOPLENGTH, how many samples it runs.
-// (Only Ogg Vorbis carries them; see patches/juce-ogg-loop-comments.patch.)
+// (Only Ogg Vorbis carries them. They are added to the finished file; see
+// VorbisComments.h.)
 struct GameLoop
 {
     te::TimeRange range;            // what to render: song start to loop end

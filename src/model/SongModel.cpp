@@ -1,5 +1,7 @@
 #include "SongModel.h"
 
+#include "FileWrite.h"
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -352,8 +354,17 @@ juce::File FileRef::getFile (const juce::ValueTree& state)
     return juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
 }
 
+std::function<void (const juce::File&)>& FileRef::onFileReferenced()
+{
+    static std::function<void (const juce::File&)> callback;
+    return callback;
+}
+
 void FileRef::setFile (juce::ValueTree state, const juce::File& file, juce::UndoManager* um)
 {
+    if (auto& referenced = onFileReferenced())
+        referenced (file);
+
     state.setProperty (ids::file, file.getFullPathName(), um);
 
     // Stale the moment the file changes; Song::saveToFile writes a fresh one
@@ -1250,7 +1261,7 @@ juce::String Song::toXmlString() const
 bool Song::saveToFile (const juce::File& file) const
 {
     refreshMediaPaths (file);
-    return file.replaceWithText (toXmlString());
+    return replaceFileText (file, toXmlString());
 }
 
 // Both of these write to the tree from a const method, the way getPlaylist

@@ -2,7 +2,9 @@
 
 #include "EngineSetup.h"
 #include "Fonts.h"
+#include "LegalNotices.h"
 #include "MainComponent.h"
+#include "SandboxAccess.h"
 #include "model/SampleSongs.h"
 
 namespace carve::app
@@ -22,6 +24,10 @@ public:
         // re-launched with a command line the engine recognises. This has to
         // come first: a scanner process must not start an engine or open a
         // window. Paired with canScanPluginsOutOfProcess() in EngineSetup.h.
+        //
+        // A build that hosts no plugins never scans, so it never relaunches
+        // itself -- which the App Sandbox would have something to say about.
+       #if CARVE_PLUGIN_HOSTING
         if (te::PluginManager::startChildProcessPluginScan (commandLine))
         {
             // The scanner is this same executable launched again, so on macOS
@@ -31,23 +37,37 @@ public:
            #endif
             return;
         }
+       #else
+        juce::ignoreUnused (commandLine);
+       #endif
 
         // Before any window exists: it decides how every label, menu and
         // button in them is drawn (see Fonts.h).
         juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
 
-        engine = carve::createEngine (nullptr, true);
+        // Before the engine and before any window: both read paths the user
+        // gave the app on an earlier run (recent songs, the browser's
+        // folders), and inside the App Sandbox those are out of reach until
+        // this claims them back. Nothing happens outside the sandbox.
+        carve::sandbox::restoreAccess (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                                           .getChildFile (carve::applicationName)
+                                           .getChildFile ("FileAccess.xml"));
+        carve::model::FileRef::onFileReferenced() = [] (const juce::File& file) { carve::sandbox::rememberAccess (file); };
+
+        engine = carve::createEngine (nullptr, CARVE_PLUGIN_HOSTING != 0);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
 
        #if JUCE_MAC
         menu = std::make_unique<Menu> (*this);
 
         // About, in the Apple menu where macOS puts it. Not decoration: the
-        // AGPL asks an interactive program to offer somewhere prominent that
-        // says who holds the copyright, that there is no warranty, that it may
-        // be redistributed under that licence, and where to read it.
+        // AGPL build has to say who holds the copyright, that there is no
+        // warranty, that it may be redistributed under that licence, and where
+        // to read it. The same window carries the "Powered by Tracktion Engine"
+        // line the Personal licence asks for. Notices are the third-party list.
         juce::PopupMenu appleMenu;
         appleMenu.addItem (Menu::aboutItemID, "About " + getApplicationName());
+        appleMenu.addItem (Menu::noticesItemID, "Third-Party Notices...");
         appleMenu.addSeparator();
 
         // Where macOS users look for it, shortcut and all. It is in the View
@@ -67,6 +87,12 @@ public:
         juce::MenuBarModel::setMacMainMenu (nullptr);
         menu.reset();
        #endif
+
+        // Before the windows that hold them. A deferred close posted by
+        // either window must not touch this object once shutdown has begun.
+        *appAlive = false;
+        aboutWindow.reset();
+        noticesWindow.reset();
 
         mainWindow.reset();   // destroys the Edit before the Engine
         engine.reset();
@@ -98,30 +124,51 @@ public:
     }
 
 private:
-    // What the AGPL calls the Appropriate Legal Notices: the copyright, the
-    // absence of a warranty, the freedom to pass it on under the same terms,
-    // and where the licence itself is. See NOTICE.md for why this app is
-    // under that licence and not a shorter one.
+    // The About window and the third-party notices. Deferred close, same as
+    // the other windows: the button runs while the window is still on screen,
+    // so destroying it is the next turn's job. appAlive is cleared in shutdown
+    // so a turn that arrives after that does not touch this object.
     void showAbout()
     {
-        const juce::String text =
-            getApplicationName() + " " + getApplicationVersion() + "\n"
-            "Copyright (C) 2026 hashrock\n"
-            "\n"
-            "This program comes with ABSOLUTELY NO WARRANTY.\n"
-            "\n"
-            "It is free software: you may redistribute it under the terms of the "
-            "GNU Affero General Public License, version 3 or later. The full text is "
-            "in the LICENSE file beside the source, and at "
-            "https://www.gnu.org/licenses/agpl-3.0.html\n"
-            "\n"
-            "Source: https://github.com/hashrock/carve-daw\n"
-            "\n"
-            "Built on tracktion_engine (GPL-3.0-or-later) and JUCE (AGPL-3.0), "
-            "with the rest of the third-party licences listed in NOTICE.md.";
+        if (aboutWindow != nullptr)
+        {
+            aboutWindow->toFront (true);
+            return;
+        }
 
-        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon,
-                                                     getApplicationName(), text);
+        auto alive = appAlive;
+
+        aboutWindow = std::make_unique<AboutWindow> (getApplicationName(),
+                                                     getApplicationVersion(),
+                                                     [this] { showNotices(); },
+                                                     [this, alive]
+                                                     {
+                                                         juce::MessageManager::callAsync ([this, alive]
+                                                         {
+                                                             if (*alive)
+                                                                 aboutWindow.reset();
+                                                         });
+                                                     });
+    }
+
+    void showNotices()
+    {
+        if (noticesWindow != nullptr)
+        {
+            noticesWindow->toFront (true);
+            return;
+        }
+
+        auto alive = appAlive;
+
+        noticesWindow = std::make_unique<NoticesWindow> ([this, alive]
+        {
+            juce::MessageManager::callAsync ([this, alive]
+            {
+                if (*alive)
+                    noticesWindow.reset();
+            });
+        });
     }
 
     MainComponent* getMainComponent() const
@@ -214,12 +261,19 @@ private:
         // The Apple menu's own items, which arrive here like any other.
         static constexpr int aboutItemID = 9000;
         static constexpr int settingsItemID = 9001;
+        static constexpr int noticesItemID = 9002;
 
         void menuItemSelected (int itemID, int) override
         {
             if (itemID == aboutItemID)
             {
                 owner.showAbout();
+                return;
+            }
+
+            if (itemID == noticesItemID)
+            {
+                owner.showNotices();
                 return;
             }
 
@@ -284,6 +338,12 @@ private:
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<MainWindow> mainWindow;
     std::unique_ptr<Menu> menu;
+
+    // See showAbout. Shared so the deferred close still has the flag after
+    // this object has started to go.
+    std::shared_ptr<bool> appAlive = std::make_shared<bool> (true);
+    std::unique_ptr<AboutWindow> aboutWindow;
+    std::unique_ptr<NoticesWindow> noticesWindow;
 };
 
 } // namespace carve::app
