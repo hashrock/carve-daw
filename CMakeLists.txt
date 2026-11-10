@@ -63,13 +63,14 @@ FetchContent_Declare(tracktion
     #     for, which here it never is
     #   * an audio clip already at the output rate skips the sinc resampler,
     #     so it plays bit-for-bit rather than band-limited
+    #   * a constant-power pan law whose centre is unity
     # JUCE itself is not patched, and the last step makes sure of it: a
     # checkout from when this tree did patch JUCE (the Ogg writer) is put
     # back as JUCE shipped it.
     # Idempotent: CMake re-runs this on reconfigure, so an already-patched
     # tree has to pass. "Reverse would apply" means the patch is in place.
     # (No semicolons in here: CMake would split the command on them.)
-    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch') && git -C modules/juce checkout -- ."
+    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-pan-law-3db-unity-centre.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-pan-law-3db-unity-centre.patch') && git -C modules/juce checkout -- ."
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)
@@ -341,10 +342,10 @@ add_custom_command(TARGET carve POST_BUILD
 # --- Headless renderer CLI ---
 juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
-# NoteOffPlayback is a test, but it needs a playing engine, and carve-render is
-# the console target that already links one -- a target of its own would
-# compile the whole of tracktion_engine a third time.
-target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp)
+# NoteOffPlayback and SignalPathChecks are tests, but they need a playing
+# engine, and carve-render is the console target that already links one -- a
+# target of their own would compile the whole of tracktion_engine a third time.
+target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp tests/SignalPathChecks.cpp)
 target_include_directories(carve-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 carve_configure_target(carve-render)
 

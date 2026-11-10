@@ -1283,6 +1283,27 @@ public:
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
     void setTempo (double bpm, juce::UndoManager* um)            { state.setProperty (ids::tempo, TempoChange::clampBpm (bpm), um); }
 
+    // How a fader's pan splits a track between the two sides. Linear (each
+    // side 1 -/+ pan, so the near side reaches +6dB at the extreme and the
+    // total power rises 3dB) is what every song had before the choice
+    // existed, so a song without the property keeps it. New songs pan at
+    // constant power, unity in the centre: moving the pan moves the image
+    // without making the track louder, and a centred track is where it was.
+    enum class PanLaw { linear, equalPower };
+
+    PanLaw getPanLaw() const
+    {
+        return state[ids::panLaw].toString() == equalPowerPanLawName ? PanLaw::equalPower : PanLaw::linear;
+    }
+
+    void setPanLaw (PanLaw law, juce::UndoManager* um)
+    {
+        state.setProperty (ids::panLaw, law == PanLaw::equalPower ? equalPowerPanLawName : linearPanLawName, um);
+    }
+
+    static constexpr const char* linearPanLawName = "linear";
+    static constexpr const char* equalPowerPanLawName = "equalPower";
+
     // Playback loop range in beats, set from the playlist ruler. An empty
     // range means "loop the whole song", which is what playback did before
     // the range existed, so older songs keep their behaviour. Both ends are

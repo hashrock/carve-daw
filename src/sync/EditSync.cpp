@@ -6,20 +6,34 @@
 #include "EffectChains.h"
 #include "EngineIds.h"
 #include "model/Singing.h"
+#include "../plugins/DistortionPlugin.h"
 #include "../plugins/MeteredCompressorPlugin.h"
 #include "../plugins/PitchShifterPlugin.h"
+#include "../plugins/SaturationPlugin.h"
 
 namespace carve::sync
 {
 
 namespace
 {
+    // The song's pan law, on a fader. Set on each plugin rather than through
+    // tracktion's process-wide default, which belongs to no song.
+    void applyPanLaw (const model::Song& song, te::VolumeAndPanPlugin& volume)
+    {
+        const auto law = song.getPanLaw() == model::Song::PanLaw::equalPower ? te::PanLaw3dBCenterUnity
+                                                                             : te::PanLawLinear;
+        if (volume.getPanLaw() != law)
+            volume.setPanLaw (law);
+    }
+
     // Volume/pan round-trip through the fader taper, so compare loosely rather
     // than re-setting (and re-notifying) the parameter on every sync.
     void applyMixerState (const model::Song& song, const model::Generator& generator, te::AudioTrack& track)
     {
         if (auto volume = track.getVolumePlugin())
         {
+            applyPanLaw (song, *volume);
+
             if (std::abs (volume->getVolumeDb() - generator.getVolumeDb()) > 0.01f)
                 volume->setVolumeDb (generator.getVolumeDb());
 
@@ -520,6 +534,18 @@ namespace
         return modelType;
     }
 
+    // Settings a brand new insert starts from where they differ from the
+    // property defaults that saved songs depend on. Through setParameter, which
+    // moves the parameter and its tree together -- a bare property write moves
+    // only the tree (see applyNewSynthDefaults).
+    void applyInsertedEffectDefaults (te::Plugin& plugin)
+    {
+        if (auto distortion = dynamic_cast<plugins::DistortionPlugin*> (&plugin))
+            distortion->outputDb->setParameter (plugins::DistortionPlugin::insertedOutputDb, juce::sendNotificationSync);
+        else if (auto saturation = dynamic_cast<plugins::SaturationPlugin*> (&plugin))
+            saturation->outputDb->setParameter (plugins::SaturationPlugin::insertedOutputDb, juce::sendNotificationSync);
+    }
+
     te::Plugin::Ptr createEffectPlugin (te::Edit& edit, const model::Effect& effect)
     {
         te::Plugin::Ptr plugin;
@@ -541,6 +567,9 @@ namespace
         else
         {
             plugin = edit.getPluginCache().createNewPlugin (engineTypeFor (effect.getType()), {});
+
+            if (plugin != nullptr)
+                applyInsertedEffectDefaults (*plugin);
         }
 
         if (plugin != nullptr)
@@ -933,6 +962,8 @@ namespace
 
             if (auto volume = track->getVolumePlugin())
             {
+                applyPanLaw (song, *volume);
+
                 if (std::abs (volume->getVolumeDb() - group->getVolumeDb()) > 0.01f)
                     volume->setVolumeDb (group->getVolumeDb());
 
@@ -2379,6 +2410,8 @@ void EditSync::applyMixerStateOnly()
 
         if (auto volume = track->getVolumePlugin())
         {
+            applyPanLaw (song, *volume);
+
             if (std::abs (volume->getVolumeDb() - group->getVolumeDb()) > 0.01f)
                 volume->setVolumeDb (group->getVolumeDb());
 
