@@ -139,9 +139,11 @@ ln -s /Applications "$staging/Applications"
 
 # The licence travels with the binary: the AGPL asks that every recipient of
 # the program gets a copy of it, and a link in an About box is not that. The
-# source it was built from is the repository the notice points at.
+# source it was built from is the repository the notice points at. This script
+# packages the AGPL disk image, not the App Store build (LICENSING.md).
 cp LICENSE "$staging/LICENSE.txt"
 cp NOTICE.md "$staging/NOTICE.txt"
+cp THIRD_PARTY_NOTICES.txt "$staging/THIRD_PARTY_NOTICES.txt"
 
 rm -f "$dmg"
 hdiutil create -volname "Carve DAW" -srcfolder "$staging" -ov -format UDZO -quiet "$dmg"

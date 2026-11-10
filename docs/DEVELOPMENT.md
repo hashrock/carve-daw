@@ -124,23 +124,24 @@ MIDI 録音はするが、オーディオは録音しない。`src/EngineSetup.h
 
 ## ライセンスの経緯
 
-**AGPL-3.0-or-later**。全文は [LICENSE](LICENSE)、経緯と依存関係の一覧は
-[NOTICE.md](NOTICE.md) にある。
+ソースと GitHub Releases は **AGPL-3.0-or-later**。全文は [LICENSE](LICENSE)。
+依存関係は [NOTICE.md](NOTICE.md)。Mac App Store 向けの別ビルド (JUCE Starter と
+Tracktion Engine Personal、売上の上限、`-DCARVE_APP_STORE=ON`) は
+[LICENSING.md](LICENSING.md)。アプリが表示する第三者表記は
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
 
-選んだというより、土台から決まる: tracktion_engine 3.2.0 が GPL3 / 商用の
-デュアル、その中の JUCE 8.0.6 が AGPL3 / 商用のデュアルで、商用ライセンスを
-買っていないのでコピーレフト側になる。いちばん強い AGPL に揃う。
+土台はデュアルライセンスのまま: tracktion_engine 3.2.0 が GPL3 / 商用、その中の
+JUCE 8.0.6 が AGPL3 / 商用。ソースと公証済み dmg はコピーレフト側で、いちばん強い
+AGPL に揃う。App Store のバイナリだけ商用側で組む。リポジトリの LICENSE は変えない。
 
 AGPL のネットワーク条項 (13条) はネットワーク越しに使わせるソフトの話で、本アプリは
 何処とも通信しないデスクトップアプリなので、実際の義務は普通の GPL と同じ
 「受け取った人がソースを手に入れられること」= このリポジトリ。
 
-配布は **GitHub Releases の公証済み .dmg** (`scripts/release.sh` が署名・公証・
-staple まで行う)。**Mac App Store には出せない**: App Store の規約が課す DRM・
-台数制限・再配布禁止は、GPL/AGPL が禁じている「追加の制限」にあたる。無償でも
-ソース公開でも解消しない (VLC が 2011 年に同じ理由で削除されている)。
-App Store に出すなら tracktion_engine と JUCE の商用ライセンスを買った上で、
-ライセンスとは別にサンドボックスの制約から VST3 ホスティングを諦めることになる。
+配布の本線は今も **GitHub Releases の公証済み .dmg** (`scripts/release.sh`)。
+このバイナリは AGPL のままなので App Store には出さない。App Store 用は
+`-DCARVE_APP_STORE=ON` の別ビルドで、VST3 ホストはそこで外れる。サンドボックスで
+他人のプラグインを読む問題はライセンスとは別に残る。
 
 同梱の AirWindows (189 種、`TRACKTION_AIR_WINDOWS` で有効化可) は同梱コピーに
 ライセンス文が無いため未使用のまま。
