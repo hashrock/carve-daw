@@ -6,6 +6,7 @@
 #include "../plugins/OvertopPlugin.h"
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
+#include "../plugins/BitcrusherPlugin.h"
 
 namespace carve::app
 {
@@ -35,6 +36,7 @@ namespace
         { "lowpass",      "Low / High Pass",      "Filter" },
         { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },
         { plugins::SaturationPlugin::xmlTypeName, "Saturation", "Sat" },
+        { plugins::BitcrusherPlugin::xmlTypeName, "Bitcrusher", "Crush" },
         { "reverb",       "Reverb",               "Reverb" },
         { plugins::DelayPlugin::xmlTypeName, "Delay", "Delay" },
         { "chorus",       "Chorus",               "Chorus" },

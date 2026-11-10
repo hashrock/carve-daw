@@ -91,6 +91,8 @@ set(CARVE_CORE_SOURCES
     src/plugins/DistortionPlugin.cpp
     src/plugins/SaturationPlugin.h
     src/plugins/SaturationPlugin.cpp
+    src/plugins/BitcrusherPlugin.h
+    src/plugins/BitcrusherPlugin.cpp
     src/plugins/MeteredCompressorPlugin.h
     src/plugins/MeteredCompressorPlugin.cpp
     src/plugins/DelayPlugin.h
