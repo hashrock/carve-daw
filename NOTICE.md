@@ -11,9 +11,9 @@ The choice is not really a choice: it follows from what the app is built on.
 | --- | --- | --- |
 | [tracktion_engine](https://github.com/Tracktion/tracktion_engine) | 3.2.0 | GPL-3.0-or-later, or a commercial licence from Tracktion |
 | [JUCE](https://juce.com) (inside tracktion_engine) | 8.0.6 | AGPL-3.0, or a commercial JUCE licence |
-| [SoundTouch](https://www.surina.net/soundtouch/) (inside tracktion_engine) | bundled | LGPL-2.1-or-later |
 | [VST3 SDK](https://steinbergmedia.github.io/vst3_dev_portal/) (inside JUCE, for hosting) | bundled | Steinberg's proprietary licence, or GPL-3.0 |
 | [TinySoundFont](https://github.com/schellingb/TinySoundFont) (the SF2 player) | commit 853a0a1 | MIT |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (the pitch shifter) | 1.4.0 | MIT |
 | [WORLD](https://github.com/mmorise/World) (the UTAU singer's vocoder) | commit c794856 | modified BSD |
 | AudioUnit SDK, FLAC, Ogg Vorbis, zlib, HarfBuzz, and the rest inside JUCE | bundled | Apache-2.0 / BSD / zlib / MIT |
 
@@ -47,7 +47,7 @@ stapled, and they stay under the AGPL. They do not go through Apple's store.
 
 The App Store binary is a different compile (`-DCARVE_APP_STORE=ON`). It is
 built under the commercial licences named above, it does not offer AGPL
-redistribution of that binary, and it does not link the VST3 SDK. Hosting
-other people's plugins inside the App Store sandbox is a separate problem,
-and it is not solved by the licence switch. Details, and the questions that
-are still the owner's to answer, are in [LICENSING.md](LICENSING.md).
+redistribution of that binary, and it hosts no third-party plugins: the VST3
+SDK is not linked, and Audio Unit hosting is switched off, because the App
+Store sandbox does not load other vendors' code. Details, and the questions
+that are still the owner's to answer, are in [LICENSING.md](LICENSING.md).

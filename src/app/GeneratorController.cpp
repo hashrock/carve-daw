@@ -40,11 +40,16 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (9, "Break Slicer (drum loop)");
     menu.addItem (5, "Audio track");
 
-    const auto types = engine.getPluginManager().knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> instruments;
-    for (const auto& type : types)
+
+    // A build that hosts no plugins (the App Store one) offers none, and has
+    // no scanner to send anyone to. The list is not merely empty there: a
+    // settings file from another build could still be carrying one.
+   #if CARVE_PLUGIN_HOSTING
+    for (const auto& type : engine.getPluginManager().knownPluginList.getTypes())
         if (type.isInstrument)
             instruments.add (type);
+   #endif
 
     if (! instruments.isEmpty())
     {
@@ -54,8 +59,10 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             menu.addItem (100 + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")");
     }
 
+   #if CARVE_PLUGIN_HOSTING
     menu.addSeparator();
     menu.addItem (2, "Scan / manage plugins...");
+   #endif
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
                         [this, instruments] (int result)

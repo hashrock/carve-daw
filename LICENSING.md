@@ -12,13 +12,14 @@ The **Mac App Store** binary is a separate build. It is compiled with
 `-DCARVE_APP_STORE=ON` and is offered under the commercial licences below,
 plus Apple's App Store terms. It is not offered under the AGPL. Its About
 window says so, and it does not tell the recipient they may redistribute that
-binary under the AGPL.
+binary under the AGPL. It hosts no third-party plugins.
 
 | | GitHub source and Developer ID disk image | Mac App Store build |
 | --- | --- | --- |
 | Carve DAW | AGPL-3.0-or-later | Not AGPL. App Store terms, built with the commercial licences below |
 | tracktion_engine 3.2.0 | GPL-3.0-or-later | Tracktion Engine Personal (free, individual) |
 | JUCE 8.0.6 (inside tracktion_engine) | AGPL-3.0 | JUCE 8 Starter (free, individual) |
+| Third-party plugins | VST3 and Audio Unit hosting | None |
 | Configure | default | `-DCARVE_APP_STORE=ON` |
 
 JUCE arrives only as the submodule pin inside tracktion_engine 3.2.0, which is
@@ -144,28 +145,49 @@ cmake --build build-appstore --target carve --parallel
 
 1. Defines `CARVE_APP_STORE=1`, so the About text is the App Store text
    rather than the AGPL offer.
-2. Sets `JUCE_PLUGINHOST_VST3=0`. JUCE 8.0.6 carries the VST3 SDK under
-   Steinberg's proprietary licence or GPL-3.0
-   (`modules/juce_audio_processors/format_types/VST3_SDK/LICENSE.txt`). The
-   App Store binary is not GPL, and this repository has no signed Steinberg
-   proprietary SDK agreement, so that binary does not link the SDK.
-   `JUCE_PLUGINHOST_AU` stays on. The default (AGPL) build is unchanged and
-   still hosts VST3.
+2. Turns plugin hosting off: `JUCE_PLUGINHOST_VST3=0`,
+   `JUCE_PLUGINHOST_AU=0`, and `CARVE_PLUGIN_HOSTING=0`, which takes the
+   plugin lists and "Scan / manage plugins..." out of the menus and stops
+   the app relaunching itself as a scanner process.
+   - VST3: JUCE 8.0.6 carries the VST3 SDK under Steinberg's proprietary
+     licence or GPL-3.0
+     (`modules/juce_audio_processors/format_types/VST3_SDK/LICENSE.txt`).
+     The App Store binary is not GPL, and this repository has no signed
+     Steinberg proprietary SDK agreement, so that binary does not link the
+     SDK.
+   - Audio Units: no licence problem, but the App Sandbox does not load
+     other vendors' code into the process, and the entitlement that would
+     allow it (`com.apple.security.cs.disable-library-validation`) is not
+     one the store accepts.
+
+   A song that uses an external plugin still opens in this build; the
+   plugin's slot is there and makes no sound. The default (AGPL) build is
+   unchanged and hosts both formats.
 3. Leaves `JUCE_DISPLAY_SPLASH_SCREEN` and `JUCE_REPORT_APP_USAGE` unset.
    See above: the first is ignored in JUCE 8.0.6, and the second is not a
    macro here.
 
-`scripts/release.sh` is the Developer ID / notarisation path for the AGPL
-disk image. It is not an App Store upload, and it still signs with
-`scripts/Carve.entitlements`. Do not point that script at an App Store build
-without a separate entitlements file. The hardened-runtime entitlement
-`com.apple.security.cs.disable-library-validation` is what lets a plugin host
-load other people's AU/VST3 bundles. App Store apps are sandboxed and that
-entitlement is not the way through review.
+### Signing
+
+There are two entitlements files, one per distribution, and they are not
+interchangeable.
+
+- `scripts/Carve.entitlements` is the Developer ID / notarisation one, used
+  by `scripts/release.sh` for the AGPL disk image. Its single entitlement is
+  `com.apple.security.cs.disable-library-validation`, which is what lets a
+  plugin host load other people's AU/VST3 bundles.
+- `scripts/Carve-AppStore.entitlements` is the App Store one: the App
+  Sandbox, and read/write access to the files the user picks. No library
+  validation exception, because that build loads nobody else's code.
+
+`scripts/release.sh` is not an App Store upload. Do not point it at an App
+Store build.
 
 The App Store bundle still needs signing with the Apple Distribution
-certificate, a sandbox entitlements plist, and `altool` / Transporter. Those
-steps are not in this repository.
+certificate and that entitlements file, an embedded provisioning profile,
+a `productbuild` installer package signed with the Mac Installer
+Distribution certificate, and an upload with Transporter or `altool`. Those
+steps are not scripted in this repository yet.
 
 ## Notices that ship with the binary
 
@@ -175,40 +197,35 @@ of why the source is AGPL. The AGPL disk image also copies `LICENSE` and
 `NOTICE.md` next to the app, because the AGPL asks that a recipient of the
 program get the licence, not only a link.
 
-## Open questions the owner has to decide
+## Decided by the owner
 
-These are not resolved by this file.
+**One developer, one seat.** The owner's position (2026-11-10): Carve DAW has
+one developer, hashrock. `git shortlog -sn` also lists Claude
+(`noreply@anthropic.com`) and Cursor Agent (`cursoragent@cursor.com`); those
+commits were made by coding assistants at the owner's direction, on the
+owner's machine and accounts, and are not a second contributor. No one else
+has contributed source. On that basis the single JUCE Starter seat and the
+single Tracktion Engine Personal seat cover the product, and no contributor
+licence agreement is in place because there are no outside contributors. If
+a pull request from someone else is ever merged, both of those change: that
+person needs a seat under each licence, and the App Store build needs their
+permission to ship their code outside the AGPL.
 
-**Other authors in git history.** `git shortlog -sn` on this repository is
-hashrock (219), Claude `noreply@anthropic.com` (11 commits, 2026-10-15 and
-2026-11-09) and Cursor Agent `cursoragent@cursor.com` (1 commit, 2026-10-23,
-including `src/app/Main.cpp`). There is no contributor licence agreement.
-Shipping a non-AGPL binary needs the right to do that with every part of the
-program. Whether those commits are a copyright interest the owner does not
-solely hold is a legal question, and so is the status of code an assistant
-produced. This file does not answer it.
+## Open questions, and ones that have been closed
 
-**One commercial seat.** JUCE Starter and Tracktion Engine Personal are each
-one individual seat, and both licences talk about every developer who works
-on the product. A single personal seat may not cover code committed under
-another identity. Confirm with JUCE and Tracktion before the App Store build
-ships, if those commits are treated as someone else contributing.
+**SoundTouch** is not an open question any more: it is not in either
+binary. The engine's own pitch shifter needed it, so the Pitch Shifter effect
+is now `src/plugins/PitchShifterPlugin`, built on Signalsmith Stretch (MIT),
+and `patches/tracktion-soundtouch-optional.patch` stops the engine compiling
+SoundTouch's tempo detector, which it otherwise did whatever the build asked
+for. The engine's tempo detection reports "no tempo" as a result. Carve does
+not use it.
 
-**SoundTouch is still LGPL-2.1-or-later.** The pitch shifter is compiled in
-(`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1`). The header in tracktion_engine
-v3.2.0 states LGPL-2.1-or-later, copyright Olli Parviainen. Tracktion's
-commercial agreement does not say it relicences that library. An App Store
-binary links it statically, and a reviewer or a recipient cannot relink.
-Removing it was left undone: with no stretcher compiled in, the pitch shifter
-passes audio through unchanged. Decide whether Personal's grant covers
-SoundTouch, whether to ship object files and a relink offer outside the
-store, or whether the App Store build must drop that effect.
-
-**The JUCE patch.** `patches/juce-ogg-loop-comments.patch` modifies JUCE.
-The JUCE 8 grant includes the right to modify the framework, and clause 2.2
-of the same agreement says not to modify it. Those two sentences do not sit
-together. The patch is what makes `LOOPSTART` / `LOOPLENGTH` survive an Ogg
-round trip, so it was not reverted. Confirm Starter allows it.
+**The JUCE patch** is gone as well. JUCE is built unmodified. The loop points
+a game-loop export needs (`LOOPSTART` / `LOOPLENGTH`) are written into the
+finished Ogg file by `src/sync/VorbisComments`, which is Carve's own code and
+uses no JUCE internals. The question of whether Starter permits modifying the
+framework no longer applies to this tree.
 
 **Tracktion's own patches** (`patches/tracktion-*.patch`) are modifications
 of the engine. Clause 5.1 of the Tracktion agreement says the licensee owns
@@ -218,8 +235,7 @@ not a lawyer's.
 **AirWindows** is off. `TRACKTION_AIR_WINDOWS` is unset because the bundled
 copy has no licence text. Leave it unset for both builds until there is one.
 
-**VST3 on the store** is off in the App Store configuration for the licence
-reason above. The sandbox would also refuse arbitrary third-party plugins
-even if the SDK licence were sorted out. Audio Unit hosting is still
-compiled in; loading third-party AU bundles inside the App Store sandbox is
-the same entitlements problem as VST3, and is not solved here.
+**Plugins on the store** are off altogether in the App Store configuration:
+VST3 for the licence reason above, Audio Units because of the sandbox. If
+hosting ever comes back to that build it will be Audio Units loaded out of
+process (AUv3), which is a different piece of work.

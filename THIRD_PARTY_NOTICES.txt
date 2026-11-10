@@ -53,6 +53,7 @@ Local modifications applied at build time, still under the engine's licence:
 
     patches/tracktion-deterministic-osc-phase.patch
     patches/tracktion-live-midi-survives-note-edit-rebuild.patch
+    patches/tracktion-soundtouch-optional.patch
 
 Tracktion Engine in turn contains the following, as listed by its v3.2.0
 README. Their licence texts are in those upstream repositories:
@@ -83,42 +84,42 @@ README. Their licence texts are in those upstream repositories:
         Used by Tracktion's own tests. The Carve application target does not
         build that test runner.
 
-SoundTouch (below) is also inside the engine and is compiled into Carve.
+SoundTouch (LGPL-2.1-or-later) is also inside the engine's source tree. It
+is not compiled into Carve; see "Not linked into the application" below.
 
 
-SoundTouch
-----------
+Signalsmith Stretch
+-------------------
 
-The pitch shifter links SoundTouch from
-tracktion_engine/modules/tracktion_engine/3rd_party/soundtouch
-(SOUNDTOUCH_VERSION "2.1pre" in that copy), because the build sets
-TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1.
+The phase vocoder behind the Pitch Shifter effect. Fetched at commit
+a670068d9aeb64913331d5cc29337b19a457a7df (1.4.0).
+https://github.com/Signalsmith-Audio/signalsmith-stretch
 
-The header states:
+It uses Signalsmith Linear (0.6.4) for its FFT, under the same licence text:
+https://github.com/Signalsmith-Audio/linear
 
-    SoundTouch audio processing library
-    Copyright (c) Olli Parviainen
+    MIT License
 
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    Copyright (c) 2022 Geraint Luff / Signalsmith Audio Ltd.
+    Copyright (c) 2025 Signalsmith Audio (Signalsmith Linear)
 
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-    Lesser General Public License for more details.
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
 
-The licence text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
-Project page: http://www.surina.net/soundtouch
-
-Corresponding source for this copy is the soundtouch directory inside
-tracktion_engine v3.2.0:
-https://github.com/Tracktion/tracktion_engine/tree/v3.2.0/modules/tracktion_engine/3rd_party/soundtouch
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
 
 
 JUCE
@@ -138,9 +139,7 @@ annual revenue or funding limit 20,000 USD). JUCE 8 does not require a splash
 screen under that licence. JUCE is not owned by Tracktion; a Tracktion Engine
 licence does not include a JUCE licence.
 
-A local modification applied at build time, still under JUCE's licence:
-
-    patches/juce-ogg-loop-comments.patch
+JUCE is built as it ships in that submodule. This tree applies no patch to it.
 
 JUCE bundles further components. On the macOS application the ones in use are
 drawn from this set (licence texts live beside the code in the JUCE modules):
@@ -196,6 +195,8 @@ which is compatible with this repository's AGPL-3.0-or-later.
 The Mac App Store build sets JUCE_PLUGINHOST_VST3=0. That binary does not
 contain the SDK. This repository does not include a signed Steinberg
 proprietary SDK agreement, and the App Store binary is not under the GPL.
+The same build sets JUCE_PLUGINHOST_AU=0: it hosts no third-party plugins of
+any format.
 
 
 TinySoundFont
@@ -270,6 +271,13 @@ https://github.com/mmorise/World
 Not linked into the application
 -------------------------------
 
+    SoundTouch
+        LGPL-2.1-or-later, copyright Olli Parviainen. Present in
+        tracktion_engine at modules/tracktion_engine/3rd_party/soundtouch.
+        The build sets TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0, and
+        patches/tracktion-soundtouch-optional.patch keeps the engine from
+        compiling its tempo detector regardless of that switch. No SoundTouch
+        source is compiled into either build.
     AirWindows
         Present in tracktion_engine. TRACKTION_AIR_WINDOWS is left unset,
         because the bundled copy does not include a licence text. The effect

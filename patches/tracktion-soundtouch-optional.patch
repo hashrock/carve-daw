@@ -1,0 +1,109 @@
+Compile SoundTouch only when its time-stretcher is switched on
+
+SoundTouch is LGPL-2.1-or-later. TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+looks like the switch for it, but with the switch off the engine still
+compiled three of its sources (BPMDetect, PeakFinder, FIFOSampleBuffer) for
+TempoDetect, so a binary that never asked for SoundTouch linked LGPL code
+all the same.
+
+This puts those three behind the same switch. With it off, TempoDetect keeps
+its interface and reports 0 BPM -- outside getSensibleRange(), so callers
+treat it as "no tempo found", which is what they already do for audio the
+detector cannot read. Carve never detects tempo: it has no audio clips that
+follow one.
+
+diff --git a/modules/tracktion_engine/timestretch/tracktion_TempoDetect.h b/modules/tracktion_engine/timestretch/tracktion_TempoDetect.h
+index 2a98f9a..61addc0 100644
+--- a/modules/tracktion_engine/timestretch/tracktion_TempoDetect.h
++++ b/modules/tracktion_engine/timestretch/tracktion_TempoDetect.h
+@@ -37,7 +37,9 @@ namespace tracktion { inline namespace engine
+  #pragma GCC diagnostic ignored "-Wunknown-pragmas"
+ #endif
+ 
+-#include "../3rd_party/soundtouch/include/BPMDetect.h"
++#if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
++ #include "../3rd_party/soundtouch/include/BPMDetect.h"
++#endif
+ 
+ #ifdef __clang__
+  #pragma clang diagnostic pop
+@@ -55,8 +57,13 @@ class TempoDetect
+ public:
+     TempoDetect (int numChannels_, double sampleRate)
+         : numChannels (numChannels_),
++         #if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+           bpmDetect (numChannels, (int) sampleRate)
++         #else
++          bpm (0.0f)    // no detector compiled in: "no tempo found"
++         #endif
+     {
++        juce::ignoreUnused (sampleRate);
+     }
+ 
+     /** Processes an entire AudioFormatReader returning the tempo for it.
+@@ -95,7 +102,7 @@ public:
+     {
+         processSection (inputSamples, numSamples);
+ 
+-        return bpm = bpmDetect.getBpm();
++        return finishAndDetect();
+     }
+ 
+     /** Returns the last BPM detected. */
+@@ -114,11 +121,18 @@ public:
+     /** Completes the detection process and returns the BPM. */
+     float finishAndDetect()
+     {
++       #if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+         return bpm = bpmDetect.getBpm();
++       #else
++        return bpm = 0.0f;
++       #endif
+     }
+ 
+     void processSection (const float* const* inputSamples, int numSamples)
+     {
++       #if ! TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
++        juce::ignoreUnused (inputSamples, numSamples);
++       #else
+         AudioScratchBuffer scratch (1, numChannels * numSamples);
+         float* interleaved = scratch.buffer.getWritePointer (0);
+ 
+@@ -128,13 +142,18 @@ public:
+                                             numSamples);
+ 
+         bpmDetect.inputSamples (interleaved, numSamples);
++       #endif
+     }
+ 
+ private:
+     //==============================================================================
+     int numChannels;
++   #if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+     soundtouch::BPMDetect bpmDetect;
+     float bpm = -1.0f;
++   #else
++    float bpm;
++   #endif
+ 
+     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TempoDetect)
+ };
+diff --git a/modules/tracktion_engine/tracktion_engine_timestretch.cpp b/modules/tracktion_engine/tracktion_engine_timestretch.cpp
+index c2aea03..b07bd35 100644
+--- a/modules/tracktion_engine/tracktion_engine_timestretch.cpp
++++ b/modules/tracktion_engine/tracktion_engine_timestretch.cpp
+@@ -74,13 +74,13 @@
+ 
+ namespace tracktion { inline namespace engine
+ {
++   #if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+     #include "3rd_party/soundtouch/source/SoundTouch/BPMDetect.cpp"
+     #undef max
+     #include "3rd_party/soundtouch/source/SoundTouch/PeakFinder.cpp"
+     #undef max
+     #include "3rd_party/soundtouch/source/SoundTouch/FIFOSampleBuffer.cpp"
+ 
+-   #if TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH
+     #include "3rd_party/soundtouch/source/SoundTouch/AAFilter.cpp"
+     #undef PI
+     #include "3rd_party/soundtouch/source/SoundTouch/cpu_detect_x86.cpp"

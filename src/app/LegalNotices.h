@@ -79,7 +79,7 @@ inline juce::String thirdPartyNoticesText()
            "Built with JUCE, copyright Raw Material Software Limited.\n"
            "https://juce.com/legal/juce-8-licence/\n"
            "\n"
-           "Also: SoundTouch (LGPL-2.1-or-later, Olli Parviainen), "
+           "Also: Signalsmith Stretch (MIT, Signalsmith Audio), "
            "TinySoundFont (MIT, Bernhard Schelling) and WORLD "
            "(modified BSD, M. Morise).\n"
            "\n"
