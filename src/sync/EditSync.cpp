@@ -158,6 +158,18 @@ namespace
         if (synth.filterFreq != nullptr)
             synth.state.setProperty (te::IDs::filterFreq,
                                      synth.filterFreq->getValueRange().getEnd(), nullptr);
+
+        // A property write moves the tree but not the value an automatable
+        // parameter caches beside it, and the voices read the cached one. The
+        // plain CachedValues (waveShape1, filterType) took effect, while
+        // attack, release and cutoff kept the engine's defaults -- so every
+        // fresh synth played through a low pass at 440Hz with a tenth of a
+        // second of attack, and only came out as written once the song was
+        // saved and reopened, since a restored tree is read at construction.
+        // PluginPresets::load does the same catch-up for the same reason.
+        for (auto* parameter : synth.getAutomatableParameters())
+            if (parameter != nullptr)
+                parameter->updateFromAttachedValue();
     }
 
     // The 4OSC and the drum synth. Both are internal plugins whose settings are
