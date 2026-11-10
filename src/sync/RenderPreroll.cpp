@@ -18,10 +18,14 @@ PrerollRender applyPreroll (te::Renderer::Parameters& params, te::Engine& engine
     render.destination = params.destFile;
     render.prerollSamples = getPrerollSamples (params.blockSizeForAudio, params.sampleRateForAudio);
 
-    // Beside the destination, so it is on the same volume and plainly
-    // belongs to it if a crash leaves it behind.
-    render.renderFile = render.destination.getSiblingFile ("." + render.destination.getFileNameWithoutExtension()
-                                                               + ".rendering.wav")
+    // In the temporary folder, not beside the destination. It was beside it
+    // once, but inside the App Sandbox a destination picked in a save panel
+    // is the one path the app may write: a second file next to it is
+    // refused. Nothing needs the two on one volume -- the result is copied
+    // across sample by sample, not moved.
+    render.renderFile = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("carve-" + render.destination.getFileNameWithoutExtension()
+                                               + ".rendering.wav")
                             .getNonexistentSibling (false);
 
     params.destFile = render.renderFile;

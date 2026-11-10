@@ -1,5 +1,6 @@
 #include "MissingMediaWindow.h"
 #include "Fonts.h"
+#include "SandboxAccess.h"
 
 namespace carve::app
 {
@@ -140,6 +141,9 @@ void MissingMediaComponent::searchInFolder()
         if (safe == nullptr || folder == juce::File())
             return;
 
+        // The whole folder, not only what is found in it now: whatever is
+        // still missing may turn up here later.
+        sandbox::rememberAccess (folder);
         safe->song.relinkMissingMedia (folder, nullptr);
         safe->refresh();
 

@@ -12,6 +12,10 @@
 
       * the files the user points at in an open or save panel, read and
         written: songs, samples, SoundFonts, voicebanks, and exports.
+      * the right to keep that access across launches, as security-scoped
+        bookmarks. A song is a list of paths to samples picked on some
+        earlier day, and without this every one of them would be out of
+        reach the next time the app opened. See src/app/SandboxAccess.h.
 
     What is deliberately absent:
 
@@ -25,6 +29,8 @@
     <key>com.apple.security.app-sandbox</key>
     <true/>
     <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
     <true/>
 </dict>
 </plist>

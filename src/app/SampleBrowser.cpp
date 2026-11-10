@@ -1,6 +1,7 @@
 #include "SampleBrowser.h"
 #include "FactoryContent.h"
 #include "Fonts.h"
+#include "SandboxAccess.h"
 
 namespace carve::app
 {
@@ -629,6 +630,7 @@ void SampleBrowser::chooseFolderToAdd()
     {
         if (const auto chosen = chooser.getResult(); chosen.isDirectory())
         {
+            sandbox::rememberAccess (chosen);
             addFavourite (chosen);
             setFolder (chosen);
         }
@@ -946,6 +948,7 @@ void SampleBrowser::filesDropped (const juce::StringArray& files, int, int)
     {
         if (const juce::File dropped (path); dropped.isDirectory())
         {
+            sandbox::rememberAccess (dropped);
             addFavourite (dropped);
 
             if (first == juce::File())
