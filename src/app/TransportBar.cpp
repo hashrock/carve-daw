@@ -666,20 +666,22 @@ void TransportBar::resized()
     // needs. An iPad's screen cannot, and on an 11-inch one the full layout
     // runs off the right-hand edge, taking the master knob and Save with it.
     // So it is tried at its full size first and then tighter: narrower gaps
-    // between the groups, then a shorter master meter, then none. The meter
-    // is what gives way because the mixer shows the same level; nothing that
-    // is pressed is ever dropped.
-    struct Spacing { int gap, meter; };
+    // between the groups, then without the Master button, then a shorter
+    // master meter, then none. The Master button goes first because the
+    // mixer's MASTERING button does the same thing; the meter goes after it
+    // because the mixer shows that level too. Nothing else is dropped.
+    struct Spacing { int gap, meter; bool mastering; };
 
-    for (const auto spacing : { Spacing { 12, 110 }, Spacing { 8, 110 }, Spacing { 6, 72 },
-                                Spacing { 4, 44 }, Spacing { 4, 0 }, Spacing { 2, 0 } })
-        if (layOut (spacing.gap, spacing.meter))
+    for (const auto spacing : { Spacing { 12, 110, true }, Spacing { 8, 110, true },
+                                Spacing { 8, 110, false }, Spacing { 6, 110, false }, Spacing { 6, 72, false },
+                                Spacing { 4, 44, false }, Spacing { 4, 0, false }, Spacing { 2, 0, false } })
+        if (layOut (spacing.gap, spacing.meter, spacing.mastering))
             break;
 
     repaint();
 }
 
-bool TransportBar::layOut (int gapWidth, int meterWidth)
+bool TransportBar::layOut (int gapWidth, int meterWidth, bool showMastering)
 {
     panels.clear();
     captions.clear();
@@ -773,8 +775,11 @@ bool TransportBar::layOut (int gapWidth, int meterWidth)
     gap();
 
     browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
-    mixerButton.setBounds (take (76, 6).withSizeKeepingCentre (76, 28));
-    masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
+    mixerButton.setBounds (take (76, showMastering ? 6 : 10).withSizeKeepingCentre (76, 28));
+    masteringButton.setVisible (showMastering);
+
+    if (showMastering)
+        masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
 
     // Master: knob and a lying-down meter
     masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));

@@ -229,7 +229,7 @@ public:
     void resized() override;
 
     // One pass of the layout at this spacing. False if it did not fit.
-    bool layOut (int gapWidth, int meterWidth);
+    bool layOut (int gapWidth, int meterWidth, bool showMastering);
 
 private:
     void timerCallback() override;
