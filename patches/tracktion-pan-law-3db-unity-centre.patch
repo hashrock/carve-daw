@@ -1,0 +1,59 @@
+A constant-power pan law with a unity centre
+
+tracktion's laws are linear (each side 1 -/+ pan: the near side +6dB at the
+extreme, the total power up 3dB) and the sine laws with the centre 2.5 to
+6dB down. Carve wants constant power across the sweep without its centred
+tracks dropping 3dB -- songs are mixed against a centre at unity -- so this
+adds the -3dB sine law scaled by sqrt(2): unity in the centre, +3dB on the
+near side at the extreme, the same total power everywhere. A new enum value
+at the end, since the numbers are stored in an edit.
+
+diff --git a/modules/tracktion_engine/utilities/tracktion_AudioUtilities.cpp b/modules/tracktion_engine/utilities/tracktion_AudioUtilities.cpp
+index 8fb91d9..0133ccb 100644
+--- a/modules/tracktion_engine/utilities/tracktion_AudioUtilities.cpp
++++ b/modules/tracktion_engine/utilities/tracktion_AudioUtilities.cpp
+@@ -258,6 +258,7 @@ void getGainsFromVolumeFaderPositionAndPan (float volSliderPos, float pan, const
+             case PanLaw2point5dBCenter: ratio = 2.5f / 3.0f;  break;
+             case PanLaw4point5dBCenter: ratio = 1.5f;         break;
+             case PanLaw6dBCenter:       ratio = 2.0f;         break;
++            case PanLaw3dBCenterUnity:  ratio = 1.0f;         break;
+ 
+             case PanLawDefault:
+             case PanLawLinear:
+@@ -271,6 +272,14 @@ void getGainsFromVolumeFaderPositionAndPan (float volSliderPos, float pan, const
+ 
+         leftGain  = std::pow (leftGain,  ratio) * gain;
+         rightGain = std::pow (rightGain, ratio) * gain;
++
++        // Constant power across the sweep like the -3dB law, but measured
++        // from the centre: unity there, +3dB on the near side at the extreme.
++        if (panLaw == PanLaw3dBCenterUnity)
++        {
++            leftGain  *= juce::MathConstants<float>::sqrt2;
++            rightGain *= juce::MathConstants<float>::sqrt2;
++        }
+     }
+ }
+ 
+@@ -298,6 +307,7 @@ juce::StringArray getPanLawChoices (bool includeDefault) noexcept
+     s.add (TRANS("-3.0 dB Center"));
+     s.add (TRANS("-4.5 dB Center"));
+     s.add (TRANS("-6.0 dB Center"));
++    s.add (TRANS("-3.0 dB, Unity Center"));
+ 
+     return s;
+ }
+diff --git a/modules/tracktion_engine/utilities/tracktion_AudioUtilities.h b/modules/tracktion_engine/utilities/tracktion_AudioUtilities.h
+index 53d5fb7..8e1598d 100644
+--- a/modules/tracktion_engine/utilities/tracktion_AudioUtilities.h
++++ b/modules/tracktion_engine/utilities/tracktion_AudioUtilities.h
+@@ -92,7 +92,8 @@ enum PanLaw
+     PanLaw2point5dBCenter   = 1,   // NB: don't change these numbers, they're stored in the edit.
+     PanLaw3dBCenter         = 2,
+     PanLaw4point5dBCenter   = 3,
+-    PanLaw6dBCenter         = 4
++    PanLaw6dBCenter         = 4,
++    PanLaw3dBCenterUnity    = 5    // the -3dB (sine) law, scaled so the centre is unity
+ };
+ 
+ PanLaw getDefaultPanLaw() noexcept;

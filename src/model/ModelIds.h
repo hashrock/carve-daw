@@ -4,7 +4,7 @@
 
 // ValueTree schema:
 //
-// SONG {name, tempo, loopStart, loopEnd}
+// SONG {name, tempo, loopStart, loopEnd, panLaw}
 // ├─ RETURNS                                shared effect busses. A generator
 // │  └─ RETURN {id, name, busNumber,        sends into a bus by number; the
 // │             volumeDb, mute}             return track carries the shared
@@ -165,6 +165,7 @@ CARVE_DECLARE_ID (SLICE)
 CARVE_DECLARE_ID (id)
 CARVE_DECLARE_ID (name)
 CARVE_DECLARE_ID (tempo)
+CARVE_DECLARE_ID (panLaw)
 CARVE_DECLARE_ID (bpm)
 CARVE_DECLARE_ID (numerator)
 CARVE_DECLARE_ID (denominator)

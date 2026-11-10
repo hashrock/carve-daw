@@ -8,6 +8,7 @@
 #include "sync/EffectChains.h"
 #include "sync/RenderPreroll.h"
 #include "NoteOffPlayback.h"
+#include "SignalPathChecks.h"
 
 namespace
 {
@@ -52,6 +53,8 @@ void printUsage()
                  "        render the demo song using the named (substring-matched) instrument plugin\n"
                  "  carve-render --check-note-offs         play a song and delete what is sounding;\n"
                  "        exits with the number of notes left ringing (see tests/NoteOffPlayback.cpp)\n"
+                 "  carve-render --check-signal-path       render test signals through the mixer, resamplers\n"
+                 "        and effects; exits with the number of failed checks (see tests/SignalPathChecks.cpp)\n"
                  "\n"
                  "Options:\n"
                  "  --rate <hz>    sample rate of the rendered file (default 44100)\n"
@@ -413,7 +416,8 @@ int main (int argc, char* argv[])
     if (! takeSampleRateOption (args) || ! takeGameLoopOption (args) || ! takeMasteringOption (args))
         return 1;
 
-    const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs" ? 1
+    const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs"
+                              || args[0] == "--check-signal-path"                   ? 1
                            : args[0] == "--plugin-demo" || args[0] == "--sample"     ? 3
                                                                                     : 2;
 
@@ -445,6 +449,14 @@ int main (int argc, char* argv[])
 
     if (args[0] == "--check-note-offs")
         return carve::test::runNoteOffPlaybackChecks (engine);
+
+    if (args[0] == "--check-signal-path")
+        return carve::test::runSignalPathChecks ([&engine] (const carve::model::Song& song, const juce::File& file,
+                                                            double sampleRate)
+        {
+            const juce::ScopedValueSetter<double> rate (renderSampleRate, sampleRate);
+            return renderSongToWav (engine, song, file) == 0;
+        });
 
     if (args[0] == "--plugin-demo")
         return renderPluginDemo (engine, args[1], resolveFile (args[2]));

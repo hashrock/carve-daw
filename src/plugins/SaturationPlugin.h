@@ -44,6 +44,15 @@ public:
 
     void restorePluginStateFromValueTree (const juce::ValueTree&) override;
 
+    // The output a freshly inserted one starts at. The shaper is normalised so
+    // full scale comes out at full scale, which leaves a track at an ordinary
+    // level (-18dBFS RMS) +9.5dB louder at the default drive the moment it is
+    // inserted -- a jump nobody asked for, and one that makes any A/B with the
+    // bypass a comparison of loudness. This brings that case back to about
+    // unity. Applied on insertion only (EditSync), not as the property's
+    // default: a saved song that never moved the knob relies on 0dB.
+    static constexpr float insertedOutputDb = -9.5f;
+
     juce::CachedValue<float> driveDbValue, toneValue, mixValue, outputDbValue;
     te::AutomatableParameter::Ptr driveDb, tone, mix, outputDb;
 

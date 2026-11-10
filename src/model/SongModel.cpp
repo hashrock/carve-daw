@@ -1221,6 +1221,9 @@ Song Song::create (const juce::String& name)
     // that was mixed without it would change how that song sounds.
     song.getMasterBus().addEffect (limiterEffectType, nullptr, nullptr);
 
+    // Constant-power panning, for the same reason: new songs only.
+    song.setPanLaw (Song::PanLaw::equalPower, nullptr);
+
     return song;
 }
 
