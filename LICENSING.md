@@ -177,8 +177,20 @@ interchangeable.
   `com.apple.security.cs.disable-library-validation`, which is what lets a
   plugin host load other people's AU/VST3 bundles.
 - `scripts/Carve-AppStore.entitlements` is the App Store one: the App
-  Sandbox, and read/write access to the files the user picks. No library
-  validation exception, because that build loads nobody else's code.
+  Sandbox, read/write access to the files the user picks, and app-scoped
+  bookmarks so that access survives a relaunch (`src/app/SandboxAccess.h`).
+  No library validation exception, because that build loads nobody else's
+  code.
+
+To run the App Store build under the sandbox without a certificate, sign a
+copy ad hoc with that file:
+
+```sh
+codesign --force --deep -s - --entitlements scripts/Carve-AppStore.entitlements "Carve DAW.app"
+```
+
+It then keeps its settings in `~/Library/Containers/com.hashrock.carve`,
+not beside the Developer ID build's.
 
 `scripts/release.sh` is not an App Store upload. Do not point it at an App
 Store build.

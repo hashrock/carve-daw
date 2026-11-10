@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -226,6 +227,14 @@ struct FileRef
 {
     static juce::File getFile (const juce::ValueTree&);
     static void setFile (juce::ValueTree, const juce::File&, juce::UndoManager*);
+
+    // Called with every file a song is pointed at, as it is pointed at it:
+    // setFile is the one door all of them come through, whether from a
+    // chooser, a drop, the browser or a relink. The model does nothing with
+    // this itself. The app uses it to keep its access to the file across
+    // launches where the system would otherwise take it away (see
+    // app/SandboxAccess.h). Empty unless someone sets it.
+    static std::function<void (const juce::File&)>& onFileReferenced();
 
     // Whether the node names a file at all, and what that file is called.
     // Both read the stored strings rather than getFile(): a hand-written song

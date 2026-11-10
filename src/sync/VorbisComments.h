@@ -21,7 +21,8 @@ namespace carve::sync
 // Sets these comments on the file, replacing any it already has under the
 // same names (names are case-insensitive, as the format says) and leaving
 // the rest alone. Returns an error, or empty on success; on an error the
-// file is untouched.
+// file is untouched (except inside the App Sandbox, where the write cannot go
+// through a temporary file; see model/FileWrite.h).
 juce::String setVorbisComments (const juce::File& oggFile, const juce::StringPairArray& comments);
 
 // Every comment in the file, names upper-cased. Empty if it is not an Ogg

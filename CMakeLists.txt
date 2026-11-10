@@ -278,7 +278,14 @@ target_sources(carve PRIVATE
     src/app/TimelineView.h
     src/app/TypingKeyboard.h
     src/app/TypingKeyboard.cpp
-    src/app/TimeSigSupport.h)
+    src/app/TimeSigSupport.h
+    src/app/SandboxAccess.h)
+# Security-scoped bookmarks are Foundation, so the real thing is Objective-C++.
+if(APPLE)
+    target_sources(carve PRIVATE src/app/SandboxAccess.mm)
+else()
+    target_sources(carve PRIVATE src/app/SandboxAccess.cpp)
+endif()
 carve_configure_target(carve)
 
 # --- Factory content ---

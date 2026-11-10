@@ -3,6 +3,7 @@
 #include "sync/EngineIds.h"
 
 #include "EngineSetup.h"
+#include "SandboxAccess.h"
 #include "model/DemoSong.h"
 #include "model/SampleSongs.h"
 
@@ -958,6 +959,7 @@ bool MainComponent::writeSongTo (const juce::File& file)
     }
 
     currentFile = file;
+    sandbox::rememberAccess (file);   // so the next launch can save over it, and reopen it
     rememberSongDirectory (file);
     rememberRecentSong (file);
     hasUnsavedChanges = false;   // captureLivePluginState above will have set it
@@ -1069,6 +1071,7 @@ void MainComponent::openSongFile (const juce::File& file)
 {
     if (auto loaded = model::Song::loadFromFile (file))
     {
+        sandbox::rememberAccess (file);   // so Open Recent can open it next time
         rememberSongDirectory (file);
         rememberRecentSong (file);
         loadSong (*loaded, file);

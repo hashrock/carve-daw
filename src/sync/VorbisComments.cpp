@@ -1,5 +1,7 @@
 #include "VorbisComments.h"
 
+#include "../model/FileWrite.h"
+
 #include <array>
 #include <cstring>
 #include <optional>
@@ -381,11 +383,9 @@ juce::String setVorbisComments (const juce::File& oggFile, const juce::StringPai
         }
     }
 
-    // Written beside the file and moved over it, so a failure halfway leaves
-    // the original rather than half of each.
-    juce::TemporaryFile temp (oggFile);
-
-    if (! temp.getFile().replaceWithData (out.data(), out.size()) || ! temp.overwriteTargetFileWithTemporary())
+    // Written beside the file and moved over it where that is allowed, so a
+    // failure halfway leaves the original rather than half of each.
+    if (! model::replaceFileContents (oggFile, out.data(), out.size()))
         return "could not write " + oggFile.getFileName();
 
     return {};

@@ -4,6 +4,7 @@
 #include "Fonts.h"
 #include "LegalNotices.h"
 #include "MainComponent.h"
+#include "SandboxAccess.h"
 #include "model/SampleSongs.h"
 
 namespace carve::app
@@ -43,6 +44,15 @@ public:
         // Before any window exists: it decides how every label, menu and
         // button in them is drawn (see Fonts.h).
         juce::Desktop::getInstance().setDefaultLookAndFeel (&lookAndFeel);
+
+        // Before the engine and before any window: both read paths the user
+        // gave the app on an earlier run (recent songs, the browser's
+        // folders), and inside the App Sandbox those are out of reach until
+        // this claims them back. Nothing happens outside the sandbox.
+        carve::sandbox::restoreAccess (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                                           .getChildFile (carve::applicationName)
+                                           .getChildFile ("FileAccess.xml"));
+        carve::model::FileRef::onFileReferenced() = [] (const juce::File& file) { carve::sandbox::rememberAccess (file); };
 
         engine = carve::createEngine (nullptr, CARVE_PLUGIN_HOSTING != 0);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
