@@ -69,6 +69,26 @@ struct PlaybackOnlyEngineBehaviour : te::EngineBehaviour
     // context exists (previewNote allocates one on demand).
     bool shouldPlayMidiGuideNotes() override  { return true; }
 
+    // Audio clips play through WaveNodeRealTime with libsamplerate's best sinc
+    // converter. tracktion's defaults send them through a proxy-capable
+    // WaveNode instead, whose Lagrange interpolator re-derives its ratio from
+    // a whole number of source frames every block: for a file at another rate
+    // than the engine the read position wobbles by up to half a sample, tens
+    // of times a second. A 1kHz tone from a 48kHz file rendered at 44.1kHz
+    // came out with sidebands at -37dB every ~19Hz either side and the top
+    // octave down 2-5dB -- and a 44.1kHz sample on a 48kHz interface is the
+    // everyday case. Proxies are for time-stretching, which Carve's clips
+    // never do. A file already at the engine's rate still plays bit-for-bit
+    // (patches/tracktion-wave-clip-sinc-only-when-resampling.patch), and
+    // without the two samples of delay the old reader added.
+    ClipDefaults getClipDefaults() override
+    {
+        auto defaults = te::EngineBehaviour::getClipDefaults();
+        defaults.resamplingQuality = te::ResamplingQuality::sincBest;
+        defaults.useProxyFile = false;
+        return defaults;
+    }
+
     // Every MIDI clip plays through a LoopingMidiNode rather than the older
     // MidiNode, which is what tracktion picks unless this is cleared
     // (createNodeForMidiClip keys on canUseProxy). Only the former keeps an

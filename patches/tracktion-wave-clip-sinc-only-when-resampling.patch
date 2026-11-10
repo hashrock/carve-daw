@@ -1,0 +1,34 @@
+Native-rate audio clips skip the sinc resampler
+
+Carve plays audio clips through WaveNodeRealTime with libsamplerate's sinc
+converter (EngineSetup.h: ClipDefaults), because the default path --
+WaveNode and its Lagrange interpolator -- re-derives its ratio from a whole
+number of source frames each block, so a file at another rate than the
+engine wobbles in time by up to half a sample: sidebands at -37dB around a
+1kHz tone, and a top octave rolled off by 2-5dB.
+
+The sinc converter is built whatever the two rates are, though, and at a
+ratio of exactly 1 it still low-passes (-3dB at ~21.2kHz for 44.1kHz), so a
+file already at the output rate came out no longer bit-identical to itself.
+Lagrange at a ratio of exactly 1 is a pure copy, latency-compensated, so a
+file at the output rate takes that reader instead. Speed changes ride on the
+reader's speed ratio rather than on the rates, and Carve's clips have none;
+a time-stretched clip keeps the reader it asked for.
+
+diff --git a/modules/tracktion_engine/playback/graph/tracktion_WaveNode.cpp b/modules/tracktion_engine/playback/graph/tracktion_WaveNode.cpp
+index 2f76477..7e1aa2d 100644
+--- a/modules/tracktion_engine/playback/graph/tracktion_WaveNode.cpp
++++ b/modules/tracktion_engine/playback/graph/tracktion_WaveNode.cpp
+@@ -2113,7 +2113,11 @@ bool WaveNodeRealTime::buildAudioReaderGraph()
+     const bool timestretchDisabled = timeStretcherMode == TimeStretcher::Mode::disabled;
+     std::unique_ptr<ResamplerReader> resamplerAudioReader;
+ 
+-    if (resamplingQuality == ResamplingQuality::lagrange)
++    // A file already at the output rate needs no conversion, and the sinc
++    // converters would still band-limit it (to ~21kHz at 44.1kHz). Lagrange
++    // at a ratio of exactly 1 passes the samples through untouched.
++    if (resamplingQuality == ResamplingQuality::lagrange
++         || (timestretchDisabled && loopReader->getSampleRate() == outputSampleRate))
+         resamplerAudioReader    = std::make_unique<LagrangeResamplerReader> (std::move (loopReader), outputSampleRate);
+     else
+         resamplerAudioReader    = std::make_unique<HighQualityResamplerReader> (std::move (loopReader), outputSampleRate, resamplingQuality);
