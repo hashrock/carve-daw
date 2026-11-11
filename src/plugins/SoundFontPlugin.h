@@ -37,13 +37,13 @@ public:
     explicit SoundFontPlugin (te::PluginCreationInfo);
     ~SoundFontPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("SoundFont"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("SF2 Player"); }
     static const char* xmlTypeName;
 
-    juce::String getName() const override             { return "SoundFont"; }
+    juce::String getName() const override             { return "SF2 Player"; }
     juce::String getPluginType() override             { return xmlTypeName; }
     juce::String getShortName (int) override          { return "SF2"; }
-    juce::String getSelectableDescription() override  { return TRANS ("SoundFont"); }
+    juce::String getSelectableDescription() override  { return TRANS ("SF2 Player"); }
 
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
     bool takesMidiInput() override                    { return true; }

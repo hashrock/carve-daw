@@ -191,7 +191,7 @@ namespace
 
             // Dm7 - Gm7 - Cmaj7 - Fmaj7, off the beat, the way a sampled
             // loop of a piano tends to sit.
-            auto stabs = keys.addPattern ("Rhodes", 16.0, nullptr);
+            auto stabs = keys.addPattern ("Stabs", 16.0, nullptr);
             addChord (stabs,  0.5, 1.4, { 50, 57, 60, 65 }, 78);
             addChord (stabs,  4.5, 1.4, { 55, 58, 62, 65 }, 78);
             addChord (stabs,  8.5, 1.4, { 48, 55, 59, 64 }, 74);

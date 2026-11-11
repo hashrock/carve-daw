@@ -39,13 +39,13 @@ public:
     explicit DrumSynthPlugin (te::PluginCreationInfo);
     ~DrumSynthPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("808 Drums"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("Analog Drums"); }
     static const char* xmlTypeName;
 
-    juce::String getName() const override             { return "808 Drums"; }
+    juce::String getName() const override             { return "Analog Drums"; }
     juce::String getPluginType() override             { return xmlTypeName; }
-    juce::String getShortName (int) override          { return "808"; }
-    juce::String getSelectableDescription() override  { return TRANS ("808 Drums"); }
+    juce::String getShortName (int) override          { return "Drums"; }
+    juce::String getSelectableDescription() override  { return TRANS ("Analog Drums"); }
 
     int getNumOutputChannelsGivenInputs (int numInputChannels) override  { return juce::jmin (numInputChannels, 2); }
     bool takesMidiInput() override                    { return true; }
