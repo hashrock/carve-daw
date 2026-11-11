@@ -12,6 +12,8 @@
 #include "sync/EngineIds.h"
 #include "DrumSynthEditor.h"
 #include "GabberKickEditor.h"
+#include "AcousticDrumsEditor.h"
+#include "ElectricBassEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
 #include "BreakEditor.h"
@@ -227,6 +229,12 @@ public:
         if (gabberKick != nullptr)
             return juce::Point<int> (GabberKickEditor::defaultWidth, GabberKickEditor::getMinHeight());
 
+        if (acousticDrums != nullptr)
+            return juce::Point<int> (acousticDrums->getWidth(), acousticDrums->getHeight());
+
+        if (electricBass != nullptr)
+            return juce::Point<int> (electricBass->getWidth(), electricBass->getHeight());
+
         if (soundFont != nullptr)
             return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
 
@@ -440,6 +448,30 @@ public:
                         onPreviewNote (note, velocity);
                 };
                 viewport.setViewedComponent (drumSynth.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto kit = dynamic_cast<plugins::AcousticDrumsPlugin*> (instrument))
+            {
+                acousticDrums = std::make_unique<AcousticDrumsEditor> (*kit);
+                acousticDrums->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (acousticDrums.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto bass = dynamic_cast<plugins::ElectricBassPlugin*> (instrument))
+            {
+                electricBass = std::make_unique<ElectricBassEditor> (*bass);
+                electricBass->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (electricBass.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -736,7 +768,7 @@ public:
         }
 
         if (slate != nullptr || drumSynth != nullptr || gabberKick != nullptr || soundFont != nullptr || utau != nullptr
-             || breakEditor != nullptr)
+             || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         // ...except this one, which fills the window it is given.
@@ -808,6 +840,8 @@ private:
         slate.reset();
         drumSynth.reset();
         gabberKick.reset();
+        acousticDrums.reset();
+        electricBass.reset();
         soundFont.reset();
         breakEditor.reset();
         utau.reset();
@@ -869,6 +903,8 @@ private:
     std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<GabberKickEditor> gabberKick;
+    std::unique_ptr<AcousticDrumsEditor> acousticDrums;
+    std::unique_ptr<ElectricBassEditor> electricBass;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
     std::unique_ptr<BreakEditor> breakEditor;
@@ -995,6 +1031,7 @@ public:
         rollContent.setDrumMap (buildDrumMap (generator));
         rollContent.setShowsLyrics (generator && generator->isUtau());
         rollContent.setShowsPlayModes (generator && generator->isBreak());
+        rollContent.setShowsTechniques (generator && generator->isElectricBass());
         rollContent.setLyricCheck (lyricCheckFor (generator));
     }
 
@@ -1042,6 +1079,14 @@ public:
                 map[plugins::DrumSynthPlugin::getNoteForDrum (drum)] =
                     { plugins::DrumSynthPlugin::getDrumName (drum), true };
             }
+        }
+        else if (generator->isAcousticDrums())
+        {
+            // Every drum at every note it answers to.
+            for (const auto& pad : plugins::AcousticDrumsPlugin::getPads())
+                for (auto note : pad.notes)
+                    if (note > 0)
+                        map[note] = { pad.name, true };
         }
         else if (generator->isBreak())
         {

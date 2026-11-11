@@ -173,6 +173,194 @@ void PianoRollComponent::setShowsPlayModes (bool shouldShow)
     }
 }
 
+void PianoRollComponent::setShowsTechniques (bool shouldShow)
+{
+    if (showsTechniquesFlag != shouldShow)
+    {
+        showsTechniquesFlag = shouldShow;
+        repaint();
+    }
+}
+
+void PianoRollComponent::setTechnique (model::Note::Technique technique)
+{
+    techniqueBrush = technique;
+    applyToSelection ([&] (model::Note& note) { note.setTechnique (technique, &undoManager); });
+    repaint();
+}
+
+std::optional<model::Note::Technique> PianoRollComponent::getShownTechnique() const
+{
+    return shownSetting (techniqueBrush, [] (const model::Note& n) { return n.getTechnique(); });
+}
+
+void PianoRollComponent::setSlideLength (double beats)
+{
+    slideLengthBrush = beats;
+    applyToSelection ([&] (model::Note& note) { note.setSlideLength (beats, &undoManager); });
+    repaint();
+}
+
+void PianoRollComponent::setSlideOut (double signedBeats)
+{
+    slideOutBrush = signedBeats;
+    applyToSelection ([&] (model::Note& note) { note.setSlideOut (signedBeats, &undoManager); });
+    repaint();
+}
+
+std::optional<double> PianoRollComponent::getShownSlideOut() const
+{
+    const auto shown = shownSetting (juce::roundToInt (slideOutBrush * 1000.0),
+                                     [] (const model::Note& n) { return juce::roundToInt (n.getSlideOut() * 1000.0); });
+
+    if (! shown)
+        return std::nullopt;
+
+    return *shown / 1000.0;
+}
+
+std::optional<double> PianoRollComponent::getShownSlideLength() const
+{
+    // Compared as the steps they are, not as doubles straight off the tree.
+    const auto shown = shownSetting (juce::roundToInt (slideLengthBrush * 1000.0),
+                                     [] (const model::Note& n) { return juce::roundToInt (n.getSlideLength() * 1000.0); });
+
+    if (! shown)
+        return std::nullopt;
+
+    return *shown / 1000.0;
+}
+
+// How each marked note is reached, drawn from the note before it -- the one
+// that starts last before it does, which is the note the bass moves from:
+// a slide is a line from that note's end into this one's start, a hammer-on
+// or pull-off an arc over the join, a forced pluck a tick at the start.
+void PianoRollComponent::paintTechniques (juce::Graphics& g) const
+{
+    if (! pattern)
+        return;
+
+    using T = model::Note::Technique;
+    const auto notes = pattern->getNotes();
+    const auto ink = juce::Colour (0xfff0f0f4);
+
+    const auto mark = juce::Colour (0xff5fc4b8);
+    const auto outline = juce::Colour (0xff1d1d22);
+
+    // Slides out: from where the slide leaves, off the end of the note and
+    // away, thinning as it goes -- into nothing, not to a note.
+    for (const auto& note : notes)
+    {
+        const auto out = note.getSlideOut();
+
+        if (std::abs (out) < 1.0e-9)
+            continue;
+
+        const auto r = noteBounds (note).reduced (0.0f, 1.0f);
+        const auto end = note.getStart() + note.getLength();
+        const auto leave = std::max (note.getStart(), end - std::abs (out));
+        const auto rise = (out > 0.0 ? -1.0f : 1.0f) * juce::jmax (12.0f, 2.5f * r.getHeight());
+        const juce::Point<float> from { beatToX (leave), r.getCentreY() }, to { r.getRight() + 6.0f, r.getCentreY() + rise };
+
+        juce::Path line;
+        line.startNewSubPath (from);
+        line.quadraticTo ({ (from.x + to.x) * 0.5f, from.y }, to);
+
+        g.setColour (outline);
+        g.strokePath (line, juce::PathStrokeType (4.0f));
+        g.setColour (mark);
+        g.strokePath (line, juce::PathStrokeType (2.0f));
+        g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (from));
+
+        const float dashes[] { 2.0f, 2.0f };
+        g.setColour (mark.withAlpha (0.6f));
+        g.drawDashedLine ({ to, to.translated (5.0f, rise * 0.3f) }, dashes, 2, 1.5f);
+    }
+
+    for (const auto& note : notes)
+    {
+        const auto technique = note.getTechnique();
+
+        if (technique == T::automatic)
+            continue;
+
+        const auto r = noteBounds (note).reduced (0.0f, 1.0f);
+
+        if (technique == T::pluck)
+        {
+            g.setColour (ink);
+            g.drawLine (r.getX() + 2.0f, r.getY() - 3.0f, r.getX() + 2.0f, r.getBottom(), 2.0f);
+            continue;
+        }
+
+        const model::Note* before = nullptr;
+
+        for (const auto& other : notes)
+            if (other.getStart() < note.getStart() - 1.0e-9
+                 && (before == nullptr || other.getStart() > before->getStart()))
+                before = &other;
+
+        // From a little inside the end of the note before (notes that touch
+        // would otherwise leave no line to see), into this one's start.
+        const auto to = juce::Point<float> (r.getX() + 3.0f, r.getCentreY());
+        juce::Point<float> from = to.translated (-16.0f, technique == T::slide ? r.getHeight() : 0.0f);
+
+        if (before != nullptr)
+        {
+            const auto b = noteBounds (*before);
+            from = { juce::jmax (b.getX() + 2.0f, juce::jmin (b.getRight(), to.x) - 16.0f), b.getCentreY() };
+        }
+
+        // Teal, outlined dark: the notes themselves are the accent colour.
+
+        // A slide is drawn as the pitch it takes: leaving the note before at
+        // its pitch, the slide's length ahead of this note, and arriving at
+        // this note's pitch on its beat.
+        if (technique == T::slide && before != nullptr)
+        {
+            const auto length = juce::jmin (note.getSlideLength(), note.getStart() - before->getStart());
+            const juce::Point<float> leave { beatToX (note.getStart() - length), noteBounds (*before).getCentreY() },
+                                     land { r.getX(), r.getCentreY() };
+
+            juce::Path arrow;
+            arrow.addArrow ({ leave, land }, 2.0f, 9.0f, 8.0f);
+            g.setColour (outline);
+            g.strokePath (arrow, juce::PathStrokeType (2.5f));
+            g.setColour (mark);
+            g.fillPath (arrow);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (leave));
+            continue;
+        }
+
+        if (technique == T::slide)
+        {
+            g.setColour (outline);
+            g.drawLine ({ from, to }, 4.5f);
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (to));
+            g.setColour (mark);
+            g.drawLine ({ from, to }, 2.0f);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (to));
+        }
+        else
+        {
+            juce::Path arc;
+            const auto lift = juce::jmax (8.0f, r.getHeight());
+            arc.startNewSubPath (from);
+            arc.quadraticTo ({ (from.x + to.x) * 0.5f, juce::jmin (from.y, to.y) - lift }, to);
+            g.setColour (outline);
+            g.strokePath (arc, juce::PathStrokeType (4.0f));
+            g.setColour (mark);
+            g.strokePath (arc, juce::PathStrokeType (1.8f));
+
+            g.setFont (uiFont (fonts::small, juce::Font::bold));
+            g.drawText (before != nullptr && before->getPitch() > note.getPitch() ? "P" : "H",
+                        juce::Rectangle<float> (12.0f, 14.0f).withCentre ({ (from.x + to.x) * 0.5f,
+                                                                           juce::jmin (from.y, to.y) - lift * 0.5f - 7.0f }),
+                        juce::Justification::centred);
+        }
+    }
+}
+
 template <typename Value, typename Getter>
 std::optional<Value> PianoRollComponent::shownSetting (Value brush, Getter get) const
 {
@@ -926,7 +1114,7 @@ void PianoRollComponent::dragSelectionTo (double anchorStart, int anchorPitch)
     if (anchorNewPitch != dragLastPitch)
     {
         dragLastPitch = anchorNewPitch;
-        previewNote (anchorNewPitch, draggedNote ? draggedNote->getVelocity() : lastNoteVelocity);
+        previewNote (anchorNewPitch, draggedNote ? draggedNote->getVelocity() : defaultNoteVelocity);
     }
 }
 
@@ -1117,10 +1305,6 @@ void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
     // dragged all the way down has to mean "as quiet as it goes" rather than
     // "silently gone".
     velocity = model::Note::clampVelocity (velocity);
-
-    // Remembered even when the write below turns out to be a no-op: the user
-    // aimed at this value, so it is the one the next drawn note should get.
-    lastNoteVelocity = velocity;
 
     if (velocity != note.getVelocity())
         model::Note (note.state).setVelocity (velocity, &undoManager);
@@ -1440,6 +1624,9 @@ void PianoRollComponent::paint (juce::Graphics& g)
         }
     }
 
+    if (showsTechniquesFlag)
+        paintTechniques (g);
+
     if (dragMode == DragMode::rubberBand && ! rubberBand.isEmpty())
     {
         g.setColour (noteColour.withAlpha (0.15f));
@@ -1733,7 +1920,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     const auto length = juce::jmax (minLength,
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
-    draggedNote = pattern->addNote (start, length, pitch, lastNoteVelocity, &undoManager);
+    draggedNote = pattern->addNote (start, length, pitch, defaultNoteVelocity, &undoManager);
 
     // Drawn with what the play-mode bar says, on a generator that has one.
     if (showsPlayModesFlag)
@@ -1745,7 +1932,14 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         draggedNote->setTune (tuneBrush, &undoManager);
         draggedNote->setRollDynamics (rollDynamicsBrush, &undoManager);
     }
-    previewNote (pitch, lastNoteVelocity);
+
+    if (showsTechniquesFlag)
+    {
+        draggedNote->setTechnique (techniqueBrush, &undoManager);
+        draggedNote->setSlideLength (slideLengthBrush, &undoManager);
+        draggedNote->setSlideOut (slideOutBrush, &undoManager);
+    }
+    previewNote (pitch, defaultNoteVelocity);
 
     // The new note becomes the selection, so that the drag that follows moves
     // only it and Backspace takes it away again.

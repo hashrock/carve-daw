@@ -262,6 +262,96 @@ namespace
         return song;
     }
 
+    //==========================================================================
+    // The two recorded instruments together: a kit with ghost notes and a
+    // fill, and a fingered bass whose overlapping notes are hammer-ons and
+    // pull-offs rather than plucks (see ElectricBassPlugin.h).
+    Song buildBackRoom()
+    {
+        auto song = Song::create ("Back Room");
+        song.setTempo (96.0, nullptr);
+        auto playlist = song.getPlaylist();
+
+        // The General MIDI notes the acoustic kit answers to.
+        constexpr int aKick = 36, aSnare = 38, aClosedHat = 42, aOpenHat = 46,
+                      aCrash = 49, aHighTom = 50, aMidTom = 48, aFloorTom = 43;
+
+        {
+            auto drums = song.addGenerator ("Drums", Generator::acousticDrumsType, nullptr);
+            drums.setVolumeDb (-6.0f, nullptr);
+
+            auto groove = drums.addPattern ("Groove", 4.0, nullptr);
+            addHits (groove, { { 0.0, aKick, 112 }, { 1.75, aKick, 92 }, { 2.5, aKick, 104 },
+                               { 1.0, aSnare, 110 }, { 3.0, aSnare, 112 },
+                               { 1.75, aSnare, 34 }, { 2.25, aSnare, 30 }, { 3.75, aSnare, 36 } });
+
+            for (int i = 0; i < 16; ++i)
+                addHits (groove, { { i * 0.25, i == 14 ? aOpenHat : aClosedHat, i % 2 == 0 ? 92 : 58 } });
+
+            auto fill = drums.addPattern ("Fill", 4.0, nullptr);
+            addHits (fill, { { 0.0, aKick, 112 }, { 1.0, aSnare, 110 }, { 1.75, aKick, 92 },
+                             { 0.0, aClosedHat, 90 }, { 0.5, aClosedHat, 70 }, { 1.0, aClosedHat, 90 }, { 1.5, aClosedHat, 70 },
+                             { 2.0, aHighTom, 104 }, { 2.25, aHighTom, 84 }, { 2.5, aMidTom, 100 }, { 2.75, aMidTom, 84 },
+                             { 3.0, aFloorTom, 108 }, { 3.25, aFloorTom, 90 }, { 3.5, aSnare, 116 }, { 3.75, aSnare, 104 } });
+
+            auto crash = drums.addPattern ("Crash", 1.0, nullptr);
+            addHits (crash, { { 0.0, aCrash, 110 }, { 0.0, aKick, 118 } });
+
+            place (playlist, drums, groove, { 0.0, 4.0, 8.0, 16.0, 20.0, 24.0 });
+            place (playlist, drums, fill, { 12.0, 28.0 });
+            place (playlist, drums, crash, { 16.0 });
+        }
+
+        {
+            auto bass = song.addGenerator ("Bass", Generator::electricBassType, nullptr);
+            bass.setVolumeDb (-4.0f, nullptr);
+
+            // E minor. Where one note runs on under the next, the bass
+            // hammers (going up) or pulls off (going down) instead of
+            // plucking again; the notes marked below slide in.
+            auto line = bass.addPattern ("Line", 8.0, nullptr);
+            addTones (line, { { 0.0, 0.45, 28, 110 }, { 0.75, 0.2, 28, 70 }, { 1.0, 0.6, 31, 100 },
+                              { 1.5, 0.45, 33, 96 },                                  // hammer from G
+                              { 2.0, 0.45, 40, 104 }, { 2.5, 0.2, 38, 80 }, { 2.75, 0.75, 35, 96 },
+                              { 3.5, 0.45, 33, 92 },
+                              { 4.0, 0.45, 28, 110 }, { 4.75, 0.2, 28, 70 }, { 5.0, 0.6, 31, 100 },
+                              { 5.5, 0.6, 33, 96 }, { 6.0, 0.45, 31, 92 },          // up and back down
+                              { 6.5, 0.9, 26, 100 }, { 7.25, 0.4, 27, 90 } });
+
+            // Slid to from the note before, landing on the beat: down from
+            // the high E to the D, from the B to the A, and up a fret from
+            // the low D at the end.
+            for (auto note : line.getNotes())
+                for (auto beat : { 2.5, 3.5, 7.25 })
+                    if (std::abs (note.getStart() - beat) < 1.0e-9)
+                        note.setTechnique (Note::Technique::slide, nullptr);
+
+            // The phrase's last note slides off down into nothing.
+            for (auto note : line.getNotes())
+                if (std::abs (note.getStart() - 7.25) < 1.0e-9)
+                    note.setSlideOut (-0.25, nullptr);
+
+            place (playlist, bass, line, { 0.0, 8.0, 16.0, 24.0 });
+        }
+
+        {
+            auto keys = song.addGenerator ("Keys", Generator::synthType, nullptr);
+            keys.setVolumeDb (-20.0f, nullptr);
+            keys.setPan (0.25f, nullptr);
+
+            // Em9 to A13, on the off-beats.
+            auto stabs = keys.addPattern ("Stabs", 8.0, nullptr);
+            for (double beat : { 0.5, 2.5 })
+                addChord (stabs, beat, 0.3, { 55, 59, 62, 66 }, 76);
+            for (double beat : { 4.5, 6.5 })
+                addChord (stabs, beat, 0.3, { 55, 61, 64, 66 }, 76);
+
+            place (playlist, keys, stabs, { 16.0, 24.0 });
+        }
+
+        return song;
+    }
+
     struct Entry
     {
         const char* name;
@@ -272,6 +362,7 @@ namespace
         { "Neon Streets", buildNeonStreets },
         { "Boom Bap",     buildBoomBap },
         { "Slow Bloom",   buildSlowBloom },
+        { "Back Room",    buildBackRoom },
     };
 } // namespace
 

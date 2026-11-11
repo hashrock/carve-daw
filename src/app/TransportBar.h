@@ -217,12 +217,6 @@ public:
 
     bool isPatternMode() const  { return playMode.isPatternMode(); }
 
-    // Mastering mode: the Master button beside the master level asks for it
-    // to be switched, and the owner says what it is (see
-    // MainComponent::masteringMode).
-    std::function<void (bool on)> onMasteringModeChanged;
-    void setMasteringMode (bool on);
-
     static constexpr int preferredHeight = 48;   // of one row
     static constexpr int rowGap = 4;
 
@@ -254,6 +248,20 @@ private:
     // mode loops over.
     te::BeatRange patternLoopRange() const;
 
+    // What the transport should be looping over in the current mode: the
+    // patterns' length in Pattern mode; in Song mode the song's LOOP range,
+    // or the whole song without one. The loop fields show this same range.
+    te::BeatRange wantedLoopRange() const;
+
+    // Hands the transport wantedLoopRange whenever its own copy differs. The
+    // transport keeps the range in seconds, so it goes stale on anything that
+    // moves the range or the beats under it -- a ruler drag, an undo, a
+    // tempo change (which reaches the Edit's tempo map only after EditSync's
+    // async pass), a song growing longer -- and this is called every display
+    // tick so that none of those needs a path of its own. With wrapPlayhead,
+    // a playhead left past the new end is brought back to the start.
+    void syncLoopRange (bool wrapPlayhead);
+
     // Bars are 1-based on the bar and in the loop fields, as on every ruler.
     int getCurrentBar() const;
     void seekToBar (int bar);
@@ -261,7 +269,8 @@ private:
 
     // The loop fields edit the song's loop range in whole bars. Without an
     // explicit range the song loops as a whole, which is what the fields show
-    // until one is typed or stepped in.
+    // until one is typed or stepped in. In Pattern mode they show the
+    // patterns' loop instead, and cannot be edited (it is not the song's).
     int getLoopStartBar() const;
     int getLoopLengthBars() const;
     void setLoopBars (int startBar, int lengthBars);
@@ -290,11 +299,14 @@ private:
     NumberDisplay barDisplay { 3 };
     juce::ToggleButton loopCheck { "LOOP" };
     NumberDisplay loopStartDisplay { 3 }, loopLengthDisplay { 3 };
+
+    // The LOOP box's own setting, kept apart from what it shows: Pattern mode
+    // shows it ticked (it always loops) without forgetting Song mode's choice.
+    bool songLoopChecked = true;
     IconButton undoButton { "", Icon::undo }, redoButton { "", Icon::redo };
     IconButton mixerButton { "Mixer", Icon::mixer };
     IconButton saveButton { "Save", Icon::save };
     IconButton browserButton { "Browser", Icon::folder };
-    IconButton masteringButton { "Master", Icon::star };
     juce::Slider masterKnob;
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;

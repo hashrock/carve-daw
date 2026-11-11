@@ -173,12 +173,22 @@ set(CARVE_CORE_SOURCES
     src/plugins/PitchShifterPlugin.cpp
     src/plugins/LimiterPlugin.h
     src/plugins/LimiterPlugin.cpp
+    src/plugins/BusCompressorPlugin.h
+    src/plugins/BusCompressorPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp
     src/plugins/GabberKickDsp.h
     src/plugins/GabberKickDsp.cpp
     src/plugins/GabberKickPlugin.h
     src/plugins/GabberKickPlugin.cpp
+    src/plugins/InstrumentData.h
+    src/plugins/CtdDecoder.h
+    src/plugins/AcousticDrumsPlugin.h
+    src/plugins/AcousticDrumsPlugin.cpp
+    src/plugins/BassDecoder.h
+    src/plugins/BassDecoder.cpp
+    src/plugins/ElectricBassPlugin.h
+    src/plugins/ElectricBassPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
     src/plugins/BreakPlugin.h
@@ -201,6 +211,17 @@ function(carve_link_iconv target)
         target_link_libraries(${target} PRIVATE iconv)
     endif()
 endfunction()
+
+# The analysed instruments (Acoustic Drums, Electric Bass), compiled in: see
+# src/plugins/InstrumentData.h for why not as content. The tools that made
+# them are the web-acoustic-drum and web-bass prototypes; the recordings they
+# were analysed from are CC0 (see THIRD_PARTY_NOTICES.txt).
+juce_add_binary_data(carve-instrument-data
+    HEADER_NAME CarveInstrumentData.h
+    NAMESPACE CarveInstrumentData
+    SOURCES
+        assets/instruments/acoustic-drums.ctd
+        assets/instruments/electric-bass.bas)
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
@@ -231,6 +252,7 @@ function(carve_configure_target target)
     target_link_libraries(${target} PRIVATE
         tracktion::tracktion_engine
         world
+        carve-instrument-data
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     carve_link_iconv(${target})

@@ -339,6 +339,71 @@ void Note::copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager* um)
     setBuzzRamped (from.isBuzzRamped(), um);
     setTune (from.getTune(), um);
     setRollDynamics (from.getRollDynamics(), um);
+    setTechnique (from.getTechnique(), um);
+    setSlideLength (from.getSlideLength(), um);
+    setSlideOut (from.getSlideOut(), um);
+}
+
+double Note::getSlideOut() const
+{
+    const auto most = slideLengths[std::size (slideLengths) - 1];
+    return juce::jlimit (-most, most, (double) state.getProperty (ids::slideOut, 0.0));
+}
+
+void Note::setSlideOut (double signedBeats, juce::UndoManager* um)
+{
+    const auto most = slideLengths[std::size (slideLengths) - 1];
+
+    if (std::abs (signedBeats) < 1.0e-9)
+        state.removeProperty (ids::slideOut, um);
+    else
+        state.setProperty (ids::slideOut, juce::jlimit (-most, most, signedBeats), um);
+}
+
+
+double Note::getSlideLength() const
+{
+    return juce::jlimit (slideLengths[0], slideLengths[std::size (slideLengths) - 1],
+                         (double) state.getProperty (ids::slideLen, defaultSlideLength));
+}
+
+void Note::setSlideLength (double beats, juce::UndoManager* um)
+{
+    if (beats <= 0.0 || std::abs (beats - defaultSlideLength) < 1.0e-9)
+        state.removeProperty (ids::slideLen, um);
+    else
+        state.setProperty (ids::slideLen, juce::jmin (beats, slideLengths[std::size (slideLengths) - 1]), um);
+}
+
+Note::Technique Note::getTechnique() const
+{
+    const auto key = state[ids::tech].toString();
+    return key == "pluck"  ? Technique::pluck
+         : key == "hammer" ? Technique::hammer
+         : key == "slide"  ? Technique::slide
+                           : Technique::automatic;
+}
+
+void Note::setTechnique (Technique technique, juce::UndoManager* um)
+{
+    if (technique == Technique::automatic)
+        state.removeProperty (ids::tech, um);
+    else
+        state.setProperty (ids::tech, technique == Technique::pluck ? "pluck"
+                                    : technique == Technique::hammer ? "hammer" : "slide", um);
+}
+
+juce::String Note::getTechniqueName (Technique technique)
+{
+    switch (technique)
+    {
+        case Technique::pluck:     return "Pluck";
+        case Technique::hammer:    return "Hammer";
+        case Technique::slide:     return "Slide";
+        case Technique::automatic: break;
+    }
+
+    return "Auto";
 }
 
 //==============================================================================

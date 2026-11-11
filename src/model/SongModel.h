@@ -135,11 +135,39 @@ public:
     RollDynamics getRollDynamics() const;
     void setRollDynamics (RollDynamics, juce::UndoManager*);
 
+    // How the electric bass gets to this note: plucked afresh, hammered on
+    // (pulled off, going down) from the note before, or slid to from it. A
+    // marked note moves from the one before even when the two do not
+    // overlap; unmarked, the bass does what its own Left Hand setting says
+    // for overlapping notes. Others carry it along. The numbers are what the
+    // sync sends the bass (ElectricBassPlugin).
+    enum class Technique { automatic = 0, pluck = 1, hammer = 2, slide = 3 };
+
+    Technique getTechnique() const;
+    void setTechnique (Technique, juce::UndoManager*);
+    static juce::String getTechniqueName (Technique);
+
+    // A slide lands on the note's own beat, having left the note before this
+    // many beats earlier -- the way a bassist plays one, the move made at the
+    // end of the old note so the new one is in time. In beats, so it keeps
+    // time with the song: one of slideLengths, a sixteenth unless set.
+    static constexpr double slideLengths[] = { 0.125, 0.25, 0.5, 1.0, 2.0 };   // 1/32 .. 1/2 notes
+    static constexpr double defaultSlideLength = 0.25;
+
+    double getSlideLength() const;
+    void setSlideLength (double beats, juce::UndoManager*);
+
+    // A slide out: the note slid off its end into nothing, falling (or
+    // rising) and fading over its last this-many beats. Signed: negative
+    // slides down, positive up, 0 is none. Its size is one of slideLengths.
+    double getSlideOut() const;
+    void setSlideOut (double signedBeats, juce::UndoManager*);
+
     // How loud restart `index` of `count` of this note's roll is.
     static int rollVelocity (int velocity, RollDynamics, int index, int count);
 
-    // The lyric, the play mode, the retrigger, the buzz, the tune and the
-    // roll's dynamics -- everything about a note
+    // The lyric, the play mode, the retrigger, the buzz, the tune, the
+    // roll's dynamics and the bass technique -- everything about a note
     // beyond where it is and how loud -- taken from another one. What every
     // copy of a note goes through, so a duplicated roll stays a roll.
     void copyExtrasFrom (const juce::ValueTree& source, juce::UndoManager*);
@@ -496,6 +524,12 @@ public:
     // A kick designer: a patch of its own, stored the way the two above are.
     static constexpr const char* gabberKickType = "gabber-kick";
 
+    // A recorded drum kit and a recorded bass, resynthesised from an analysis
+    // compiled into the app -- no files to find -- with their knobs stored
+    // the way the three above keep theirs.
+    static constexpr const char* acousticDrumsType = "acoustic-drums";
+    static constexpr const char* electricBassType = "electric-bass";
+
     // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
     // the file is kept the way a sampler sound's is -- one SOUND node, with
     // the relative-path, missing-media and relink handling that comes with
@@ -513,7 +547,10 @@ public:
     bool isDrumKit() const    { return getType() == drumKitType; }
     bool isDrumSynth() const  { return getType() == drumSynthType; }
     bool isGabberKick() const { return getType() == gabberKickType; }
-    bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick(); }
+    bool isAcousticDrums() const { return getType() == acousticDrumsType; }
+    bool isElectricBass() const  { return getType() == electricBassType; }
+    bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
+                                                 || isAcousticDrums() || isElectricBass(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType; }
     bool isSoundFont() const  { return getType() == soundFontType; }

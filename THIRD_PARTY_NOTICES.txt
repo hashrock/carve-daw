@@ -28,6 +28,21 @@ The factory drum kit under content/Drums is synthesised by
 scripts/generate-drums.py. It is not a third-party sample library.
 
 
+Recordings behind Acoustic Drums and Electric Bass
+--------------------------------------------------
+
+The two instruments contain no samples. Each plays from an analysis of a
+recording -- partials, envelopes and the first milliseconds of each hit or
+note -- compiled into the application from assets/instruments. The
+recordings analysed were released into the public domain, and are credited
+here as thanks rather than as a licence condition:
+
+    Acoustic Drums: Virtuosity Drums, CC0 1.0.
+        https://github.com/sfzinstruments/virtuosity_drums
+    Electric Bass: Growlybass by Karoryfer Samples, CC0 1.0.
+        https://github.com/sfzinstruments/karoryfer.growlybass
+
+
 Tracktion Engine
 ----------------
 
