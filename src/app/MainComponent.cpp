@@ -856,6 +856,11 @@ void MainComponent::setBrowserShown (bool shown)
 
 void MainComponent::openPluginManager()
 {
+    // Every way in is compiled out of a build that hosts no plugins; this is
+    // for the one nobody thought of.
+   #if ! CARVE_PLUGIN_HOSTING
+    return;
+   #else
     if (pluginScanWindow != nullptr)
     {
         pluginScanWindow->toFront (true);
@@ -870,6 +875,7 @@ void MainComponent::openPluginManager()
         });
     };
     pluginScanWindow = std::make_unique<PluginScanWindow> (engine, std::move (onClose));
+   #endif
 }
 
 //==============================================================================

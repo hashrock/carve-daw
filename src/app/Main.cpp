@@ -269,7 +269,13 @@ private:
                 add (Action::openMixer, "Mixer");
                 add (Action::openPatternEditor, "Pattern Editor");
                 m.addSeparator();
+
+                // Not in a build that hosts no plugins (the App Store one):
+                // there is nothing to scan for, and the window this opens
+                // would be an empty list with a button that finds nothing.
+               #if CARVE_PLUGIN_HOSTING
                 add (Action::pluginManager, "Plugins...");
+               #endif
                 add (Action::settings, "Settings...", "Cmd+,");
             }
 
