@@ -47,6 +47,11 @@ NumberDisplay::NumberDisplay (int digits)
     };
     addAndMakeVisible (value);
 
+    // The number is a label, and a press on it would otherwise stop there;
+    // it is passed on so a vertical drag on the number can scrub it.
+    value.addMouseListener (this, false);
+    value.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+
     setSize (digits * 9 + 8 + arrowsWidth, 20);
 }
 
@@ -91,14 +96,19 @@ void NumberDisplay::paint (juce::Graphics& g)
     drawArrow (downArrow, false);
 }
 
-void NumberDisplay::mouseDown (const juce::MouseEvent& e)
+void NumberDisplay::mouseDown (const juce::MouseEvent& event)
 {
     if (! onStep)
         return;
 
+    // Presses on the number arrive through the label (see the constructor).
+    const auto e = event.getEventRelativeTo (this);
+
     heldDirection = upArrow.contains (e.getPosition()) ? 1
                   : downArrow.contains (e.getPosition()) ? -1
                                                          : 0;
+    scrubbing = heldDirection == 0 && ! value.isBeingEdited();
+    scrubStepsDone = 0;
 
     if (heldDirection == 0)
         return;
@@ -113,11 +123,30 @@ void NumberDisplay::mouseDown (const juce::MouseEvent& e)
 void NumberDisplay::mouseUp (const juce::MouseEvent&)
 {
     heldDirection = 0;
+    scrubbing = false;
     stopTimer();
 }
 
-void NumberDisplay::mouseDrag (const juce::MouseEvent& e)
+void NumberDisplay::mouseDrag (const juce::MouseEvent& event)
 {
+    const auto e = event.getEventRelativeTo (this);
+
+    // Dragging up or down on the number steps it, a step every few pixels:
+    // up is more. Counted from where the press landed rather than from the
+    // last event, so the value follows the pointer back down exactly.
+    if (scrubbing && onStep)
+    {
+        const auto steps = -e.getDistanceFromDragStartY() / pixelsPerScrubStep;
+
+        for (; scrubStepsDone < steps; ++scrubStepsDone)
+            onStep (1);
+
+        for (; scrubStepsDone > steps; --scrubStepsDone)
+            onStep (-1);
+
+        return;
+    }
+
     // Sliding off the arrow stops the repeat, the way a button cancels when
     // the pointer leaves it.
     if (heldDirection != 0 && ! getLocalBounds().contains (e.getPosition()))
@@ -662,34 +691,41 @@ void TransportBar::paint (juce::Graphics& g)
 
 void TransportBar::resized()
 {
-    // The bar was drawn for a desktop window, which can be as wide as it
-    // needs. An iPad's screen cannot, and on an 11-inch one the full layout
-    // runs off the right-hand edge, taking the master knob and Save with it.
-    // So it is tried at its full size first and then tighter: narrower gaps
-    // between the groups, then without the Master button, then a shorter
-    // master meter, then none. The Master button goes first because the
-    // mixer's MASTERING button does the same thing; the meter goes after it
-    // because the mixer shows that level too. Nothing else is dropped.
-    struct Spacing { int gap, meter; bool mastering; };
+    // One row where it fits, at its full spacing or a little tighter. Where
+    // it does not -- a narrow window, an 11-inch iPad -- it becomes two rows
+    // rather than a row with things missing: the transport on top, and undo,
+    // the panels' buttons, the master level and the document below.
+    twoRows = ! (layOut (12, false) || layOut (8, false));
 
-    for (const auto spacing : { Spacing { 12, 110, true }, Spacing { 8, 110, true },
-                                Spacing { 8, 110, false }, Spacing { 6, 110, false }, Spacing { 6, 72, false },
-                                Spacing { 4, 44, false }, Spacing { 4, 0, false }, Spacing { 2, 0, false } })
-        if (layOut (spacing.gap, spacing.meter, spacing.mastering))
-            break;
+    if (twoRows)
+        layOut (12, true);
 
     repaint();
 }
 
-bool TransportBar::layOut (int gapWidth, int meterWidth, bool showMastering)
+int TransportBar::getHeightForWidth (int width)
 {
+    // The layout is what knows; it only depends on the width.
+    if (width != getWidth())
+        setSize (width, getHeight());
+
+    return twoRows ? 2 * preferredHeight - 10 + rowGap : preferredHeight;
+}
+
+bool TransportBar::layOut (int gapWidth, bool inTwoRows)
+{
+    constexpr int meterWidth = 110;
+    constexpr bool showMastering = true;
+
     panels.clear();
     captions.clear();
 
-    auto area = getLocalBounds().reduced (6, 5);
-    const int h = area.getHeight();
+    auto rows = getLocalBounds().reduced (6, 5);
+    const int h = preferredHeight - 10;
+    auto area = rows.removeFromTop (h);
     const int available = area.getWidth();
     int used = 0;
+    bool fits = true;
 
     // Wide enough for the caption at the app's minimum font size: these cells
     // used to be cut to whatever 10.5pt bold needed.
@@ -768,7 +804,18 @@ bool TransportBar::layOut (int gapWidth, int meterWidth, bool showMastering)
         loopStartDisplay.setBounds (top.withSizeKeepingCentre (fieldWidth, 17));
         loopLengthDisplay.setBounds (bottom.withSizeKeepingCentre (fieldWidth, 17));
     }
-    gap();
+
+    if (inTwoRows)
+    {
+        fits = used <= available;
+        rows.removeFromTop (rowGap);
+        area = rows.removeFromTop (h);
+        used = 0;
+    }
+    else
+    {
+        gap();
+    }
 
     undoButton.setBounds (take (28, 2).withSizeKeepingCentre (28, 28));
     redoButton.setBounds (take (28).withSizeKeepingCentre (28, 28));
@@ -794,7 +841,7 @@ bool TransportBar::layOut (int gapWidth, int meterWidth, bool showMastering)
     area.removeFromRight (8);
     documentLabel.setBounds (area);
 
-    return used + saveWidth <= available;
+    return fits && used + saveWidth <= available;
 }
 
 } // namespace carve::app

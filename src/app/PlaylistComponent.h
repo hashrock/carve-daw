@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "TouchUi.h"
 #include "IconButton.h"
 #include "SelectionModifiers.h"
 #include "ShortcutHelpBar.h"
@@ -341,6 +342,11 @@ private:
     double shortestBar() const;
 
     juce::Viewport* getViewport() const;
+
+    // Two fingers scroll (see TouchUi.h); the gesture the first finger began
+    // is taken back when the second arrives.
+    TwoFingerScroll twoFingerScroll;
+    void cancelGesture (const juce::MouseEvent&);
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
     void zoomBy (double factor);
 

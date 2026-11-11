@@ -3344,6 +3344,14 @@ void PlaylistComponent::modifierKeysChanged (const juce::ModifierKeys& mods)
 
 void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDown (e, getViewport(), [this, &e] { cancelGesture (e); }))
+        return;
+
+    // Its own transaction even where the press goes on to change nothing, so
+    // that taking the gesture back can never reach the one before it.
+    if (isTouchUi)
+        undoManager.beginNewTransaction();
+
     mouseIsOver = true;
     lastMousePosition = e.position;
     grabKeyboardFocus();   // ⌘D and the tool keys are ours once the grid is clicked
@@ -3702,6 +3710,9 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
 void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDrag (e, getViewport()))
+        return;
+
     lastMousePosition = e.position;
 
     if (rackMode)
@@ -3803,8 +3814,25 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
+void PlaylistComponent::cancelGesture (const juce::MouseEvent& e)
+{
+    // Whatever the first finger painted, moved or erased goes back, and the
+    // drag is wound up as if the finger had lifted without meaning anything.
+    pendingToggleClip = {};
+    dragMode = DragMode::none;
+
+    if (! rackMode)
+        clearSelection();
+
+    undoManager.undoCurrentTransactionOnly();
+    mouseUp (e);
+}
+
 void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseUp (e))
+        return;
+
     if (rackMode)
         return;
 

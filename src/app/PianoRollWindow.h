@@ -582,7 +582,7 @@ public:
 
         viewport.setViewedComponent (&pianoRoll, false);
         viewport.setScrollBarsShown (true, true);
-        scrollByBarsOnly (viewport);
+        leaveDragsToContent (viewport);
         viewport.onVisibleAreaChanged = [this] { updateStrips(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {

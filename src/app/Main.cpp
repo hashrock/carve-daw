@@ -332,10 +332,7 @@ private:
     {
     public:
         MainWindow (const juce::String& name, te::Engine& engineToUse)
-            : DocumentWindow (name,
-                              juce::Desktop::getInstance().getDefaultLookAndFeel()
-                                  .findColour (backgroundColourId),
-                              allButtons)
+            : DocumentWindow (name, windowBackground(), allButtons)
         {
             setUsingNativeTitleBar (true);
             setContentOwned (new MainComponent (engineToUse), true);
@@ -356,6 +353,18 @@ private:
             juce::JUCEApplication::getInstance()->systemRequestedQuit();
         }
 
+        // On the iPad the window shows round the content, as the margin that
+        // keeps it out of the screen's round corners. It is the transport
+        // bar's own colour there, so the content does not read as a
+        // square-cornered sheet laid on a round-cornered screen.
+        static juce::Colour windowBackground()
+        {
+            if (isTouchUi)
+                return juce::Colour (0xff26262c);
+
+            return juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (backgroundColourId);
+        }
+
        #if JUCE_IOS
         // The window is the whole screen, and the screen's edges are not all
         // the app's: the status bar, the home indicator, and corners that are
@@ -369,12 +378,19 @@ private:
             {
                 const auto safe = display->safeAreaInsets;
 
-                // At least the corner's worth at the sides even where the
-                // system reports nothing to avoid.
-                border = { border.getTop() + juce::jmax (safe.getTop(), 4),
-                           border.getLeft() + juce::jmax (safe.getLeft(), 8),
-                           border.getBottom() + juce::jmax (safe.getBottom(), 4),
-                           border.getRight() + juce::jmax (safe.getRight(), 8) };
+                // The same margin all round, which is about what the round
+                // corners need. The top and bottom insets the system reports
+                // are for the status bar, which this app hides, and the home
+                // indicator, which is a short line in the middle of the
+                // bottom edge and fits inside the margin; reserving a whole
+                // strip for either left the bottom visibly emptier than the
+                // sides.
+                constexpr int margin = 14;
+
+                border = { border.getTop() + margin,
+                           border.getLeft() + juce::jmax (safe.getLeft(), margin),
+                           border.getBottom() + margin,
+                           border.getRight() + juce::jmax (safe.getRight(), margin) };
             }
 
             return border;

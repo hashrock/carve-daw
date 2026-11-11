@@ -202,7 +202,7 @@ private:
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<GeneratorController> generatorController;
     PlaylistComponent playlist { undoManager };
-    BarScrolledViewport playlistViewport;
+    juce::Viewport playlistViewport;
     ClipPropertiesPanel clipProperties { undoManager };
     SampleBrowser browser { engine };
     ShortcutHelpBar helpBar;

@@ -1584,6 +1584,14 @@ void PianoRollComponent::eraseAlong (juce::Point<float> from, juce::Point<float>
 
 void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDown (e, getViewport(), [this, &e] { cancelGesture (e); }))
+        return;
+
+    // Its own transaction even where the press goes on to change nothing, so
+    // that taking the gesture back can never reach the one before it.
+    if (isTouchUi)
+        undoManager.beginNewTransaction();
+
     if (! pattern || e.position.x < (float) getKeyboardWidth())
         return;
 
@@ -1752,6 +1760,9 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDrag (e, getViewport()))
+        return;
+
     if (! pattern)
         return;
 
@@ -1816,8 +1827,22 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
+void PianoRollComponent::cancelGesture (const juce::MouseEvent& e)
+{
+    // Whatever the first finger drew, moved or erased goes back, and the
+    // drag is wound up as if the finger had lifted without meaning anything.
+    pendingToggleNote.reset();
+    dragMode = DragMode::none;
+    clearSelection();
+    undoManager.undoCurrentTransactionOnly();
+    mouseUp (e);
+}
+
 void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseUp (e))
+        return;
+
     if (draggedNote && dragMode == DragMode::resize)
         lastNoteLength = draggedNote->getLength();
 
