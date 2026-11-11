@@ -9,6 +9,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "TouchUi.h"
 #include "Fonts.h"
 #include "IconButton.h"
 #include "PianoRollComponent.h"
@@ -581,6 +582,7 @@ public:
 
         viewport.setViewedComponent (&pianoRoll, false);
         viewport.setScrollBarsShown (true, true);
+        scrollByBarsOnly (viewport);
         viewport.onVisibleAreaChanged = [this] { updateStrips(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {

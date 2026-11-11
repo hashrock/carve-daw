@@ -865,7 +865,7 @@ private:
     RecentMediaList recentSamples;
     juce::Label sampleName, dropHint;
     bool sampleDragOver = false;
-    juce::Viewport viewport;
+    BarScrolledViewport viewport;
     std::unique_ptr<SlateEditor> slate;
     std::unique_ptr<DrumSynthEditor> drumSynth;
     std::unique_ptr<GabberKickEditor> gabberKick;

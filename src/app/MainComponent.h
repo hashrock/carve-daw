@@ -2,6 +2,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "TouchUi.h"
 #include "GeneratorController.h"
 #include "GeneratorWindow.h"
 #include "MixerWindow.h"
@@ -201,7 +202,7 @@ private:
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<GeneratorController> generatorController;
     PlaylistComponent playlist { undoManager };
-    juce::Viewport playlistViewport;
+    BarScrolledViewport playlistViewport;
     ClipPropertiesPanel clipProperties { undoManager };
     SampleBrowser browser { engine };
     ShortcutHelpBar helpBar;
