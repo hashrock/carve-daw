@@ -145,6 +145,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
 
     playlistViewport.setViewedComponent (&playlist, false);
+    leaveDragsToContent (playlistViewport);
 
     addAndMakeVisible (*transportBar);
     // The automation lane's parameter menu: names and ranges come from the

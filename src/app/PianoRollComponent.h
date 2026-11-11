@@ -391,6 +391,11 @@ private:
     double minLengthBeats (const juce::ModifierKeys& mods) const;
 
     juce::Viewport* getViewport() const;
+
+    // Two fingers scroll (see TouchUi.h); the gesture the first finger began
+    // is taken back when the second arrives.
+    TwoFingerScroll twoFingerScroll;
+    void cancelGesture (const juce::MouseEvent&);
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
 
     // Which key means what is shared with the playlist: SelectionModifiers.h.
@@ -451,10 +456,6 @@ private:
     double pixelsPerBeat = defaultPixelsPerBeat;
     std::optional<double> playheadBeat;
     Tool tool = Tool::draw;
-
-    // The draw tool's press on empty grid: a new note, grabbed for the drag.
-    void drawNoteAt (juce::Point<float> position, juce::ModifierKeys mods);
-    TouchTap touchTap;
 
     enum class DragMode { none, move, resize, erase, rubberBand };
     DragMode dragMode = DragMode::none;

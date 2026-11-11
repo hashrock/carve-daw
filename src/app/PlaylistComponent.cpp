@@ -3344,18 +3344,20 @@ void PlaylistComponent::modifierKeysChanged (const juce::ModifierKeys& mods)
 
 void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDown (e, getViewport(), [this, &e] { cancelGesture (e); }))
+        return;
+
+    // Its own transaction even where the press goes on to change nothing, so
+    // that taking the gesture back can never reach the one before it.
+    if (isTouchUi)
+        undoManager.beginNewTransaction();
+
     mouseIsOver = true;
     lastMousePosition = e.position;
     grabKeyboardFocus();   // ⌘D and the tool keys are ours once the grid is clicked
 
     dragMode = DragMode::none;
     pendingToggleClip = {};
-
-    // Under a finger the viewport scrolls with a drag unless the press landed
-    // on something the drag belongs to; the two places below that clear this
-    // are the empty ones.
-    touchTap.armed = false;
-    setViewportIgnoreDragFlag (true);
 
     if (rackMode)
     {
@@ -3514,10 +3516,7 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     const int row = clipRowAt (e.position.y);
     if (row < 0 || row >= song.getNumGenerators())
-    {
-        setViewportIgnoreDragFlag (false);
         return;
-    }
 
     auto generator = song.getGenerator (row);
 
@@ -3679,15 +3678,6 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // An empty stretch of a row under a finger: the drag scrolls, and what a
-    // tap does here (mouseUp) waits until it is known to have been one.
-    if (isTouchUi)
-    {
-        touchTap.arm (e.position);
-        setViewportIgnoreDragFlag (false);
-        return;
-    }
-
     if (getEffectiveTool (e.mods) == Tool::paint)
     {
         // The clips this gesture paints become the selection, the way a note
@@ -3720,6 +3710,9 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
 void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDrag (e, getViewport()))
+        return;
+
     lastMousePosition = e.position;
 
     if (rackMode)
@@ -3821,27 +3814,27 @@ void PlaylistComponent::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
-void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
+void PlaylistComponent::cancelGesture (const juce::MouseEvent& e)
 {
-    if (rackMode)
-        return;
+    // Whatever the first finger painted, moved or erased goes back, and the
+    // drag is wound up as if the finger had lifted without meaning anything.
+    pendingToggleClip = {};
+    dragMode = DragMode::none;
 
-    // A tap on an empty stretch of a row, held back at the press in case it
-    // was a scroll: the paint tool paints one clip, the select tool lets go
-    // of the selection.
-    if (touchTap.wasTap (e))
-    {
+    if (! rackMode)
         clearSelection();
 
-        if (const int row = clipRowAt (touchTap.position.y);
-            getEffectiveTool (e.mods) == Tool::paint && row >= 0 && row < song.getNumGenerators())
-        {
-            undoManager.beginNewTransaction();
+    undoManager.undoCurrentTransactionOnly();
+    mouseUp (e);
+}
 
-            if (auto painted = paintClip (row, xToBeat (touchTap.position.x)); painted.isValid())
-                addToSelection (painted);
-        }
-    }
+void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
+{
+    if (twoFingerScroll.mouseUp (e))
+        return;
+
+    if (rackMode)
+        return;
 
     // A ruler click that never grew into a drag moves the transport to the bar
     // it landed on. Clearing the loop moved to the ruler's right click.

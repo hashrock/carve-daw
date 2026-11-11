@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace carve::app
@@ -24,44 +26,129 @@ inline juce::Rectangle<int> usableScreenArea()
     return {};
 }
 
-// A press on empty space in a viewport that scrolls under a finger. It may be
-// the start of a scroll or it may be a tap, and only the release says which,
-// so whatever a tap there does -- draw a note, paint a clip -- waits for it.
-struct TouchTap
+// Two fingers scroll, one finger edits.
+//
+// An editor inside a viewport -- the piano roll, the playlist -- uses a
+// one-finger drag for everything a mouse drag does there: moving a note,
+// drawing one, a rubber band. So the viewport is told not to scroll under a
+// dragging finger (see leaveDragsToContent), and the editor passes its mouse
+// events through one of these first. When a second finger comes down the
+// gesture the first one began is called off, and from there the two fingers
+// move the viewport until both are lifted.
+//
+// Each of mouseDown / mouseDrag / mouseUp returns true when the event was
+// part of a scroll and the editor should do nothing with it.
+class TwoFingerScroll
 {
-    void arm (juce::Point<float> where)
+public:
+    // cancelGesture undoes whatever the first finger's press started.
+    bool mouseDown (const juce::MouseEvent& e, juce::Viewport* viewport,
+                    const std::function<void()>& cancelGesture)
     {
-        armed = true;
-        position = where;
-        pressedAt = juce::Time::getMillisecondCounter();
+        if (! isTouchUi)
+            return false;
+
+        const auto finger = e.source.getIndex();
+
+        if (finger > 1)
+            return true;   // a third finger is nobody's
+
+        start[finger] = current[finger] = e.getScreenPosition();
+
+        if (finger == 0)
+        {
+            down[0] = true;
+            scrolling = swallowing = false;
+            return false;
+        }
+
+        // Before the second finger is counted as down: calling the gesture
+        // off may come back through mouseUp with this same event.
+        if (! swallowing && cancelGesture)
+            cancelGesture();
+
+        down[1] = true;
+
+        // Measured from where both fingers are now, not from where the
+        // first one landed.
+        start[0] = current[0];
+        swallowing = true;
+        scrolling = viewport != nullptr;
+
+        if (viewport != nullptr)
+            origin = viewport->getViewPosition();
+
+        return true;
     }
 
-    // Call from mouseUp. True if the press that was armed ended as a tap:
-    // short, and without having moved. A long press is not one (it is the
-    // right click; see LongPress.h).
-    bool wasTap (const juce::MouseEvent& e)
+    bool mouseDrag (const juce::MouseEvent& e, juce::Viewport* viewport)
     {
-        return std::exchange (armed, false)
-            && ! e.mouseWasDraggedSinceMouseDown()
-            && juce::Time::getMillisecondCounter() - pressedAt < 400;
+        if (! isTouchUi)
+            return false;
+
+        const auto finger = e.source.getIndex();
+
+        if (finger > 1)
+            return true;
+
+        // In screen coordinates: the editor itself moves as it scrolls.
+        current[finger] = e.getScreenPosition();
+
+        if (! swallowing)
+            return false;
+
+        if (scrolling && viewport != nullptr)
+            viewport->setViewPosition (origin - ((current[0] - start[0]) + (current[1] - start[1])) / 2);
+
+        return true;
     }
 
-    bool armed = false;
-    juce::Point<float> position;
-    juce::uint32 pressedAt = 0;
+    bool mouseUp (const juce::MouseEvent& e)
+    {
+        if (! isTouchUi)
+            return false;
+
+        const auto finger = e.source.getIndex();
+
+        if (finger > 1)
+            return true;
+
+        down[finger] = false;
+
+        if (! swallowing)
+            return false;
+
+        // One finger left is not a scroll, and not a new gesture either:
+        // nothing more happens until both are up.
+        scrolling = false;
+        swallowing = down[0] || down[1];
+        return true;
+    }
+
+private:
+    bool down[2] = { false, false };
+    juce::Point<int> start[2], current[2], origin;
+    bool swallowing = false, scrolling = false;
 };
 
-// A viewport whose content is all controls -- knobs, pads, envelopes -- where
-// there is no empty space for a finger to scroll by. JUCE scrolls a viewport
-// under a dragging finger unless told not to, which there would turn every
-// knob drag into a scroll as well, so the scroll bars do it, widened to be
+// For a viewport whose content takes drags itself. JUCE scrolls a viewport
+// under a dragging finger unless told not to, which turns every note moved
+// into a scroll as well.
+inline void leaveDragsToContent (juce::Viewport& viewport)
+{
+    if (isTouchUi)
+        viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
+}
+
+// A viewport whose content is all controls -- knobs, pads, envelopes -- and
+// has no two-finger scroll of its own: the scroll bars do it, widened to be
 // something a finger can hold.
 inline void scrollByBarsOnly (juce::Viewport& viewport)
 {
     if (! isTouchUi)
         return;
 
-    viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
+    leaveDragsToContent (viewport);
     viewport.setScrollBarThickness (20);
 }
 

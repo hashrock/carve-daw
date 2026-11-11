@@ -342,7 +342,11 @@ private:
     double shortestBar() const;
 
     juce::Viewport* getViewport() const;
-    TouchTap touchTap;
+
+    // Two fingers scroll (see TouchUi.h); the gesture the first finger began
+    // is taken back when the second arrives.
+    TwoFingerScroll twoFingerScroll;
+    void cancelGesture (const juce::MouseEvent&);
     void setPixelsPerBeat (double newPixelsPerBeat, float anchorX);
     void zoomBy (double factor);
 

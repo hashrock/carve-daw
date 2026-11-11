@@ -3,7 +3,6 @@
 #include <tuple>
 
 #include "PianoRollComponent.h"
-#include "TouchUi.h"
 #include "PlayModeGlyphs.h"
 #include "Fonts.h"
 
@@ -1585,16 +1584,16 @@ void PianoRollComponent::eraseAlong (juce::Point<float> from, juce::Point<float>
 
 void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 {
-    // Under a finger the viewport scrolls with a drag unless the press landed
-    // on something the drag belongs to. Decided afresh at every press; the
-    // viewport asks as the drag goes.
-    touchTap.armed = false;
-    setViewportIgnoreDragFlag (false);
+    if (twoFingerScroll.mouseDown (e, getViewport(), [this, &e] { cancelGesture (e); }))
+        return;
+
+    // Its own transaction even where the press goes on to change nothing, so
+    // that taking the gesture back can never reach the one before it.
+    if (isTouchUi)
+        undoManager.beginNewTransaction();
 
     if (! pattern || e.position.x < (float) getKeyboardWidth())
         return;
-
-    setViewportIgnoreDragFlag (true);
 
     grabKeyboardFocus();   // the tool keys and Backspace are ours once the roll is clicked
 
@@ -1708,15 +1707,6 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // Empty grid under a finger: the drag scrolls, and what a tap does here
-    // (mouseUp) waits until it is known to have been one.
-    if (isTouchUi)
-    {
-        touchTap.arm (e.position);
-        setViewportIgnoreDragFlag (false);
-        return;
-    }
-
     if (getEffectiveTool (e.mods) == Tool::select)
     {
         // Empty grid with the select tool: rubber band. Cmd adds to what is
@@ -1736,16 +1726,10 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    drawNoteAt (e.position, e.mods);
-    updateCursor (e);
-}
-
-void PianoRollComponent::drawNoteAt (juce::Point<float> position, juce::ModifierKeys mods)
-{
-    const auto minLength = minLengthBeats (mods);
+    const auto minLength = minLengthBeats (e.mods);
     const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLength);
-    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (position.x), mods));
-    const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (position.y));
+    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x), e.mods));
+    const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (e.position.y));
     const auto length = juce::jmax (minLength,
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
@@ -1768,13 +1752,17 @@ void PianoRollComponent::drawNoteAt (juce::Point<float> position, juce::Modifier
     setSelection ({ draggedNote->state });
 
     dragMode = DragMode::move;
-    grabOffsetBeats = xToBeat (position.x) - start;
-    dragStartPosition = position;
+    grabOffsetBeats = xToBeat (e.position.x) - start;
+    dragStartPosition = e.position;
     beginSelectionDrag();
+    updateCursor (e);
 }
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (twoFingerScroll.mouseDrag (e, getViewport()))
+        return;
+
     if (! pattern)
         return;
 
@@ -1839,21 +1827,21 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
+void PianoRollComponent::cancelGesture (const juce::MouseEvent& e)
+{
+    // Whatever the first finger drew, moved or erased goes back, and the
+    // drag is wound up as if the finger had lifted without meaning anything.
+    pendingToggleNote.reset();
+    dragMode = DragMode::none;
+    clearSelection();
+    undoManager.undoCurrentTransactionOnly();
+    mouseUp (e);
+}
+
 void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 {
-    // A tap on empty grid, held back at the press in case it was a scroll.
-    if (touchTap.wasTap (e) && pattern)
-    {
-        if (getEffectiveTool (e.mods) == Tool::select)
-        {
-            clearSelection();
-        }
-        else
-        {
-            undoManager.beginNewTransaction();
-            drawNoteAt (touchTap.position, e.mods);
-        }
-    }
+    if (twoFingerScroll.mouseUp (e))
+        return;
 
     if (draggedNote && dragMode == DragMode::resize)
         lastNoteLength = draggedNote->getLength();
