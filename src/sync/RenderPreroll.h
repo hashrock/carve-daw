@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cmath>
+#include <limits>
+#include <memory>
+
 #include <functional>
 #include <optional>
 
@@ -50,6 +54,16 @@ struct PrerollRender
 // index into OggVorbisAudioFormat::getQualityOptions(), 192 kbps.
 inline constexpr int defaultOggQualityIndex = 6;
 
+// What a finished render measured, filled in by finishPreroll when asked.
+struct RenderReport
+{
+    double lufsAsRendered = -INFINITY;   // integrated, BS.1770
+    double lufs = -INFINITY;             // as written
+    double truePeakDb = -INFINITY;       // as written
+    double gainDb = 0.0;                 // what normalising applied
+    bool heldByCeiling = false;          // the gain would have pushed the true peak over the ceiling
+};
+
 // What the destination is to be.
 struct RenderOutput
 {
@@ -65,6 +79,19 @@ struct RenderOutput
     // positions, and the loop ends where the file does, so the file cannot
     // be a rounding error longer or shorter than the song says.
     juce::int64 exactLength = -1;
+
+    // Normalising: brought to this integrated loudness (LUFS) by one gain over
+    // the whole file -- no limiting -- unless that would put the true peak
+    // over the ceiling, in which case it stops at the ceiling. NaN: as mixed.
+    double loudnessTarget = std::numeric_limits<double>::quiet_NaN();
+    double truePeakCeilingDb = -1.0;
+
+    // TPDF dither at the written bit depth, for a fixed-point file short of
+    // float: the rounding error made noise rather than distortion.
+    bool dither = false;
+
+    // Filled in, if given.
+    std::shared_ptr<RenderReport> report;
 };
 
 // How many samples early a render starts: whole blocks, at least half a

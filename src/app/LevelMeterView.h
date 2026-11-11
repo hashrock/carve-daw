@@ -44,6 +44,17 @@ public:
 
     ~LevelMeterView() override  { attach (nullptr); }
 
+    // The bar's colour in place of the usual green (transparent for that):
+    // the master meter says, in its colour, that a reference is playing.
+    void setTint (juce::Colour c)
+    {
+        if (c != tint)
+        {
+            tint = c;
+            repaint();
+        }
+    }
+
     void update (te::LevelMeasurer* wanted)
     {
         attach (wanted);
@@ -72,7 +83,7 @@ public:
         {
             const auto proportion = meter::dbToProportion (levelDb[channel]);
             g.setColour (levelDb[channel] > 0.0f ? juce::Colours::orangered
-                                                 : juce::Colour (0xff4fc27a));
+                                                 : (tint.isTransparent() ? juce::Colour (0xff4fc27a) : tint));
 
             if (upright)
             {
@@ -101,6 +112,7 @@ public:
     }
 
 private:
+    juce::Colour tint;
     static constexpr int numChannels = 2;
 
     void attach (te::LevelMeasurer* wanted)

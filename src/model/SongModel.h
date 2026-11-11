@@ -514,6 +514,16 @@ public:
     // separate kind of thing.
     static constexpr const char* audioType = "audio";
 
+    // A reference track: an audio row holding a finished record to hold the
+    // mix up against. Laid out exactly as an audio row is -- files dropped
+    // on it, clips moved to line its drop up with the song's -- but never
+    // mixed in: its Edit track is muted, and soloing it is what plays it,
+    // instead of the mix (see ReferencePlayerPlugin). Its fader is a trim on
+    // the reference, and with matchLevel on (the default) it is played at
+    // the mix's loudness. isAudio() is true of it: everything an audio row
+    // does, it does; isReference() is for what it does differently.
+    static constexpr const char* referenceType = "reference";
+
     // The built-in synth and the built-in drum machine. Both are internal
     // tracktion plugins, so their settings are kept the way an internal
     // effect's are: the plugin's own tree, under INSTRUMENT (see
@@ -552,7 +562,11 @@ public:
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
                                                  || isAcousticDrums() || isElectricBass(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
-    bool isAudio() const    { return getType() == audioType; }
+    bool isAudio() const    { return getType() == audioType || isReference(); }
+    bool isReference() const  { return getType() == referenceType; }
+
+    bool isReferenceLevelMatched() const  { return state.getProperty (ids::matchLevel, true); }
+    void setReferenceLevelMatched (bool matched, juce::UndoManager* um)  { state.setProperty (ids::matchLevel, matched, um); }
     bool isSoundFont() const  { return getType() == soundFontType; }
     bool isUtau() const       { return getType() == utauType; }
 
@@ -1381,6 +1395,7 @@ public:
     // The chain after the master's effects that only mastering mode plays
     // (see MasteringChain).
     MasteringChain getMasteringChain() const;
+
 
     // The group busses, in the order they were made -- which is the order the
     // mixer shows them in and the order their tracks sit in the Edit.

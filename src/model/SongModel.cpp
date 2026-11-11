@@ -1592,7 +1592,7 @@ Generator Song::addGenerator (const juce::String& name, const juce::String& type
     // An audio generator plays files off the playlist, so it never has
     // patterns; giving it an empty PATTERNS node would only invite a view to
     // offer a pattern grid for a row that can't play one.
-    if (type != Generator::audioType)
+    if (type != Generator::audioType && type != Generator::referenceType)
         generator.appendChild (juce::ValueTree (ids::PATTERNS), nullptr);
 
     getOrCreateChild (state, ids::GENERATORS).appendChild (generator, um);

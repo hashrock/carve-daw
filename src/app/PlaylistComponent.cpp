@@ -1104,8 +1104,24 @@ void PlaylistComponent::paintRowLabels (juce::Graphics& g)
         g.setColour (isSelectedRow ? juce::Colours::white : juce::Colour (0xffb8b8c0));
         g.setFont (uiFont (rowLabelTextHeight));
         // Trimmed on the right so a long name never runs under the disclosure.
-        g.drawText (generator.getName(), (int) left + 8, (int) y, labelWidth - 30, rowHeight,
+        g.drawText (generator.getName(), (int) left + 8, (int) y + 3, labelWidth - 30, rowHeight - 20,
                     juce::Justification::centredLeft);
+
+        for (const auto& [kind, box] : rowSwitches (row))
+        {
+            const bool on = kind == RowSwitch::mute ? generator.isMuted()
+                          : kind == RowSwitch::solo ? generator.isSoloed()
+                                                    : generator.isReferenceLevelMatched();
+            const auto lit = kind == RowSwitch::mute ? juce::Colour (0xffd9a53a)
+                           : kind == RowSwitch::solo ? (generator.isReference() ? juce::Colour (0xff5fc4b8) : juce::Colour (0xff62b866))
+                                                     : juce::Colour (0xff8f8fd6);
+            g.setColour (on ? lit : juce::Colour (0xff3a3a42));
+            g.fillRoundedRectangle (box, 2.5f);
+            g.setColour (on ? juce::Colour (0xff18181c) : juce::Colour (0xff9a9aa4));
+            g.setFont (uiFont (10.0f).withStyle ("Bold"));
+            g.drawText (kind == RowSwitch::mute ? "M" : kind == RowSwitch::solo ? "S" : "Match",
+                        box, juce::Justification::centred);
+        }
 
         // Disclosure for the row's automation lane: a chevron pointing right
         // when closed and down at the lane when open. The rack has no lanes.
@@ -1646,7 +1662,8 @@ void PlaylistComponent::paintRack (juce::Graphics& g)
         {
             g.setColour (juce::Colour (0xff6e6e78));
             g.setFont (uiFont (timelineTextHeight));
-            g.drawText (generator.isAudio() ? "Audio track: plays in Song mode" : "No pattern",
+            g.drawText (generator.isReference() ? "Reference: solo it to hear it from its start"
+                        : generator.isAudio() ? "Audio track: plays in Song mode" : "No pattern",
                         band.withLeft (juce::jmax (band.getX(), labelBandRight()) + 8.0f).toNearestInt(),
                         juce::Justification::centredLeft);
             continue;
@@ -1804,6 +1821,13 @@ void PlaylistComponent::rackMouseDown (const juce::MouseEvent& e)
         return;
 
     auto generator = song.getGenerator (row);
+
+    if (inLabelBand (e.position) && ! e.mods.isPopupMenu())
+        if (const auto kind = rowSwitchAt (row, e.position); kind != RowSwitch::none)
+        {
+            toggleRowSwitch (row, kind);
+            return;
+        }
 
     if (onSelectGenerator)
         onSelectGenerator (generator.getId());
@@ -2952,6 +2976,44 @@ void PlaylistComponent::toggleRowExpanded (int row)
     repaint();
 }
 
+std::vector<std::pair<PlaylistComponent::RowSwitch, juce::Rectangle<float>>> PlaylistComponent::rowSwitches (int row) const
+{
+    if (row < 0 || row >= song.getNumGenerators())
+        return {};
+
+    const auto top = rowY (row) + (float) rowHeight - 17.0f;
+    juce::Rectangle<float> box (labelBandLeft() + 8.0f, top, 18.0f, 13.0f);
+
+    if (song.getGenerator (row).isReference())
+        return { { RowSwitch::solo, box }, { RowSwitch::match, box.translated (22.0f, 0.0f).withWidth (38.0f) } };
+
+    return { { RowSwitch::mute, box }, { RowSwitch::solo, box.translated (22.0f, 0.0f) } };
+}
+
+PlaylistComponent::RowSwitch PlaylistComponent::rowSwitchAt (int row, juce::Point<float> p) const
+{
+    for (const auto& [kind, box] : rowSwitches (row))
+        if (box.expanded (2.0f).contains (p))
+            return kind;
+
+    return RowSwitch::none;
+}
+
+void PlaylistComponent::toggleRowSwitch (int row, RowSwitch kind)
+{
+    auto generator = song.getGenerator (row);
+    undoManager.beginNewTransaction();
+
+    if (kind == RowSwitch::mute)
+        generator.setMuted (! generator.isMuted(), &undoManager);
+    else if (kind == RowSwitch::solo)
+        generator.setSoloed (! generator.isSoloed(), &undoManager);
+    else if (kind == RowSwitch::match)
+        generator.setReferenceLevelMatched (! generator.isReferenceLevelMatched(), &undoManager);
+
+    repaint();
+}
+
 juce::Rectangle<float> PlaylistComponent::disclosureBounds (int row) const
 {
     // The right end of the row's label cell, where the pattern chevron sits on
@@ -3522,6 +3584,13 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     if (inLabelBand (e.position))
     {
+        if (! e.mods.isPopupMenu())
+            if (const auto kind = rowSwitchAt (row, e.position); kind != RowSwitch::none)
+            {
+                toggleRowSwitch (row, kind);
+                return;
+            }
+
         if (onSelectGenerator)
             onSelectGenerator (generator.getId());
 
@@ -3881,6 +3950,12 @@ void PlaylistComponent::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu())
         return;   // the press already opened a menu
+
+    // A quick second press on a switch is the switch pressed again, which the
+    // press has done; it opens nothing.
+    if (inLabelBand (e.position))
+        if (const int row = clipRowAt (e.position.y); rowSwitchAt (row, e.position) != RowSwitch::none)
+            return;
 
     // In the rack a double click opens what was double clicked: a label its
     // generator, a band the pattern it is playing.

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CarveDAW VERSION 0.17.0 LANGUAGES C CXX)
+project(CarveDAW VERSION 0.18.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -175,6 +175,13 @@ set(CARVE_CORE_SOURCES
     src/plugins/LimiterPlugin.cpp
     src/plugins/BusCompressorPlugin.h
     src/plugins/BusCompressorPlugin.cpp
+    src/plugins/Loudness.h
+    src/plugins/ReferencePlayerPlugin.h
+    src/plugins/ReferencePlayerPlugin.cpp
+    src/plugins/MasterAnalyzerPlugin.h
+    src/plugins/MasterAnalyzerPlugin.cpp
+    src/plugins/StereoImagerPlugin.h
+    src/plugins/StereoImagerPlugin.cpp
     src/plugins/DrumSynthPlugin.h
     src/plugins/DrumSynthPlugin.cpp
     src/plugins/GabberKickDsp.h

@@ -215,6 +215,15 @@ public:
     // or while stopped -- togglePlay sets the range afresh on the next play.
     void refreshPatternLoop();
 
+    // The mastering analyzer: File > Analyzer..., shift-cmd-A, or a click on
+    // the master meter.
+    std::function<void()> onOpenAnalyzer;
+
+    // While a reference track is soloed, what comes out is the reference,
+    // not the mix: the master meter turns the reference's colour so that is
+    // never forgotten.
+    void setListeningToReference (bool);
+
     bool isPatternMode() const  { return playMode.isPatternMode(); }
 
     static constexpr int preferredHeight = 48;   // of one row
@@ -305,9 +314,19 @@ private:
     bool songLoopChecked = true;
     IconButton undoButton { "", Icon::undo }, redoButton { "", Icon::redo };
     IconButton mixerButton { "Mixer", Icon::mixer };
+
     IconButton saveButton { "Save", Icon::save };
     IconButton browserButton { "Browser", Icon::folder };
     juce::Slider masterKnob;
+    // A click on the meter opens the analyzer. Declared before the meter, so
+    // it outlives it.
+    struct MeterClick : juce::MouseListener
+    {
+        std::function<void()> onClick;
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
+    };
+
+    MeterClick meterClick;
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;
 

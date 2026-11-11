@@ -18,6 +18,9 @@
 #include "TransportBar.h"
 #include "model/SongModel.h"
 #include "sync/EditSync.h"
+#include "plugins/ReferencePlayerPlugin.h"
+#include "plugins/MasterAnalyzerPlugin.h"
+#include "AnalyzerWindow.h"
 
 namespace carve::app
 {
@@ -171,14 +174,32 @@ private:
     // (see ExportComponent::onRenderingChanged).
     bool exportingSong = false;
 
-    // Mastering mode (shift-cmd-M, the transport bar's Master button, the
-    // mixer's MASTERING header): whether the song's mastering chain is heard.
+    // Mastering mode (shift-cmd-M, the mixer's MASTERING header): whether the song's mastering chain is heard.
     // Off by default and not saved -- it is a way of listening, like Pattern
     // mode. A mixdown export goes through the chain either way.
     bool masteringMode = false;
     void setMasteringMode (bool on);
     void updateAudition();
     double auditionLengthBeats() const;
+
+    // Reference tracks (Generator::referenceType): what the reference player
+    // at the end of the master plays, and when -- while one is soloed. The
+    // player is the app's, put on the master and kept last there.
+    te::Plugin::Ptr referencePlayerPlugin;
+    plugins::ReferencePlayerPlugin* referencePlayer = nullptr;
+    juce::String pushedReference;
+    juce::String lastSoloedReference;   // what backslash flips
+
+    // The mastering analyzer: its measuring plugin, after the reference
+    // player at the very end of the master, and its window.
+    te::Plugin::Ptr analyzerPlugin;
+    plugins::MasterAnalyzerPlugin* analyzer = nullptr;
+    std::unique_ptr<AnalyzerWindow> analyzerWindow;
+    void openAnalyzer();
+
+    void keepReferencePlayerLast();
+    void updateReferencePlayer();
+    void toggleReferenceSolo();
 
     te::Engine& engine;
     std::unique_ptr<te::Edit> edit;

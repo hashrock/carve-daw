@@ -522,6 +522,14 @@ private:
     void toggleRowExpanded (int row);
 
     juce::Rectangle<float> disclosureBounds (int row) const;
+
+    // The switches under a row's name: mute and solo, the mixer's own (the
+    // two are the same values), or on a reference track solo -- which plays
+    // it instead of the mix -- and Match, its loudness matched to the mix.
+    enum class RowSwitch { none, mute, solo, match };
+    std::vector<std::pair<RowSwitch, juce::Rectangle<float>>> rowSwitches (int row) const;
+    RowSwitch rowSwitchAt (int row, juce::Point<float>) const;
+    void toggleRowSwitch (int row, RowSwitch);
     juce::Rectangle<float> automationLaneBounds (int row) const;   // empty when collapsed
     juce::Rectangle<float> automationCurveBounds (int row) const;  // the part right of the labels
     juce::Rectangle<float> laneSelectorBounds (int row) const;
