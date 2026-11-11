@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "TouchUi.h"
+
 namespace carve::app
 {
 
@@ -101,6 +103,27 @@ public:
         return atLeastMinimumHeight (juce::LookAndFeel_V4::getAlertWindowFont());
     }
 
+    // On a touch screen the secondary windows stay above the main one (see
+    // useSystemTitleBar), and an alert that did not would come up underneath
+    // them: a "save changes?" box nobody could reach, modal, with a mixer on
+    // top of its buttons that could not be closed either.
+    juce::AlertWindow* createAlertWindow (const juce::String& title, const juce::String& message,
+                                          const juce::String& button1, const juce::String& button2,
+                                          const juce::String& button3, juce::MessageBoxIconType iconType,
+                                          int numButtons, juce::Component* associatedComponent) override
+    {
+        auto* alert = juce::LookAndFeel_V4::createAlertWindow (title, message, button1, button2, button3,
+                                                               iconType, numButtons, associatedComponent);
+
+        // Not set here: JUCE sets it again after this returns, to whether the
+        // system reports any always-on-top windows, which iOS never does. So
+        // it is set when the box is shown.
+        if (isTouchUi && alert != nullptr)
+            alert->addComponentListener (&keepAlertsOnTop);
+
+        return alert;
+    }
+
     // The close button of a window that draws its own title bar, which today
     // is every secondary window on the iPad. JUCE's is a dark red cross on a
     // dark bar, hard to find and harder to hit; this one is a bright cross
@@ -114,6 +137,20 @@ public:
     }
 
 private:
+    struct KeepOnTop : juce::ComponentListener
+    {
+        void componentVisibilityChanged (juce::Component& alert) override
+        {
+            if (alert.isVisible())
+            {
+                alert.setAlwaysOnTop (true);
+                alert.toFront (true);
+            }
+        }
+    };
+
+    KeepOnTop keepAlertsOnTop;
+
     struct CloseButton : juce::Button
     {
         CloseButton() : juce::Button ("close") {}

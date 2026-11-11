@@ -251,30 +251,101 @@ private:
     juce::TextButton noticesButton;
 };
 
+// The notices as plain lines, drawn only where they are on screen.
+//
+// A TextEditor lays the whole text out again, glyph by glyph, every time it
+// is given a size, and a new window is given several. On the Mac that goes
+// unnoticed; on an iPad the window took seconds to come up. The file is
+// already wrapped at 80 columns, so there is nothing to lay out: each line
+// is a row.
+class NoticeLines : public juce::Component
+{
+public:
+    explicit NoticeLines (const juce::String& text)
+        : lines (juce::StringArray::fromLines (text)),
+          font (uiFont (fonts::normal)),
+          rowHeight (juce::roundToInt (font.getHeight() * 1.3f))
+    {
+        // Wide enough for the longest line, measured from the longest by
+        // count rather than by shaping all of them.
+        juce::String longest;
+
+        for (const auto& line : lines)
+            if (line.length() > longest.length())
+                longest = line;
+
+        const auto width = juce::GlyphArrangement::getStringWidthInt (font, longest);
+        setSize (width + width / 10 + 2 * margin, lines.size() * rowHeight + 2 * margin);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto clip = g.getClipBounds();
+        const auto first = juce::jmax (0, (clip.getY() - margin) / rowHeight);
+        const auto last = juce::jmin (lines.size() - 1, (clip.getBottom() - margin) / rowHeight);
+
+        g.setFont (font);
+        g.setColour (noticeText);
+
+        for (int i = first; i <= last; ++i)
+            if (lines[i].isNotEmpty())
+                g.drawText (lines[i], margin, margin + i * rowHeight, getWidth() - 2 * margin, rowHeight,
+                            juce::Justification::centredLeft, false);
+    }
+
+private:
+    static constexpr int margin = 8;
+
+    juce::StringArray lines;
+    juce::Font font;
+    int rowHeight;
+};
+
 class NoticesContent : public juce::Component
 {
 public:
     NoticesContent()
     {
-        styleNoticeEditor (body, juce::Colour (0xff1c1c20));
-        body.setColour (juce::TextEditor::outlineColourId, juce::Colour (0xff3a3a40));
-        body.setText (thirdPartyNoticesText(), false);
-        addAndMakeVisible (body);
+        if (isTouchUi)
+        {
+            // Where the text is scrolled by a finger rather than selected
+            // with a pointer.
+            lines = std::make_unique<NoticeLines> (thirdPartyNoticesText());
+            scroller.setViewedComponent (lines.get(), false);
+            addAndMakeVisible (scroller);
+        }
+        else
+        {
+            styleNoticeEditor (body, juce::Colour (0xff1c1c20));
+            body.setColour (juce::TextEditor::outlineColourId, juce::Colour (0xff3a3a40));
+            body.setText (thirdPartyNoticesText(), false);
+            addAndMakeVisible (body);
+        }
+
         setSize (640, 520);
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (noticeBackground);
+
+        if (isTouchUi)
+        {
+            g.setColour (juce::Colour (0xff1c1c20));
+            g.fillRect (scroller.getBounds());
+        }
     }
 
     void resized() override
     {
         body.setBounds (getLocalBounds().reduced (12));
+        scroller.setBounds (getLocalBounds().reduced (12));
     }
 
 private:
     juce::TextEditor body;
+    std::unique_ptr<NoticeLines> lines;
+    juce::Viewport scroller;
 };
 
 class AboutWindow : public juce::DocumentWindow
