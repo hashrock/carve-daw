@@ -366,6 +366,12 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     // --- mixer, master
     mixerButton.onClick = [this] { if (onOpenMixer) onOpenMixer(); };
 
+
+    meterClick.onClick = [this] { if (onOpenAnalyzer) onOpenAnalyzer(); };
+    masterMeter.setInterceptsMouseClicks (true, false);   // a meter ignores the mouse unless asked
+    masterMeter.addMouseListener (&meterClick, false);
+    masterMeter.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+
     // Save, on the bar next to the document's name: Cmd-S is there too, but
     // the state it acts on is what the name shows, so the button sits by it.
     addAndMakeVisible (saveButton);
@@ -396,11 +402,16 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     startTimerHz (30);
 }
 
+void TransportBar::setListeningToReference (bool listening)
+{
+    masterMeter.setTint (listening ? juce::Colour (0xff5fc4b8) : juce::Colour());
+}
+
 void TransportBar::showFileMenu()
 {
     // The recent songs get IDs of their own above the fixed items, so one
     // callback can tell "the third recent song" from "Save As".
-    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId,
+    enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId, analyzerId,
            settingsId, aboutId, noticesId,
            firstRecentId = 100, firstSampleSongId = 200 };
 
@@ -433,6 +444,7 @@ void TransportBar::showFileMenu()
     menu.addItem (saveAsId, "Save As...");
     menu.addSeparator();
     menu.addItem (exportId, "Export Audio...");
+    menu.addItem (analyzerId, "Analyzer...");
 
     // On macOS these three are in the application menu, at the top of the
     // screen. Anywhere else this menu is the only one there is, and About is
@@ -459,6 +471,7 @@ void TransportBar::showFileMenu()
             case saveId:      if (safe->onSave)     safe->onSave();     break;
             case saveAsId:    if (safe->onSaveAs)   safe->onSaveAs();   break;
             case exportId:    if (safe->onExport)   safe->onExport();   break;
+            case analyzerId:  if (safe->onOpenAnalyzer) safe->onOpenAnalyzer(); break;
             case settingsId:  if (safe->onSettings) safe->onSettings(); break;
             case aboutId:     if (safe->onAbout)    safe->onAbout();    break;
             case noticesId:   if (safe->onNotices)  safe->onNotices();  break;

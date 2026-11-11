@@ -44,7 +44,7 @@ public:
     ~ExportComponent() override;
 
     static constexpr int preferredWidth = 400;
-    static constexpr int preferredHeight = 368;
+    static constexpr int preferredHeight = 368 + 30 + 26;
 
     // The song is where the loop range and the default file name come from;
     // the Edit only knows about seconds.
@@ -193,6 +193,14 @@ private:
     juce::ComboBox contentBox, formatBox, rangeBox, sampleRateBox, bitDepthBox, qualityBox;
     juce::ToggleButton tailButton { "Add a 1 second tail" };
     juce::ToggleButton masteringButton { "Through the mastering chain" };
+
+    // Loudness: as mixed, or normalised to a delivery target with its true
+    // peak ceiling (mixdowns only: stems are parts of a mix, not finished
+    // tracks). Dither: for a 16-bit WAV.
+    juce::Label loudnessLabel;
+    juce::ComboBox loudnessBox;
+    juce::ToggleButton ditherButton { "Dither (TPDF) at 16 bit" };
+    std::shared_ptr<sync::RenderReport> lastReport;
     juce::Label summaryLabel, statusLabel;
     juce::ProgressBar progressBar { progressForBar };
     juce::TextButton exportButton { "Export..." }, closeButton { "Close" };

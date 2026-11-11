@@ -206,6 +206,24 @@ public:
                  &groupButton, &muteButton, &soloButton })
             addAndMakeVisible (c);
 
+        // A reference track is never in the mix: no effects, sends, group,
+        // pan or mute. Its solo is what plays it, and its fader is a trim on
+        // it (on top of the loudness match).
+        if (generator.isReference())
+        {
+            for (auto* c : std::initializer_list<juce::Component*> { &panSlider, &effectViewport, &groupButton, &muteButton })
+                c->setVisible (false);
+
+            for (auto& row : sendRows)
+            {
+                row->label.setVisible (false);
+                row->slider.setVisible (false);
+            }
+
+            soloButton.setTooltip ("Hear this reference instead of the mix (backslash)");
+            volumeSlider.setTooltip ("Trim on the reference, on top of the loudness match");
+        }
+
         refresh();
     }
 
@@ -282,6 +300,20 @@ public:
         area.removeFromTop (4);
 
         auto buttons = area.removeFromBottom (22);
+
+        if (generator.isReference())
+        {
+            // Solo alone, the whole width: it is the A/B switch.
+            soloButton.setBounds (buttons);
+            area.removeFromBottom (3);
+            dbLabel.setBounds (area.removeFromBottom (16));
+            area.removeFromBottom (4);
+            meter.setBounds (area.removeFromLeft (12));
+            area.removeFromLeft (4);
+            volumeSlider.setBounds (area);
+            return;
+        }
+
         muteButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 2));
         buttons.removeFromLeft (4);
         soloButton.setBounds (buttons);

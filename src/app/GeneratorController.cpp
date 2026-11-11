@@ -41,6 +41,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (8, "Singer (voicebank)");
     menu.addItem (9, "Break Slicer (drum loop)");
     menu.addItem (5, "Audio track");
+    menu.addItem (13, "Reference track");
 
     juce::Array<juce::PluginDescription> instruments;
 
@@ -137,6 +138,13 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             // No instrument at all: its clips are the audio files placed on it.
             addGenerator ("Audio " + juce::String (song.getNumGenerators() + 1),
                           model::Generator::audioType, nullptr);
+        }
+        else if (result == 13)
+        {
+            // A record to compare with: drop it on the row, solo the row to
+            // hear it in place of the mix.
+            addGenerator ("Reference " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::referenceType, nullptr);
         }
         else if (result >= 100 && result < 100 + instruments.size())
         {

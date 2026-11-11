@@ -3,6 +3,7 @@
 
 #include "../plugins/DelayPlugin.h"
 #include "../plugins/BusCompressorPlugin.h"
+#include "../plugins/StereoImagerPlugin.h"
 #include "../plugins/LimiterPlugin.h"
 #include "../plugins/OvertopPlugin.h"
 #include "../plugins/PitchShifterPlugin.h"
@@ -36,6 +37,7 @@ namespace
         { plugins::LimiterPlugin::xmlTypeName, "Limiter", "Limit" },
         { plugins::OvertopPlugin::xmlTypeName, "Overtop (multiband)", "Overtop" },
         { "4bandEq",      "4-Band EQ",            "EQ" },
+        { plugins::StereoImagerPlugin::xmlTypeName, "Stereo Imager", "Imager" },
         { "lowpass",      "Low / High Pass",      "Filter" },
         { plugins::DistortionPlugin::xmlTypeName, "Distortion", "Dist" },
         { plugins::SaturationPlugin::xmlTypeName, "Saturation", "Sat" },

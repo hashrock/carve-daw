@@ -1,5 +1,7 @@
 #include "RenderPreroll.h"
 
+#include "plugins/Loudness.h"
+
 #include "VorbisComments.h"
 
 namespace carve::sync
@@ -97,6 +99,62 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, con
     juce::AudioBuffer<float> buffer (numChannels, chunk);
     bool ok = true;
 
+    // Measure first: the loudness and the true peak of what was rendered,
+    // which normalising works from and the report gives back.
+    double gain = 1.0;
+
+    if (output.report != nullptr || std::isfinite (output.loudnessTarget))
+    {
+        plugins::LoudnessMeter loudness;
+        plugins::TruePeakMeter truePeak;
+        loudness.prepare (sampleRate);
+
+        for (juce::int64 done = 0; done < keep;)
+        {
+            if (shouldStop && shouldStop())
+                break;
+
+            const auto n = (int) juce::jmin ((juce::int64) chunk, keep - done);
+            reader->read (&buffer, 0, n, render.prerollSamples + done, true, true);
+            loudness.process (buffer.getArrayOfReadPointers(), numChannels, n);
+            truePeak.process (buffer.getArrayOfReadPointers(), numChannels, n);
+            done += n;
+        }
+
+        const auto measured = loudness.integrated();
+        const auto peak = truePeak.getPeakDb();
+        double gainDb = 0.0;
+        bool held = false;
+
+        if (std::isfinite (output.loudnessTarget) && std::isfinite (measured))
+        {
+            gainDb = output.loudnessTarget - measured;
+
+            if (peak + gainDb > output.truePeakCeilingDb)
+            {
+                gainDb = output.truePeakCeilingDb - peak;
+                held = true;
+            }
+
+            gain = juce::Decibels::decibelsToGain (gainDb);
+        }
+
+        if (output.report != nullptr)
+        {
+            output.report->lufsAsRendered = measured;
+            output.report->lufs = measured + gainDb;
+            output.report->truePeakDb = peak + gainDb;
+            output.report->gainDb = gainDb;
+            output.report->heldByCeiling = held;
+        }
+    }
+
+    // TPDF dither: two uniform randoms a least significant bit wide, summed.
+    const bool dither = output.dither && output.bitDepth > 0 && output.bitDepth < 32
+                         && (output.format == nullptr || output.format == formats.getWavFormat());
+    const auto lsb = dither ? 1.0f / (float) (1 << (output.bitDepth - 1)) : 0.0f;
+    juce::Random random (0x5eed);   // the same noise every time: a render is reproducible
+
     for (juce::int64 done = 0; done < keep && ok;)
     {
         if (shouldStop && shouldStop())
@@ -113,8 +171,21 @@ juce::String finishPreroll (const PrerollRender& render, te::Engine& engine, con
         // Past the end of what was rendered -- only when an exact length asks
         // for a sample or so more than the render rounded to -- reads as
         // silence, which is what the song has there.
-        ok = reader->read (&buffer, 0, n, render.prerollSamples + done, true, true)
-              && writer->writeFromAudioSampleBuffer (buffer, 0, n);
+        ok = reader->read (&buffer, 0, n, render.prerollSamples + done, true, true);
+
+        if (ok && gain != 1.0)
+            buffer.applyGain (0, n, (float) gain);
+
+        if (ok && dither)
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* d = buffer.getWritePointer (ch);
+
+                for (int i = 0; i < n; ++i)
+                    d[i] += (random.nextFloat() - random.nextFloat()) * lsb;
+            }
+
+        ok = ok && writer->writeFromAudioSampleBuffer (buffer, 0, n);
         done += n;
     }
 

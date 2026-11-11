@@ -26,6 +26,20 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     // the Edit, so it outlives the songs loaded into it.
     sync::setMasteringActive (*edit, false);
 
+    // The reference player, last on the master, for as long as the Edit lasts.
+    referencePlayerPlugin = edit->getPluginCache().createNewPlugin (plugins::ReferencePlayerPlugin::xmlTypeName, {});
+    referencePlayer = dynamic_cast<plugins::ReferencePlayerPlugin*> (referencePlayerPlugin.get());
+
+    if (referencePlayerPlugin != nullptr)
+        edit->getMasterPluginList().insertPlugin (referencePlayerPlugin, -1, nullptr);
+
+    // And after it, the analyzer: what it measures is what is heard.
+    analyzerPlugin = edit->getPluginCache().createNewPlugin (plugins::MasterAnalyzerPlugin::xmlTypeName, {});
+    analyzer = dynamic_cast<plugins::MasterAnalyzerPlugin*> (analyzerPlugin.get());
+
+    if (analyzerPlugin != nullptr)
+        edit->getMasterPluginList().insertPlugin (analyzerPlugin, -1, nullptr);
+
     transportBar = std::make_unique<TransportBar> (*edit, song, undoManager);
     transportBar->onNew = [this] { newSong(); };
     transportBar->onSave = [this] { saveSong(); };
@@ -91,6 +105,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
 
     transportBar->onOpenMixer = [this] { openMixer(); };
+    transportBar->onOpenAnalyzer = [this] { openAnalyzer(); };
     transportBar->onPlayModeChanged = [this] (bool on)
     {
         patternMode = on;
@@ -286,7 +301,12 @@ void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
     {
         if (generatorWindow != nullptr)
             retargetGeneratorWindow();
+
+        // A mastering effect added goes on the end of the master list,
+        // which is where the reference player has to stay.
+        keepReferencePlayerLast();
     };
+
 
     updateAudition();   // the mode outlives the song
 
@@ -826,6 +846,138 @@ void MainComponent::openMixer()
     mixerWindow->setSong (song);
 }
 
+//==============================================================================
+// Reference A/B
+
+// The master list ends reference player, then analyzer -- whatever the
+// sync has added since.
+void MainComponent::keepReferencePlayerLast()
+{
+    auto state = edit->getMasterPluginList().state;
+    const int count = state.getNumChildren();
+
+    auto moveTo = [&state] (const te::Plugin::Ptr& plugin, int wanted)
+    {
+        if (plugin == nullptr)
+            return;
+
+        if (const auto index = state.indexOf (plugin->state); index >= 0 && index != wanted)
+            state.moveChild (index, wanted, nullptr);
+    };
+
+    moveTo (referencePlayerPlugin, count - (analyzerPlugin != nullptr ? 2 : 1));
+    moveTo (analyzerPlugin, count - 1);
+}
+
+void MainComponent::openAnalyzer()
+{
+    if (analyzer == nullptr)
+        return;
+
+    if (analyzerWindow != nullptr)
+    {
+        analyzerWindow->toFront (true);
+        return;
+    }
+
+    auto onClose = [safe = juce::Component::SafePointer (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->analyzerWindow.reset();
+        });
+    };
+    auto keyHandler = [safe = juce::Component::SafePointer (this)] (const juce::KeyPress& key)
+    {
+        return safe != nullptr && safe->handleGlobalKey (key);
+    };
+
+    analyzerWindow = std::make_unique<AnalyzerWindow> (engine, *analyzer, referencePlayer, std::move (onClose), std::move (keyHandler));
+}
+
+// What the reference player plays follows the song: the soloed reference
+// track's clips, at their places (from the first of them in Pattern mode, as
+// the pattern loops from zero), its fader as a trim. One reference is heard
+// at a time -- a reference soloed unsolos any other, the way radio buttons
+// do -- and the meter takes the reference's colour while it is playing.
+void MainComponent::updateReferencePlayer()
+{
+    if (referencePlayer == nullptr)
+        return;
+
+    std::vector<model::Generator> soloed;
+
+    for (const auto& generator : song.getGenerators())
+        if (generator.isReference() && generator.isSoloed())
+            soloed.push_back (generator);
+
+    // The newly soloed one wins; the one that was already playing gives way.
+    if (soloed.size() > 1)
+    {
+        auto keep = std::find_if (soloed.begin(), soloed.end(),
+                                  [this] (const model::Generator& g) { return g.getId() != lastSoloedReference; });
+
+        for (auto& g : soloed)
+            if (g.getId() != keep->getId())
+                g.setSoloed (false, nullptr);
+
+        soloed = { *keep };
+    }
+
+    const auto* active = soloed.empty() ? nullptr : &soloed.front();
+
+    if (active != nullptr)
+        lastSoloedReference = active->getId();
+
+    // The clips of the soloed reference, or failing that the one last
+    // soloed, so the player has it loaded before it is asked for.
+    std::optional<model::Generator> source;
+
+    for (const auto& generator : song.getGenerators())
+        if (generator.isReference() && (active != nullptr ? generator.getId() == active->getId()
+                                                           : generator.getId() == lastSoloedReference))
+            source = generator;
+
+    std::vector<plugins::ReferencePlayerPlugin::Clip> clips;
+    double firstStart = 0.0;
+
+    if (source)
+        for (const auto& placement : song.getPlaylist().getAudioClips())
+            if (placement.getGeneratorId() == source->getId() && placement.getFile().existsAsFile())
+            {
+                plugins::ReferencePlayerPlugin::Clip clip;
+                clip.file = placement.getFile();
+                clip.start = edit->tempoSequence.toTime (te::BeatPosition::fromBeats (placement.getStart())).inSeconds();
+                clip.length = placement.getLengthSeconds();
+                clip.fileOffset = placement.getOffsetSeconds();
+                firstStart = clips.empty() ? clip.start : juce::jmin (firstStart, clip.start);
+                clips.push_back (clip);
+            }
+
+    referencePlayer->setClips (std::move (clips),
+                               source ? source->getVolumeDb() : 0.0f,
+                               ! source || source->isReferenceLevelMatched(),
+                               patternMode ? firstStart : 0.0);
+
+    const bool listening = active != nullptr;
+    referencePlayer->setListening (listening);
+    transportBar->setListeningToReference (listening);
+}
+
+// Backslash: the last soloed reference's solo, flipped -- A/B from the keys.
+void MainComponent::toggleReferenceSolo()
+{
+    for (auto generator : song.getGenerators())
+        if (generator.isReference() && (lastSoloedReference.isEmpty() || generator.getId() == lastSoloedReference))
+        {
+            lastSoloedReference = generator.getId();
+            generator.setSoloed (! generator.isSoloed(), nullptr);
+            updateReferencePlayer();
+            return;
+        }
+}
+
 void MainComponent::setMasteringMode (bool on)
 {
     masteringMode = on;
@@ -1188,6 +1340,17 @@ bool MainComponent::handleGlobalKey (const juce::KeyPress& key)
         toggleTypingKeyboard();
         return true;
     }
+    if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier
+                                        | juce::ModifierKeys::shiftModifier, 0))
+    {
+        openAnalyzer();
+        return true;
+    }
+    if (key == juce::KeyPress ('\\', juce::ModifierKeys::noModifiers, 0))
+    {
+        toggleReferenceSolo();
+        return true;
+    }
     if (key == juce::KeyPress ('m', juce::ModifierKeys::commandModifier
                                         | juce::ModifierKeys::shiftModifier, 0))
     {
@@ -1301,6 +1464,11 @@ void MainComponent::timerCallback()
     const auto songBeat = edit->tempoSequence.toBeats (position).inBeats();
 
     playlist.setPlayheadBeats (songBeat);
+    updateReferencePlayer();
+
+    // The analyzer reads before the master fader, which comes after it.
+    if (analyzer != nullptr)
+        analyzer->setMonitorGainDb (song.getMasterBus().getVolumeDb());
 
     // A keyboard plugged in while the app is running: the device list is
     // watched, but the button that greys itself out on it is here.

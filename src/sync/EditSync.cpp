@@ -41,6 +41,20 @@ namespace
                 volume->setPan (generator.getPan());
         }
 
+        // A reference track is never in the mix: muted whatever its switch
+        // says, and its solo is not the engine's -- soloing it is what plays
+        // it, through the reference player, while the mix carries on beneath.
+        if (generator.isReference())
+        {
+            if (! track.isMuted (false))
+                track.setMute (true);
+
+            if (track.isSolo (false))
+                track.setSolo (false);
+
+            return;
+        }
+
         if (track.isMuted (false) != generator.isMuted())
             track.setMute (generator.isMuted());
 

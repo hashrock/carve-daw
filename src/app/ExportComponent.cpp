@@ -117,8 +117,23 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     styleLabel (headingLabel, textColour, fonts::title);
     headingLabel.setText ("Export Audio", juce::dontSendNotification);
 
-    for (auto* label : { &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel })
+    for (auto* label : { &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel, &loudnessLabel })
         styleLabel (*label, dimTextColour, fonts::small);
+
+    loudnessLabel.setText ("Loudness", juce::dontSendNotification);
+    loudnessBox.addItem ("As mixed", 1);
+    loudnessBox.addItem ("-14 LUFS, -1 dBTP  (streaming)", 2);
+    loudnessBox.addItem ("-16 LUFS, -1 dBTP  (Apple Music, podcasts)", 3);
+    loudnessBox.addItem ("-9 LUFS, -0.3 dBTP  (loud master)", 4);
+    loudnessBox.addItem ("-23 LUFS, -1 dBTP  (broadcast, EBU R128)", 5);
+    loudnessBox.setSelectedId (1, juce::dontSendNotification);
+    loudnessBox.setTooltip ("Bring the mixdown to this integrated loudness with one gain over the whole file -- "
+                            "no limiting. If that would put the true peak over the ceiling, it stops at the ceiling.");
+
+    ditherButton.setToggleState (true, juce::dontSendNotification);
+    ditherButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
+    ditherButton.setTooltip ("Add a little noise as the floats are rounded to 16 bits, so quiet passages fade "
+                             "into hiss rather than into distortion");
 
     contentLabel.setText ("Content", juce::dontSendNotification);
     formatLabel.setText ("Format", juce::dontSendNotification);
@@ -193,7 +208,7 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     bitDepthBox.setSelectedId (24, juce::dontSendNotification);
 
     sampleRateBox.onChange = [this] { updateRangeSummary(); };
-    bitDepthBox.onChange = [this] { updateRangeSummary(); };
+    bitDepthBox.onChange = [this] { updateRangeSummary(); refreshOptions(); };
     tailButton.setToggleState (true, juce::dontSendNotification);
     tailButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
     tailButton.onClick = [this] { updateRangeSummary(); };
@@ -226,7 +241,8 @@ ExportComponent::ExportComponent (te::Edit& editToRender, model::Song songToRend
     for (auto* c : std::initializer_list<juce::Component*> {
              &headingLabel, &contentLabel, &formatLabel, &rangeLabel, &sampleRateLabel, &bitDepthLabel,
              &contentBox, &formatBox, &rangeBox, &sampleRateBox, &bitDepthBox, &tailButton,
-             &masteringButton, &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton })
+             &masteringButton, &summaryLabel, &statusLabel, &progressBar, &exportButton, &closeButton,
+             &loudnessLabel, &loudnessBox, &ditherButton })
         addAndMakeVisible (c);
 
     addChildComponent (qualityBox);
@@ -294,6 +310,10 @@ void ExportComponent::refreshOptions()
     // Stems leave the master's plugins out, the mastering chain with them, so
     // the box would be a promise the render does not keep.
     masteringButton.setEnabled (! rendering && ! isStemExport());
+
+    // Normalising is for a finished track; dither for the one depth that needs it.
+    loudnessBox.setEnabled (! rendering && ! isStemExport());
+    ditherButton.setEnabled (! rendering && ! ogg && bitDepthBox.getSelectedId() == 16);
 
     closeButton.setButtonText (rendering ? "Cancel" : "Close");
     progressBar.setVisible (rendering);
@@ -410,6 +430,13 @@ sync::RenderOutput ExportComponent::getRenderOutput() const
     output.format = getSelectedFormat();
     output.bitDepth = bitDepthBox.getSelectedId();
     output.qualityIndex = juce::jmax (0, qualityBox.getSelectedId() - 1);
+
+    static const double targets[] { std::numeric_limits<double>::quiet_NaN(), -14.0, -16.0, -9.0, -23.0 };
+    static const double ceilings[] { -1.0, -1.0, -1.0, -0.3, -1.0 };
+    const auto choice = isStemExport() ? 0 : juce::jlimit (0, 4, loudnessBox.getSelectedId() - 1);
+    output.loudnessTarget = targets[choice];
+    output.truePeakCeilingDb = ceilings[choice];
+    output.dither = ditherButton.getToggleState() && ! isOggExport() && output.bitDepth == 16;
 
     if (const auto loop = getSelectedGameLoop())
     {
@@ -731,7 +758,12 @@ bool ExportComponent::startCurrentJob()
     }
 
     renderThread = std::make_unique<RenderThread> (*renderTask,
-        [&engine, render = preroll, output = getRenderOutput()] (std::function<bool()> shouldStop)
+        [&engine, render = preroll, output = [this]
+        {
+            auto o = getRenderOutput();
+            o.report = lastReport = std::make_shared<sync::RenderReport>();
+            return o;
+        }()] (std::function<bool()> shouldStop)
         {
             return sync::finishPreroll (render, engine, output, std::move (shouldStop));
         });
@@ -834,7 +866,22 @@ void ExportComponent::renderFinished()
                        + folder.getFullPathName() + "  (" + total + ")",
                    okColour);
     else
-        setStatus ("Exported " + file.getFullPathName() + "  (" + total + ")", okColour);
+    {
+        // What the file came out at, so the export says whether it hit what
+        // it was meant to.
+        juce::String loudness;
+
+        if (lastReport != nullptr && std::isfinite (lastReport->lufs))
+        {
+            loudness << "\n" << juce::String (lastReport->lufs, 1) << " LUFS, " << juce::String (lastReport->truePeakDb, 1) << " dBTP";
+
+            if (std::abs (lastReport->gainDb) > 0.05)
+                loudness << "  (" << (lastReport->gainDb > 0 ? "+" : "") << juce::String (lastReport->gainDb, 1) << " dB"
+                         << (lastReport->heldByCeiling ? ", held at the peak ceiling" : "") << ")";
+        }
+
+        setStatus ("Exported " + file.getFullPathName() + "  (" + total + ")" + loudness, okColour);
+    }
 }
 
 void ExportComponent::setToldRendering (bool rendering)
@@ -881,6 +928,10 @@ void ExportComponent::resized()
     layoutRow (sampleRateLabel, sampleRateBox);
     layoutRow (bitDepthLabel, bitDepthBox);
     qualityBox.setBounds (bitDepthBox.getBounds());
+    layoutRow (loudnessLabel, loudnessBox);
+
+    ditherButton.setBounds (area.removeFromTop (22).withTrimmedLeft (labelColumnWidth));
+    area.removeFromTop (4);
 
     tailButton.setBounds (area.removeFromTop (22).withTrimmedLeft (labelColumnWidth));
     area.removeFromTop (4);

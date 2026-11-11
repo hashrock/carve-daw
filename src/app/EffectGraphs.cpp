@@ -2,6 +2,7 @@
 #include "Fonts.h"
 #include "InstrumentFxPanels.h"
 #include "../plugins/BusCompressorPlugin.h"
+#include "../plugins/StereoImagerPlugin.h"
 
 namespace carve::app
 {
@@ -513,8 +514,162 @@ void OvertopGraph::timerCallback()
 }
 
 //==============================================================================
+// The imager's width across the spectrum: none below the crossover (Mono
+// Below), Width above it, with the crossover's slope between. One handle --
+// across for the crossover, up and down for the width.
+class StereoImagerGraph : public graphs::HandleGraph,
+                          private juce::Timer
+{
+public:
+    static constexpr int preferredHeight = 130;
+
+    explicit StereoImagerGraph (plugins::StereoImagerPlugin& p) : plugin (&p)
+    {
+        setTooltip ("Drag across for Mono Below (to the far left for off), up and down for Width");
+        startTimerHz (15);
+    }
+
+protected:
+    static constexpr double lowHz = 20.0, highHz = 20000.0;
+    static constexpr float maxWidth = 200.0f;
+
+    plugins::StereoImagerPlugin* get() const  { return dynamic_cast<plugins::StereoImagerPlugin*> (plugin.get()); }
+
+    juce::Rectangle<float> getPlotArea() const override  { return getLocalBounds().toFloat().reduced (6.0f, 4.0f).withTrimmedBottom (14.0f); }
+
+    float xFor (double hz) const
+    {
+        const auto p = getPlotArea();
+        return p.getX() + p.getWidth() * (float) (std::log (juce::jlimit (lowHz, highHz, hz) / lowHz) / std::log (highHz / lowHz));
+    }
+
+    double hzFor (float x) const
+    {
+        const auto p = getPlotArea();
+        return lowHz * std::pow (highHz / lowHz, juce::jlimit (0.0, 1.0, (double) ((x - p.getX()) / p.getWidth())));
+    }
+
+    float yFor (float widthPercent) const
+    {
+        const auto p = getPlotArea();
+        return juce::jmap (juce::jlimit (0.0f, maxWidth, widthPercent), 0.0f, maxWidth, p.getBottom() - 2.0f, p.getY() + 4.0f);
+    }
+
+    void paintPlot (juce::Graphics& g, juce::Rectangle<float> p) override
+    {
+        graphs::drawGuide (g, { p.getX(), yFor (100.0f), p.getRight(), yFor (100.0f) }, "100%");
+
+        for (double hz : { 100.0, 1000.0, 10000.0 })
+            graphs::drawGuide (g, { xFor (hz), p.getY(), xFor (hz), p.getBottom() });
+
+        auto* imager = get();
+        if (imager == nullptr)
+            return;
+
+        const auto width = imager->width->getCurrentValue();
+        const auto cutoff = imager->monoBelow->getCurrentValue();
+        const bool mono = cutoff > plugins::StereoImagerPlugin::monoOff + 0.5f;
+
+        juce::Path widthCurve;
+        for (float x = p.getX(); x <= p.getRight(); x += 2.0f)
+        {
+            const auto ratio = hzFor (x) / juce::jmax (1.0f, cutoff);
+            const auto r4 = ratio * ratio * ratio * ratio;
+            const auto w = mono ? (float) (r4 / (1.0 + r4)) * width : width;   // an LR4 high-pass's magnitude
+            if (x <= p.getX()) widthCurve.startNewSubPath (x, yFor (w)); else widthCurve.lineTo (x, yFor (w));
+        }
+
+        juce::Path fill (widthCurve);
+        fill.lineTo (p.getRight(), p.getBottom());
+        fill.lineTo (p.getX(), p.getBottom());
+        fill.closeSubPath();
+        g.setColour (juce::Colour (graphs::colours::violet).withAlpha (0.18f));
+        g.fillPath (fill);
+        g.setColour (juce::Colour (graphs::colours::violet));
+        g.strokePath (widthCurve, juce::PathStrokeType (2.0f));
+    }
+
+    void paintOverlay (juce::Graphics& g, juce::Rectangle<float> p) override
+    {
+        g.setFont (uiFont (fonts::small));
+        g.setColour (juce::Colour (graphs::colours::faint));
+
+        for (auto [hz, label] : { std::pair { 100.0, "100" }, std::pair { 1000.0, "1k" }, std::pair { 10000.0, "10k Hz" } })
+            g.drawText (label, juce::Rectangle<float> (50.0f, 14.0f).withCentre ({ xFor (hz), p.getBottom() + 8.0f }),
+                        juce::Justification::centred);
+
+        g.drawText ("stereo width by frequency", p.reduced (6.0f, 3.0f), juce::Justification::topLeft);
+    }
+
+    std::vector<Handle> getHandles() override
+    {
+        auto* imager = get();
+        if (imager == nullptr)
+            return {};
+
+        const auto cutoff = imager->monoBelow->getCurrentValue();
+        return { { { xFor (cutoff), yFor (imager->width->getCurrentValue()) }, juce::Colour (graphs::colours::violet),
+                   "Width " + imager->width->getCurrentValueAsStringWithLabel(),
+                   "mono below " + imager->monoBelow->getCurrentValueAsStringWithLabel(),
+                   cutoff <= plugins::StereoImagerPlugin::monoOff + 0.5f } };
+    }
+
+    int handleForEmptyClick (juce::Point<float>) override  { return 0; }
+
+    void beginDrag (int) override
+    {
+        if (auto* imager = get())
+        {
+            imager->width->parameterChangeGestureBegin();
+            imager->monoBelow->parameterChangeGestureBegin();
+        }
+    }
+
+    void dragHandle (int, juce::Point<float> position, juce::Point<float>) override
+    {
+        auto* imager = get();
+        if (imager == nullptr)
+            return;
+
+        const auto p = getPlotArea();
+        const auto w = juce::jmap (position.y, p.getBottom() - 2.0f, p.getY() + 4.0f, 0.0f, maxWidth);
+        imager->width->setParameter (juce::jlimit (0.0f, maxWidth, std::round (w)), juce::sendNotification);
+
+        const auto hz = (float) hzFor (position.x);
+        imager->monoBelow->setParameter (hz < 25.0f ? plugins::StereoImagerPlugin::monoOff : juce::jmin (500.0f, std::round (hz)),
+                                         juce::sendNotification);
+    }
+
+    void endDrag (int) override
+    {
+        if (auto* imager = get())
+        {
+            imager->width->parameterChangeGestureEnd();
+            imager->monoBelow->parameterChangeGestureEnd();
+        }
+    }
+
+    void resetHandle (int) override
+    {
+        if (auto* imager = get())
+        {
+            imager->width->setParameter (100.0f, juce::sendNotification);
+            imager->monoBelow->setParameter (plugins::StereoImagerPlugin::monoOff, juce::sendNotification);
+        }
+    }
+
+private:
+    void timerCallback() override  { repaint(); }
+
+    te::SafeSelectable<te::Plugin> plugin;
+};
+
+//==============================================================================
 EffectGraph createEffectGraph (te::Plugin& plugin)
 {
+    if (auto* imager = dynamic_cast<plugins::StereoImagerPlugin*> (&plugin))
+        return { std::make_unique<StereoImagerGraph> (*imager), StereoImagerGraph::preferredHeight };
+
     if (auto* eq = dynamic_cast<te::EqualiserPlugin*> (&plugin))
         return { std::make_unique<EqualiserGraph> (*eq), EqualiserGraph::preferredHeight };
 
