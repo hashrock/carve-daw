@@ -215,11 +215,14 @@ not beside the Developer ID build's.
 `scripts/release.sh` is not an App Store upload. Do not point it at an App
 Store build.
 
-The App Store bundle still needs signing with the Apple Distribution
-certificate and that entitlements file, an embedded provisioning profile,
-a `productbuild` installer package signed with the Mac Installer
-Distribution certificate, and an upload with Transporter or `altool`. Those
-steps are not scripted in this repository yet.
+`scripts/appstore.sh` builds the App Store bundle (universal, with the
+build number the store wants), checks it -- the sandbox and nothing beyond
+it, no plugin host left in the binary, the About wording, the notices --
+and has `xcodebuild -exportArchive` sign it with Apple's cloud-managed
+distribution certificate, embed the provisioning profile and make the
+signed installer package in `dist/appstore/`. `--check-only` stops before
+anything is sent to Apple. The upload itself is not scripted: that is
+Transporter, by hand.
 
 ## Notices that ship with the binary
 

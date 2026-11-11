@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1c20">
+<title>サポート — Carve DAW</title>
+<meta name="description" content="Carve DAW への問い合わせ先と、よくある質問。">
+<link rel="icon" href="img/favicon.png">
+<script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible{outline:2px solid var(--orange);outline-offset:4px}
+.wrap{width:min(760px,calc(100% - 40px));margin-inline:auto}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;font-size:1.25rem;font-weight:750;letter-spacing:-.04em;text-decoration:none}
+.brand img{width:32px;height:32px;filter:invert(96%)}
+.brand span{font-size:.75rem;font-weight:500;letter-spacing:.12em;color:var(--muted)}
+header nav{padding-right:36px;font-size:.875rem}
+header nav a{color:var(--muted);text-decoration:none}
+header nav a:hover{color:var(--text)}
+article{padding:48px 0 24px}
+article+article{border-top:1px solid var(--line)}
+h1{font-size:2rem;letter-spacing:-.04em;margin:0 0 8px}
+h2{font-size:1.125rem;margin:40px 0 10px}
+p,dd{line-height:1.9;color:var(--muted);margin:0 0 12px}
+.lead{color:var(--text);font-size:1.0625rem}
+.updated{font-size:.8125rem}
+dl{margin:0}
+dt{font-weight:650;margin-top:16px}
+dd{margin-left:0}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.875em;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--text)}
+.link{color:var(--orange)}
+footer{border-top:1px solid var(--line);margin-top:32px;padding:22px 0 30px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:.75rem}
+footer a{text-decoration:none;margin-left:16px}footer a:first-child{margin-left:0}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<hashrock-switcher floating theme="dark"></hashrock-switcher>
+<header class="wrap">
+  <a class="brand" href="./" aria-label="Carve DAW ホーム"><img src="img/logo.svg" width="32" height="32" alt="">Carve <span>DAW</span></a>
+  <nav><a href="#en" lang="en">English ↓</a></nav>
+</header>
+<main class="wrap">
+
+<article id="ja" lang="ja">
+  <h1>サポート</h1>
+
+  <p class="lead">質問や不具合の報告は <a class="link" href="https://github.com/hashrock/carve-daw/issues">GitHub の Issues</a> で受け付けています。</p>
+
+  <h2>問い合わせるとき</h2>
+  <p>次のことを書いてもらえると、早く調べられます。</p>
+  <dl>
+    <dt>アプリの版と、入手元</dt>
+    <dd>版はメニューの「Carve DAW ＞ About Carve DAW」に出ています。Mac App Store 版か、GitHub からダウンロードした版かも書いてください。</dd>
+    <dt>macOS の版</dt>
+    <dd>「アップル メニュー ＞ この Mac について」に出ています。</dd>
+    <dt>起きたことと、その手順</dt>
+    <dd>何をしたら、何が起きたか。画面の写真や、その曲のファイル（.carve）があるとなおよいです。</dd>
+  </dl>
+
+  <h2>動作環境</h2>
+  <p>macOS 11 以降（Apple シリコン・Intel）。アプリの表示は英語です。</p>
+
+  <h2>よくある質問</h2>
+  <dl>
+    <dt>まず何をすればいいですか？</dt>
+    <dd>「File ＞ Open Sample Song」から付属の曲を開いて、スペースキーで再生してください。プレイリストのクリップをダブルクリックするとピアノロールが開き、音符を足したり動かしたりできます。「+ Generator」で楽器を足せます。使い方は<a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">ガイド</a>にまとめています。</dd>
+    <dt>音が出ません。</dt>
+    <dd>「Carve DAW ＞ Settings...」の「Audio output」で、出力先を選び直してください。</dd>
+    <dt>MIDI キーボードで弾けますか？</dt>
+    <dd>弾けます。「Settings...」の「MIDI input」でキーボードにチェックを入れると、選んでいる楽器が鳴ります。録音ボタンで演奏を曲に記録できます。パソコンのキーボードでも弾けます。</dd>
+    <dt>オーディオ（マイクや楽器）を録音できますか？</dt>
+    <dd>できません。Carve DAW はオーディオを録音しません。オーディオファイルを読み込んで、サンプラーやオーディオトラックで使えます。</dd>
+    <dt>Mac App Store 版でプラグイン（VST3 / Audio Unit）を使えますか？</dt>
+    <dd>使えません。Mac App Store 版は App Sandbox の中で動き、他社のプラグインを読み込みません。内蔵の楽器とエフェクトだけで動きます。プラグインを使った曲も開けますが、その楽器・エフェクトは鳴りません。プラグインを使うには、GitHub からダウンロードした版を使ってください。</dd>
+    <dt>曲を開いたら、サンプルが見つからないと言われました。</dt>
+    <dd>曲のファイルには、サンプルなどの素材そのものではなく、その場所が入っています。素材を移した・消したときや、Mac App Store 版でほかの Mac から持ってきた曲を開いたときは、出てくるウィンドウの「Locate...」で、その素材を選び直してください。</dd>
+    <dt>歌わせるには、何が要りますか？</dt>
+    <dd>歌声の音源（UTAU 形式の音源フォルダー）を自分で用意してください。「+ Generator ＞ Singer」で楽器を足し、「Load voicebank...」でフォルダーを選びます。ピアノロールで音符をダブルクリックすると歌詞を打てます。音源は付属していません。それぞれの音源の利用規約に従ってください。</dd>
+    <dt>書き出せる形式は？</dt>
+    <dd>WAV と Ogg Vorbis です。トラックごとのステム、ゲーム用のループ（LOOPSTART / LOOPLENGTH 付き）、MIDI パターンも書き出せます。</dd>
+  </dl>
+
+  <h2>プライバシー</h2>
+  <p>Carve DAW はあなたの情報を集めず、インターネットにも接続しません。詳しくは<a class="link" href="./privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+</article>
+
+<article id="en" lang="en">
+  <h1>Support</h1>
+
+  <p class="lead">For questions and bug reports, please use <a class="link" href="https://github.com/hashrock/carve-daw/issues">GitHub Issues</a>.</p>
+
+  <h2>When you contact us</h2>
+  <p>Including the following helps us look into it quickly.</p>
+  <dl>
+    <dt>App version, and where you got it</dt>
+    <dd>The version is shown in Carve DAW › About Carve DAW. Please also say whether it is the Mac App Store version or the one downloaded from GitHub.</dd>
+    <dt>macOS version</dt>
+    <dd>Shown in Apple menu › About This Mac.</dd>
+    <dt>What happened, and how</dt>
+    <dd>What you did and what happened. A screenshot, or the song file (.carve), helps too.</dd>
+  </dl>
+
+  <h2>Requirements</h2>
+  <p>macOS 11 or later (Apple silicon and Intel). The app’s interface is in English.</p>
+
+  <h2>FAQ</h2>
+  <dl>
+    <dt>Where do I start?</dt>
+    <dd>Open one of the included songs from File › Open Sample Song and press Space to play it. Double-click a clip in the playlist to open the piano roll, where you can add and move notes. Add instruments with “+ Generator”. There is a <a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">guide</a> (in Japanese).</dd>
+    <dt>I hear no sound.</dt>
+    <dd>Choose your output again under Carve DAW › Settings… › Audio output.</dd>
+    <dt>Can I play it from a MIDI keyboard?</dt>
+    <dd>Yes. Tick your keyboard under Settings… › MIDI input and it plays the selected instrument. The record button records what you play into the song. You can also play from the computer keyboard.</dd>
+    <dt>Can I record audio from a microphone or an instrument?</dt>
+    <dd>No. Carve DAW does not record audio. You can import audio files and use them in the sampler or on audio tracks.</dd>
+    <dt>Can the Mac App Store version use plug-ins (VST3 / Audio Unit)?</dt>
+    <dd>No. The Mac App Store version runs inside the App Sandbox and does not load plug-ins from other vendors. It works with its built-in instruments and effects only. A song that uses plug-ins still opens, but those instruments and effects are silent. To use plug-ins, use the version downloaded from GitHub.</dd>
+    <dt>I opened a song and it says samples are missing.</dt>
+    <dd>A song file holds the locations of its samples, not the samples themselves. If the material was moved or deleted, or if you open a song brought from another Mac in the Mac App Store version, use “Locate…” in the window that appears to choose each file again.</dd>
+    <dt>What do I need to make it sing?</dt>
+    <dd>Bring your own voicebank (a voicebank folder in the UTAU format). Add the instrument with + Generator › Singer and choose the folder with “Load voicebank…”. Double-click a note in the piano roll to type its lyric. No voicebank is included; follow the terms of use of the voicebank you use.</dd>
+    <dt>Which formats can it export?</dt>
+    <dd>WAV and Ogg Vorbis, as well as per-track stems, game-ready loops (with LOOPSTART / LOOPLENGTH) and MIDI patterns.</dd>
+  </dl>
+
+  <h2>Privacy</h2>
+  <p>Carve DAW does not collect your information and does not connect to the internet. See the <a class="link" href="./privacy.html#en">Privacy Policy</a> for details.</p>
+</article>
+
+</main>
+<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./support.html">サポート / Support</a><a href="./privacy.html">プライバシーポリシー / Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
+</body>
+</html>

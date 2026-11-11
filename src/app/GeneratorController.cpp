@@ -31,12 +31,12 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 {
     juce::PopupMenu menu;
     menu.addItem (1, "Slate (internal synth)");
-    menu.addItem (6, "808 Drums (internal drum synth)");
+    menu.addItem (6, "Analog Drums (internal drum synth)");
     menu.addItem (10, "Gabber Kick (kick designer)");
     menu.addItem (3, "Sampler");
     menu.addItem (4, "Drum Kit (16 pads)");
-    menu.addItem (7, "SoundFont (.sf2)");
-    menu.addItem (8, "UTAU (voicebank)");
+    menu.addItem (7, "SF2 Player (.sf2)");
+    menu.addItem (8, "Singer (voicebank)");
     menu.addItem (9, "Break Slicer (drum loop)");
     menu.addItem (5, "Audio track");
 
@@ -109,7 +109,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
         {
             // As a sampler is: empty, with its Inst tab open to fill it from.
             const bool singer = result == 8;
-            addGenerator ((singer ? "UTAU " : "SoundFont ") + juce::String (song.getNumGenerators() + 1),
+            addGenerator ((singer ? "Singer " : "SF2 ") + juce::String (song.getNumGenerators() + 1),
                           singer ? model::Generator::utauType : model::Generator::soundFontType, nullptr);
 
             if (onOpenInstrumentForSetup)
@@ -260,7 +260,7 @@ void GeneratorController::launchSoundFontChooser (std::function<void (const juce
                                      .getValue (lastSoundFontDirectoryKey));
 
     sampleChooser = std::make_unique<juce::FileChooser> (
-        "Choose a SoundFont",
+        "Choose an SF2 file",
         remembered.isDirectory() ? remembered : getSampleBrowseDirectory(),
         "*.sf2");
 
@@ -294,7 +294,7 @@ void GeneratorController::assignSoundFont (model::Generator generator, const juc
     undoManager.beginNewTransaction();
     const bool wasEmpty = generator.getSounds().empty();
     generator.setSoundFontFile (soundFont, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "SoundFont", soundFont.getFileNameWithoutExtension());
+    nameAfterFirstMedia (generator, wasEmpty, "SF2", soundFont.getFileNameWithoutExtension());
     rememberMedia (MediaKind::soundFont, soundFont);
     refresh();
 }
@@ -354,7 +354,7 @@ void GeneratorController::launchVoicebankChooser (std::function<void (const juce
                      : openUtauSingers.isDirectory()  ? openUtauSingers
                                                       : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 
-    sampleChooser = std::make_unique<juce::FileChooser> ("Choose a UTAU voicebank folder", start);
+    sampleChooser = std::make_unique<juce::FileChooser> ("Choose a voicebank folder", start);
 
     sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
                                     | juce::FileBrowserComponent::canSelectDirectories,
@@ -385,7 +385,7 @@ void GeneratorController::assignVoicebank (model::Generator generator, const juc
     undoManager.beginNewTransaction();
     const bool wasEmpty = generator.getSounds().empty();
     generator.setVoicebankFolder (folder, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "UTAU", voice::Voicebank::readName (folder));
+    nameAfterFirstMedia (generator, wasEmpty, "Singer", voice::Voicebank::readName (folder));
     rememberMedia (MediaKind::voicebank, folder);
     refresh();
 }
@@ -696,8 +696,8 @@ void GeneratorController::nameAfterFirstMedia (model::Generator& generator, bool
     if (! isPlaceholder)
         return;
 
-    // Its first pattern was named from the placeholder too ("UT1" for
-    // "UTAU 1"); while that one is still empty and still so named, it
+    // Its first pattern was named from the placeholder too ("Si1" for
+    // "Singer 1"); while that one is still empty and still so named, it
     // follows the generator's new name the way it would have been named
     // from it. A pattern with notes in it is the user's by now.
     for (auto pattern : generator.getPatterns())

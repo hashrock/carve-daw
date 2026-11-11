@@ -236,7 +236,7 @@ private:
             if (error.isNotEmpty())
                 fileLabel.setText (error, juce::dontSendNotification);
             else if (file == juce::File())
-                fileLabel.setText ("No SoundFont loaded", juce::dontSendNotification);
+                fileLabel.setText ("No SF2 loaded", juce::dontSendNotification);
             else
                 fileLabel.setText (file.getFileName() + "   (" + juce::String ((int) sf->getPresets().size())
                                        + " presets)", juce::dontSendNotification);

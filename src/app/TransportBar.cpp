@@ -181,6 +181,9 @@ void PlayModeSwitch::setPatternMode (bool shouldBePattern, juce::NotificationTyp
     patternMode = shouldBePattern;
     repaint();
 
+    if (auto* handler = getAccessibilityHandler())
+        handler->notifyAccessibilityEvent (juce::AccessibilityEvent::valueChanged);
+
     if (notify != juce::dontSendNotification && onChanged)
         onChanged (patternMode);
 }
@@ -219,6 +222,34 @@ void PlayModeSwitch::paint (juce::Graphics& g)
 void PlayModeSwitch::mouseDown (const juce::MouseEvent& e)
 {
     setPatternMode (e.getPosition().y < getHeight() / 2, juce::sendNotification);
+}
+
+std::unique_ptr<juce::AccessibilityHandler> PlayModeSwitch::createAccessibilityHandler()
+{
+    struct Handler : juce::AccessibilityHandler
+    {
+        explicit Handler (PlayModeSwitch& s)
+            : juce::AccessibilityHandler (s, juce::AccessibilityRole::toggleButton,
+                                          juce::AccessibilityActions()
+                                              .addAction (juce::AccessibilityActionType::press,  [&s] { s.setPatternMode (! s.isPatternMode(), juce::sendNotification); })
+                                              .addAction (juce::AccessibilityActionType::toggle, [&s] { s.setPatternMode (! s.isPatternMode(), juce::sendNotification); })),
+              owner (s)
+        {
+        }
+
+        juce::String getTitle() const override  { return "Song mode"; }
+        juce::String getHelp() const override   { return "On: play the playlist. Off: loop the current patterns"; }
+
+        juce::AccessibleState getCurrentState() const override
+        {
+            auto state = juce::AccessibilityHandler::getCurrentState().withCheckable();
+            return owner.isPatternMode() ? state : state.withChecked();
+        }
+
+        PlayModeSwitch& owner;
+    };
+
+    return std::make_unique<Handler> (*this);
 }
 
 //==============================================================================

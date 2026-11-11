@@ -240,7 +240,7 @@ void SoundFontPlugin::setSource (const juce::File& file, int bank, int program)
     else if (! file.existsAsFile())
         loadError = "File not found: " + file.getFileName();
     else if ((newFont = Font::load (file)) == nullptr)
-        loadError = "Not a SoundFont this can read: " + file.getFileName();
+        loadError = "Not an SF2 file this can read: " + file.getFileName();
     else
         loadError = {};
 

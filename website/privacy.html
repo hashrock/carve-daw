@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1c20">
+<title>プライバシーポリシー — Carve DAW</title>
+<meta name="description" content="Carve DAW はあなたの情報を集めません。通信もトラッキングもしないアプリです。">
+<link rel="icon" href="img/favicon.png">
+<script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible{outline:2px solid var(--orange);outline-offset:4px}
+.wrap{width:min(760px,calc(100% - 40px));margin-inline:auto}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;font-size:1.25rem;font-weight:750;letter-spacing:-.04em;text-decoration:none}
+.brand img{width:32px;height:32px;filter:invert(96%)}
+.brand span{font-size:.75rem;font-weight:500;letter-spacing:.12em;color:var(--muted)}
+header nav{padding-right:36px;font-size:.875rem}
+header nav a{color:var(--muted);text-decoration:none}
+header nav a:hover{color:var(--text)}
+article{padding:48px 0 24px}
+article+article{border-top:1px solid var(--line)}
+h1{font-size:2rem;letter-spacing:-.04em;margin:0 0 8px}
+h2{font-size:1.125rem;margin:40px 0 10px}
+p,dd{line-height:1.9;color:var(--muted);margin:0 0 12px}
+.lead{color:var(--text);font-size:1.0625rem}
+.updated{font-size:.8125rem}
+dl{margin:0}
+dt{font-weight:650;margin-top:16px}
+dd{margin-left:0}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.875em;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--text)}
+.link{color:var(--orange)}
+footer{border-top:1px solid var(--line);margin-top:32px;padding:22px 0 30px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:.75rem}
+footer a{text-decoration:none;margin-left:16px}footer a:first-child{margin-left:0}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<hashrock-switcher floating theme="dark"></hashrock-switcher>
+<header class="wrap">
+  <a class="brand" href="./" aria-label="Carve DAW ホーム"><img src="img/logo.svg" width="32" height="32" alt="">Carve <span>DAW</span></a>
+  <nav><a href="#en" lang="en">English ↓</a></nav>
+</header>
+<main class="wrap">
+
+<article id="ja" lang="ja">
+  <h1>プライバシーポリシー</h1>
+  <p class="updated">最終更新日: 2026年11月11日</p>
+
+  <p class="lead">Carve DAW（以下「本アプリ」）は、あなたの情報を集めません。本アプリには利用状況の計測・広告・トラッキング・アカウントの仕組みがなく、インターネットにも接続しません。</p>
+
+  <h2>集める情報</h2>
+  <p>ありません。本アプリは、あなたの個人情報や利用状況を、開発者を含むだれにも送りません。</p>
+
+  <h2>Mac の中で扱うもの</h2>
+  <p>本アプリは次のものを、あなたの Mac の中だけで扱います。どれも外部へは送りません。</p>
+  <dl>
+    <dt>曲のファイル（.carve）</dt>
+    <dd>あなたが選んだ場所に保存します。中身は音符・パターン・音色やエフェクトの設定と、曲で使っているサンプルなどのファイルの場所（パス）です。</dd>
+    <dt>あなたが読み込む音の素材</dt>
+    <dd>オーディオファイル、SF2 ファイル、歌声の音源フォルダー、MIDI ファイルを、あなたがパネルで選ぶかウィンドウにドロップしたときに読みます。素材そのものは書き換えません。</dd>
+    <dt>書き出したファイル</dt>
+    <dd>オーディオ（WAV・Ogg Vorbis、トラックごとのステム）、MIDI パターン、キックの音などを、あなたが選んだ場所に書き出します。</dd>
+    <dt>MIDI 入力</dt>
+    <dd>設定で有効にした MIDI キーボードの演奏を受け取り、音を鳴らして、録音ボタンを押していれば曲に記録します。</dd>
+    <dt>設定</dt>
+    <dd>オーディオの出力先、MIDI 入力の選択、ウィンドウの配置、最近使った曲と素材の一覧、サンプルブラウザのフォルダー、前回開いたフォルダー、自分で保存したプリセットを、この Mac のアプリ用のフォルダーに保存します。</dd>
+  </dl>
+  <p>本アプリはオーディオを録音しません。マイクなどのオーディオ入力を開かず、その権限も求めません。</p>
+  <p>Mac App Store 版は App Sandbox の中で動き、アプリ自身のフォルダーと、あなたがパネルやドロップで選んだファイル・フォルダーにだけ触れます。曲が参照する素材や最近使った曲を次に起動したときにも開けるよう、選んだ場所をもう一度開くための macOS のブックマークを、アプリ用のフォルダーに保存します。ネットワークを使う権限は持っていません。他社のプラグインも読み込みません。</p>
+
+  <h2>プラグイン（直接配布版のみ）</h2>
+  <p>GitHub で配布している版は、あなたの Mac に入っている VST3 / Audio Unit プラグインを読み込めます。読み込んだプラグインが何をするかは、そのプラグインの提供元の方針に従います。Mac App Store 版にはこの機能が入っていません。</p>
+
+  <h2>クラッシュ情報</h2>
+  <p>「システム設定 ＞ プライバシーとセキュリティ ＞ 解析と改善」で「App デベロッパと共有」を有効にしている場合、本アプリが異常終了したときの情報が Apple を通じて開発者に届くことがあります。これは Apple が提供する仕組みで、その扱いは Apple のプライバシーポリシーに従います。</p>
+
+  <h2>このポリシーの変更</h2>
+  <p>内容を変えるときは、このページを更新して最終更新日を改めます。</p>
+
+  <h2>問い合わせ</h2>
+  <p><a class="link" href="https://github.com/hashrock/carve-daw/issues">GitHub の Issues</a> で受け付けています。</p>
+</article>
+
+<article id="en" lang="en">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: November 11, 2026</p>
+
+  <p class="lead">Carve DAW (“the app”) does not collect your information. The app has no analytics, advertising, tracking or accounts, and it does not connect to the internet.</p>
+
+  <h2>Information we collect</h2>
+  <p>None. The app does not send your personal information or usage data to anyone, including the developer.</p>
+
+  <h2>What stays on your Mac</h2>
+  <p>The app handles the following only on your Mac. None of it is sent anywhere.</p>
+  <dl>
+    <dt>Song files (.carve)</dt>
+    <dd>Saved to the location you choose. A song holds notes, patterns, instrument and effect settings, and the locations (paths) of the samples and other files it uses.</dd>
+    <dt>Sound material you load</dt>
+    <dd>Audio files, SF2 files, voicebank folders and MIDI files are read when you choose them in a panel or drop them on a window. The material itself is never modified.</dd>
+    <dt>Exported files</dt>
+    <dd>Audio (WAV, Ogg Vorbis, per-track stems), MIDI patterns and kick sounds are written to the location you choose.</dd>
+    <dt>MIDI input</dt>
+    <dd>The app receives what you play on the MIDI keyboards you enable in Settings, plays it, and records it into the song while the record button is on.</dd>
+    <dt>Settings</dt>
+    <dd>The audio output, the MIDI inputs you enabled, window layout, recent songs and material, the sample browser’s folders, the folders you last opened, and presets you saved are stored in the app’s own folder on this Mac.</dd>
+  </dl>
+  <p>The app does not record audio. It never opens a microphone or any other audio input, and it does not ask for permission to.</p>
+  <p>The Mac App Store version runs inside the App Sandbox. It can touch only its own folder and the files and folders you choose in a panel or by dropping them. So that a song’s samples and your recent songs still open the next time you launch the app, it stores macOS bookmarks to the places you chose in its own folder. It has no permission to use the network, and it does not load plug-ins from other vendors.</p>
+
+  <h2>Plug-ins (direct download version only)</h2>
+  <p>The version distributed on GitHub can load the VST3 and Audio Unit plug-ins installed on your Mac. What a plug-in does is governed by its own vendor’s policy. The Mac App Store version does not include this feature.</p>
+
+  <h2>Crash reports</h2>
+  <p>If “Share with app developers” is turned on in System Settings › Privacy &amp; Security › Analytics &amp; Improvements, information about crashes of the app may be delivered to the developer through Apple. This is provided by Apple and is governed by Apple’s privacy policy.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy changes, this page will be updated along with the date above.</p>
+
+  <h2>Contact</h2>
+  <p>Please use <a class="link" href="https://github.com/hashrock/carve-daw/issues">GitHub Issues</a>.</p>
+</article>
+
+</main>
+<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./support.html">サポート / Support</a><a href="./privacy.html">プライバシーポリシー / Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
+</body>
+</html>

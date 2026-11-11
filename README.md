@@ -9,8 +9,8 @@ Synapse Audio の **Orion** を参考にした、Generator 中心・パターン
 
 ## 機能
 
-- **楽器**: Slate (内蔵シンセ) / 808 Drums / Gabber Kick / サンプラー / 16 パッドのドラムキット /
-  SoundFont (.sf2) / **UTAU** (ピアノロールで歌詞を打つと UTAU 音源が歌う) /
+- **楽器**: Slate (内蔵シンセ) / Analog Drums / Gabber Kick / サンプラー / 16 パッドのドラムキット /
+  SF2 Player (.sf2) / **Singer** (ピアノロールで歌詞を打つと UTAU 形式の音源が歌う) /
   **Break Slicer** (ドラムループを切って刻む) / VST3・AU / オーディオトラック
 - **作曲**: パターンとプレイリスト、ピアノロール、テンポ・拍子の変更、
   オートメーションと LFO

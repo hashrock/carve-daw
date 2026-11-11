@@ -128,6 +128,10 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
 
+    // A switch drawn by hand is nothing at all to VoiceOver unless it says
+    // what it is: a toggle, on when the playlist is what plays.
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+
 private:
     // Lit on the same side MainComponent starts on; see its patternMode.
     bool patternMode = true;

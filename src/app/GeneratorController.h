@@ -228,7 +228,7 @@ private:
     // comes through here.
     void rememberMedia (MediaKind, const juce::File&);
 
-    // A generator made empty is named "Sampler 3", "UTAU 2"...; the first
+    // A generator made empty is named "Sampler 3", "Singer 2"...; the first
     // file it is given names it instead, unless the user has named it
     // something else meanwhile.
     void nameAfterFirstMedia (model::Generator&, bool wasEmpty, const juce::String& placeholderStem,
