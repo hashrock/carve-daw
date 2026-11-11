@@ -99,7 +99,6 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     transportBar->getAuditionLengthBeats = [this] { return auditionLengthBeats(); };
     transportBar->onExport = [this] { openExport(); };
-    transportBar->onMasteringModeChanged = [this] (bool on) { setMasteringMode (on); };
     transportBar->onToggleBrowser = [this] { toggleBrowser(); };
 
     playlist.onSelectGenerator = [this] (const juce::String& generatorId)
@@ -835,8 +834,6 @@ void MainComponent::setMasteringMode (bool on)
     // done, and puts this back afterwards (see openExport).
     if (editSync != nullptr && ! exportingSong)
         editSync->setMasteringActive (on);
-
-    transportBar->setMasteringMode (on);
 
     if (mixerWindow != nullptr)
         mixerWindow->setMasteringMode (on);

@@ -91,6 +91,10 @@ void NumberDisplay::paint (juce::Graphics& g)
         g.fillPath (p);
     };
 
+    // Disabled, there is nothing to step: no arrows (the number dims itself).
+    if (! isEnabled())
+        return;
+
     g.setColour (captionColour);
     drawArrow (upArrow, true);
     drawArrow (downArrow, false);
@@ -340,7 +344,13 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     // --- loop
     loopCheck.setToggleState (true, juce::dontSendNotification);
     loopCheck.setTooltip ("Loop the range below, or the whole song");
-    loopCheck.onClick = [this] { edit.getTransport().looping = loopCheck.getToggleState() || isPatternMode(); };
+    loopCheck.onClick = [this]
+    {
+        if (! isPatternMode())
+            songLoopChecked = loopCheck.getToggleState();
+
+        syncLoopRange (false);
+    };
 
     loopStartDisplay.onStep = [this] (int d) { setLoopBars (getLoopStartBar() + d, getLoopLengthBars()); };
     loopLengthDisplay.onStep = [this] (int d) { setLoopBars (getLoopStartBar(), getLoopLengthBars() + d); };
@@ -361,15 +371,6 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     addAndMakeVisible (saveButton);
     saveButton.onClick = [this] { if (onSave) onSave(); };
 
-    masteringButton.setClickingTogglesState (false);   // MainComponent sets the state
-    masteringButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff8a5a1f));
-    masteringButton.setTooltip ("Mastering mode (shift-cmd-M): hear the master's mastering chain");
-    masteringButton.onClick = [this]
-    {
-        if (onMasteringModeChanged)
-            onMasteringModeChanged (! masteringButton.getToggleState());
-    };
-
     masterKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     masterKnob.setRange (0.0, 1.0);
@@ -389,15 +390,10 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
              &logoButton, &bpmDisplay, &playMode,
              &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
              &keyboardButton, &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
-             &undoButton, &redoButton, &browserButton, &mixerButton, &masteringButton, &masterKnob, &masterMeter, &documentLabel })
+             &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter, &documentLabel })
         addAndMakeVisible (c);
 
     startTimerHz (30);
-}
-
-void TransportBar::setMasteringMode (bool on)
-{
-    masteringButton.setToggleState (on, juce::dontSendNotification);
 }
 
 void TransportBar::showFileMenu()
@@ -527,32 +523,68 @@ void TransportBar::stepBar (int direction)
 
 int TransportBar::getLoopStartBar() const
 {
-    return song.hasLoopRange() ? song.toBarsAndBeats (song.getLoopStart()).bar + 1 : 1;
+    return song.toBarsAndBeats (wantedLoopRange().getStart().inBeats()).bar + 1;
 }
 
 int TransportBar::getLoopLengthBars() const
 {
     // The bar the end falls in, counted from the start bar; a hair before the
     // end so a range ending exactly on a bar line does not count the next one.
-    const auto end = song.hasLoopRange() ? song.getLoopEnd() : std::max (4.0, getSongLengthBeats());
+    const auto end = wantedLoopRange().getEnd().inBeats();
     const int endBar = song.toBarsAndBeats (std::max (0.0, end - 1.0e-6)).bar + 1;
     return std::max (1, endBar - getLoopStartBar() + 1);
 }
 
+te::BeatRange TransportBar::wantedLoopRange() const
+{
+    if (isPatternMode())
+        return patternLoopRange();
+
+    if (song.hasLoopRange())
+        return { te::BeatPosition::fromBeats (song.getLoopStart()), te::BeatPosition::fromBeats (song.getLoopEnd()) };
+
+    return { te::BeatPosition(), te::BeatPosition::fromBeats (std::max (4.0, getSongLengthBeats())) };
+}
+
+void TransportBar::syncLoopRange (bool wrapPlayhead)
+{
+    auto& transport = edit.getTransport();
+
+    // Pattern mode always loops; Song mode as the LOOP box says.
+    const bool shouldLoop = songLoopChecked || isPatternMode();
+
+    if (transport.looping.get() != shouldLoop)
+        transport.looping = shouldLoop;
+
+    const auto wanted = edit.tempoSequence.toTime (wantedLoopRange());
+    const auto current = transport.getLoopRange();
+
+    if (std::abs ((current.getStart() - wanted.getStart()).inSeconds()) < 1.0e-6
+         && std::abs ((current.getEnd() - wanted.getEnd()).inSeconds()) < 1.0e-6)
+        return;
+
+    transport.setLoopRange (wanted);
+
+    // A loop that just moved can leave the playhead past its end; wrap it
+    // back the way the loop would have, rather than letting it run on.
+    if (wrapPlayhead && shouldLoop && transport.isPlaying() && transport.getPosition() >= wanted.getEnd())
+        transport.setPosition (wanted.getStart());
+}
+
 void TransportBar::setLoopBars (int startBar, int lengthBars)
 {
+    if (isPatternMode())
+        return;   // the fields show the patterns' loop, which is not the song's to set
+
     startBar = std::max (1, startBar);
     lengthBars = std::max (1, lengthBars);
 
     undoManager.beginNewTransaction();
     song.setLoopRange (song.beatOfBar (startBar - 1), song.beatOfBar (startBar - 1 + lengthBars), &undoManager);
 
-    // The transport keeps its own copy of the range; hand it the new one so a
-    // running loop picks it up rather than finishing the old one first.
-    if (edit.getTransport().isPlaying() && ! isPatternMode())
-        edit.getTransport().setLoopRange (edit.tempoSequence.toTime (
-            te::BeatRange (te::BeatPosition::fromBeats (song.getLoopStart()),
-                           te::BeatPosition::fromBeats (song.getLoopEnd()))));
+    // Now rather than on the next tick, so a running loop picks it up
+    // rather than finishing the old one first.
+    syncLoopRange (true);
 }
 
 void TransportBar::setMasterVolumeFromKnob()
@@ -574,27 +606,12 @@ void TransportBar::togglePlay()
         return;
     }
 
-    te::BeatRange loop;
-
+    // Pattern mode loops the patterns alone, from beat zero, and always
+    // loops -- a one-shot of a bar is not what the mode is for.
     if (isPatternMode())
-    {
-        // Pattern mode loops the patterns alone, from beat zero, and always
-        // loops -- a one-shot of a bar is not what the mode is for.
-        loop = patternLoopRange();
         transport.setPosition (te::TimePosition());
-    }
-    else if (song.hasLoopRange())
-    {
-        loop = { te::BeatPosition::fromBeats (song.getLoopStart()),
-                 te::BeatPosition::fromBeats (song.getLoopEnd()) };
-    }
-    else
-    {
-        loop = { te::BeatPosition(), te::BeatPosition::fromBeats (std::max (4.0, getSongLengthBeats())) };
-    }
 
-    transport.setLoopRange (edit.tempoSequence.toTime (loop));
-    transport.looping = loopCheck.getToggleState() || isPatternMode();
+    syncLoopRange (false);
     transport.ensureContextAllocated();
     transport.play (false);
 }
@@ -646,25 +663,9 @@ te::BeatRange TransportBar::patternLoopRange() const
 
 void TransportBar::refreshPatternLoop()
 {
-    auto& transport = edit.getTransport();
-
-    if (! isPatternMode() || ! transport.isPlaying())
-        return;
-
-    const auto wanted = edit.tempoSequence.toTime (patternLoopRange());
-
-    // This is reached on every model change while the mode is on -- each
-    // note drawn -- so an unchanged range is left alone rather than re-set.
-    if (std::abs ((transport.getLoopRange().getEnd() - wanted.getEnd()).inSeconds()) < 1.0e-6)
-        return;
-
-    transport.setLoopRange (wanted);
-
-    // A loop that just got shorter can leave the playhead past its end; wrap
-    // it back the way the loop would have, rather than waiting for the
-    // engine to decide.
-    if (transport.getPosition() >= wanted.getEnd())
-        transport.setPosition (wanted.getStart());
+    // Reached on every model change while the mode is on -- each note drawn
+    // -- and cheap: an unchanged range is left alone.
+    syncLoopRange (true);
 }
 
 void TransportBar::timerCallback()
@@ -677,8 +678,17 @@ void TransportBar::timerCallback()
 
     bpmDisplay.setText (juce::String (song.getTempo(), 1));
     barDisplay.setText (padded (getCurrentBar(), 3));
+    // The transport first, so what the fields say is what it is looping.
+    syncLoopRange (true);
     loopStartDisplay.setText (padded (getLoopStartBar(), 3));
     loopLengthDisplay.setText (padded (getLoopLengthBars(), 3));
+
+    // Pattern mode's loop is the patterns' length, always on: shown, not set.
+    const bool songLoop = ! isPatternMode();
+    loopStartDisplay.setEnabled (songLoop);
+    loopLengthDisplay.setEnabled (songLoop);
+    loopCheck.setEnabled (songLoop);
+    loopCheck.setToggleState (songLoop ? songLoopChecked : true, juce::dontSendNotification);
 
     undoButton.setEnabled (undoManager.canUndo());
     redoButton.setEnabled (undoManager.canRedo());
@@ -746,7 +756,6 @@ int TransportBar::getHeightForWidth (int width)
 bool TransportBar::layOut (int gapWidth, bool inTwoRows)
 {
     constexpr int meterWidth = 110;
-    constexpr bool showMastering = true;
 
     panels.clear();
     captions.clear();
@@ -853,11 +862,8 @@ bool TransportBar::layOut (int gapWidth, bool inTwoRows)
     gap();
 
     browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
-    mixerButton.setBounds (take (76, showMastering ? 6 : 10).withSizeKeepingCentre (76, 28));
-    masteringButton.setVisible (showMastering);
-
-    if (showMastering)
-        masteringButton.setBounds (take (80, 10).withSizeKeepingCentre (80, 28));
+    // Mastering mode is shift-cmd-M, or the switch on the mixer's master strip.
+    mixerButton.setBounds (take (76, 10).withSizeKeepingCentre (76, 28));
 
     // Master: knob and a lying-down meter
     masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));
