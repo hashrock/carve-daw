@@ -16,7 +16,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "16.0" CACHE STRING "Minimum iOS version")
 elseif(APPLE)
     set(CARVE_IOS FALSE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+    # A plain variable, not a cache entry. project() has already made the
+    # cache entry by this line (empty), so a set(... CACHE ...) here changed
+    # nothing, and JUCE then filled it in with its own 10.13: the Intel half
+    # of the app was being built for a macOS the app has never been run on,
+    # while the website said 11. This shadows the cache for everything below.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
 else()
     set(CARVE_IOS FALSE)
 endif()
@@ -235,6 +240,29 @@ endfunction()
 # JUCE generates platform icons at configure time; regenerate when the PNG changes.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png")
+
+# CFBundleVersion. The App Store wants a number that goes up with every upload
+# of the same version, which the version itself cannot do; scripts/appstore.sh
+# passes one. Left alone, it is the version, as it always was.
+set(CARVE_BUILD_NUMBER "${PROJECT_VERSION}" CACHE STRING "CFBundleVersion of the app")
+
+# What JUCE's Info.plist does not say by itself, and the App Store reads:
+# the category the app is filed under, that it has no encryption to declare
+# (it has no network code of its own to encrypt anything for), and the one
+# language the interface is in. The first macOS it runs on is here because a
+# Makefile build of JUCE leaves it out, and the store then assumes the oldest
+# it knows of.
+set(CARVE_PLIST_TO_MERGE "<plist><dict>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleLocalizations</key><array><string>en</string></array>")
+if(APPLE AND NOT CARVE_IOS)
+    string(APPEND CARVE_PLIST_TO_MERGE "
+<key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+<key>LSMinimumSystemVersion</key><string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>")
+endif()
+string(APPEND CARVE_PLIST_TO_MERGE "
+</dict></plist>")
 juce_add_gui_app(carve
     PRODUCT_NAME "Carve DAW"
     BUNDLE_ID    "com.hashrock.carve"
@@ -244,15 +272,21 @@ juce_add_gui_app(carve
     COMPANY_COPYRIGHT "Copyright (C) 2026 hashrock. Powered by Tracktion Engine."
     COMPANY_WEBSITE "https://github.com/hashrock/carve-daw"
     ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
-    MICROPHONE_PERMISSION_ENABLED TRUE
-    # iOS only; a Mac build ignores these. iPad alone, any way up, and the
-    # app's Documents folder shows in Files so songs can get in and out.
+    BUILD_VERSION "${CARVE_BUILD_NUMBER}"
+    PLIST_TO_MERGE "${CARVE_PLIST_TO_MERGE}"
+    # Not on the Mac: the app never opens an audio input there (see
+    # EngineSetup.h), and an Info.plist that says why it wants the microphone
+    # is a claim that it does. The iPad build keeps what it had.
+    MICROPHONE_PERMISSION_ENABLED ${CARVE_IOS}
+    # iOS only. iPad alone, any way up, and the app's Documents folder shows
+    # in Files so songs can get in and out. The two that would otherwise
+    # write a UI... key into the Mac's Info.plist are switched by platform.
     TARGETED_DEVICE_FAMILY "2"
     IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
     REQUIRES_FULL_SCREEN TRUE
     STATUS_BAR_HIDDEN TRUE
-    FILE_SHARING_ENABLED TRUE
-    DOCUMENT_BROWSER_ENABLED TRUE
+    FILE_SHARING_ENABLED ${CARVE_IOS}
+    DOCUMENT_BROWSER_ENABLED ${CARVE_IOS}
     BACKGROUND_AUDIO_ENABLED TRUE)
 target_sources(carve PRIVATE
     src/app/Main.cpp
@@ -374,6 +408,17 @@ add_custom_command(TARGET carve POST_BUILD
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/powered-by-tracktion-engine.png"
             "${CARVE_RESOURCE_DIR}/powered-by-tracktion-engine.png"
     COMMENT "Copying third-party notices into the app")
+
+# The privacy manifest: no tracking, nothing collected, and the reasons for
+# the handful of system calls Apple asks a reason for. In every Apple build,
+# since it is as true of the disk image as of the store's copy.
+if(APPLE)
+    add_custom_command(TARGET carve POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/PrivacyInfo.xcprivacy"
+                "${CARVE_RESOURCE_DIR}/PrivacyInfo.xcprivacy"
+        COMMENT "Copying the privacy manifest into the app")
+endif()
 
 # --- Headless renderer CLI ---
 # Console programs, here and in the tests below, are for the desktop only.
