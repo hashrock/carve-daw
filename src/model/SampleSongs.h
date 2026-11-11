@@ -9,7 +9,7 @@ namespace carve::model
 // arrangements to open, take apart and play with, each built here rather than
 // shipped as a .carve so that none of them can arrive with a missing file or
 // a path from somebody else's machine. They use the internal instruments only
-// -- the 808 and the synth -- for the same reason.
+// -- the 808, the synth, the recorded kit and bass -- for the same reason.
 //
 // Names as the menu shows them, in the order it shows them.
 juce::StringArray sampleSongNames();

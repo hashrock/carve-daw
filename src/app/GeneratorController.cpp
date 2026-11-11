@@ -33,6 +33,8 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (1, "Slate (internal synth)");
     menu.addItem (6, "Analog Drums (internal drum synth)");
     menu.addItem (10, "Gabber Kick (kick designer)");
+    menu.addItem (11, "Acoustic Drums (recorded kit)");
+    menu.addItem (12, "Electric Bass (recorded bass)");
     menu.addItem (3, "Sampler");
     menu.addItem (4, "Drum Kit (16 pads)");
     menu.addItem (7, "SF2 Player (.sf2)");
@@ -104,6 +106,13 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 
             if (onOpenInstrumentForSetup)
                 onOpenInstrumentForSetup();
+        }
+        else if (result == 11 || result == 12)
+        {
+            // Ready to play as they are; the editor is there to shape them.
+            const bool drums = result == 11;
+            addGenerator ((drums ? "Drums " : "Bass ") + juce::String (song.getNumGenerators() + 1),
+                          drums ? model::Generator::acousticDrumsType : model::Generator::electricBassType, nullptr);
         }
         else if (result == 8 || result == 7)
         {

@@ -104,6 +104,18 @@ public:
     void setShowsPlayModes (bool);
     bool showsPlayModes() const  { return showsPlayModesFlag; }
 
+    // The electric bass's per-note techniques (model::Note::Technique): the
+    // marks on the notes, and what setTechnique applies to the selection, or
+    // with nothing selected to the next note drawn.
+    void setShowsTechniques (bool);
+    bool showsTechniques() const  { return showsTechniquesFlag; }
+    void setTechnique (model::Note::Technique);
+    std::optional<model::Note::Technique> getShownTechnique() const;
+    void setSlideLength (double beats);   // how long before the note's beat the slide leaves
+    std::optional<double> getShownSlideLength() const;
+    void setSlideOut (double signedBeats);   // 0 none, negative down, positive up
+    std::optional<double> getShownSlideOut() const;
+
     // What a new note is drawn with, and what the selection plays: set from
     // the roll's play-mode bar. Setting one with notes selected changes them,
     // as one undo step, and makes it what the next note is drawn with too --
@@ -352,6 +364,10 @@ private:
 
     bool showsLyrics = false;
     bool showsPlayModesFlag = false;
+    bool showsTechniquesFlag = false;
+    inline static model::Note::Technique techniqueBrush = model::Note::Technique::automatic;
+    inline static double slideLengthBrush = model::Note::defaultSlideLength, slideOutBrush = 0.0;
+    void paintTechniques (juce::Graphics&) const;
     inline static model::Note::PlayMode playModeBrush = model::Note::PlayMode::forward;
     inline static int retriggerBrush = 0;
     inline static int buzzPitchBrush = model::Note::defaultBuzzPitch;
@@ -464,14 +480,13 @@ private:
     juce::Point<float> dragStartPosition;    // where the press landed, which a move measures from
     juce::Point<float> lastErasePosition;
 
-    // New notes are drawn at the length of the last resize and the last
-    // velocity the user set in the lane: having just dialled in a set of
-    // ghost notes, the next one drawn should be one too. Static, because the
-    // editor window is destroyed on close and built again on the next open,
-    // and what the user last asked for should outlive the window it was
-    // asked in.
+    // New notes are drawn at the length of the last resize. Static, because
+    // the editor window is destroyed on close and built again on the next
+    // open, and what the user last asked for should outlive the window it
+    // was asked in. The velocity is not carried the same way: a note turned
+    // down in the lane is that note's business, and the next one drawn
+    // comes at defaultNoteVelocity whatever was edited before it.
     inline static double lastNoteLength = 0.5;
-    inline static int lastNoteVelocity = defaultNoteVelocity;
 
     std::map<int, DrumRow> drumMap;
 

@@ -87,7 +87,7 @@
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
 // │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig, buzz, buzzRamp,
-// │                    tune, rollDyn}   times in beats
+// │                    tune, rollDyn, tech}   times in beats
 // │                    lyric: what a singing ("utau") generator sings on
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
@@ -97,6 +97,15 @@
 // │                    (absent = 48), buzzRamp: speed up into it from a
 // │                    sixteenth roll. tune: -12..12 semitones, absent = 0.
 // │                    rollDyn: "cresc" | "decresc", absent = flat.
+// │                    tech: how an "electric-bass" generator gets to the
+// │                    note -- "pluck" | "hammer" | "slide", absent = as the
+// │                    generator's own setting says for overlapping notes.
+// │                    slideLen: how long before the note's beat a slide
+// │                    into it leaves the note before, in beats; absent =
+// │                    a sixteenth (Note::defaultSlideLength).
+// │                    slideOut: slide off the end of the note into nothing,
+// │                    over this many beats; negative down, positive up;
+// │                    absent = none.
 // │                    retrig: restart the slice every 1/retrig of a beat,
 // │                    absent = once. Both optional, both carried by any
 // │                    generator (see Note::getPlayMode)
@@ -227,6 +236,9 @@ CARVE_DECLARE_ID (buzz)
 CARVE_DECLARE_ID (buzzRamp)
 CARVE_DECLARE_ID (tune)
 CARVE_DECLARE_ID (rollDyn)
+CARVE_DECLARE_ID (tech)
+CARVE_DECLARE_ID (slideLen)
+CARVE_DECLARE_ID (slideOut)
 
 #undef CARVE_DECLARE_ID
 

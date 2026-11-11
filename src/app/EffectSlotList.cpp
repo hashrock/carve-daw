@@ -2,6 +2,7 @@
 #include "Fonts.h"
 
 #include "../plugins/DelayPlugin.h"
+#include "../plugins/BusCompressorPlugin.h"
 #include "../plugins/LimiterPlugin.h"
 #include "../plugins/OvertopPlugin.h"
 #include "../plugins/PitchShifterPlugin.h"
@@ -31,6 +32,7 @@ namespace
     const InternalEffect internalEffects[] =
     {
         { "compressor",   "Compressor",           "Comp" },
+        { plugins::BusCompressorPlugin::xmlTypeName, "Bus Compressor (parallel)", "BusComp" },
         { plugins::LimiterPlugin::xmlTypeName, "Limiter", "Limit" },
         { plugins::OvertopPlugin::xmlTypeName, "Overtop (multiband)", "Overtop" },
         { "4bandEq",      "4-Band EQ",            "EQ" },

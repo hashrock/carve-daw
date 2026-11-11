@@ -1,5 +1,7 @@
 #include "EffectGraphs.h"
 #include "Fonts.h"
+#include "InstrumentFxPanels.h"
+#include "../plugins/BusCompressorPlugin.h"
 
 namespace carve::app
 {
@@ -518,6 +520,10 @@ EffectGraph createEffectGraph (te::Plugin& plugin)
 
     if (auto* overtop = dynamic_cast<plugins::OvertopPlugin*> (&plugin))
         return { std::make_unique<OvertopGraph> (*overtop), OvertopGraph::preferredHeight };
+
+    // The drum kit's compressor, drawn as it is in the kit's own panel.
+    if (auto* bus = dynamic_cast<plugins::BusCompressorPlugin*> (&plugin))
+        return { std::make_unique<CompressorPanel<plugins::BusCompressorPlugin>> (*bus, true), 150 };
 
     return {};
 }

@@ -69,6 +69,8 @@ namespace
                 && (dynamic_cast<const te::FourOscPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::DrumSynthPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::GabberKickPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::AcousticDrumsPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::ElectricBassPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
@@ -199,6 +201,8 @@ namespace
         if (existing != nullptr
              && (generator.isDrumSynth()   ? dynamic_cast<plugins::DrumSynthPlugin*> (existing) != nullptr
                  : generator.isGabberKick() ? dynamic_cast<plugins::GabberKickPlugin*> (existing) != nullptr
+                 : generator.isAcousticDrums() ? dynamic_cast<plugins::AcousticDrumsPlugin*> (existing) != nullptr
+                 : generator.isElectricBass() ? dynamic_cast<plugins::ElectricBassPlugin*> (existing) != nullptr
                                             : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
@@ -206,6 +210,8 @@ namespace
 
         const char* typeName = generator.isDrumSynth()   ? plugins::DrumSynthPlugin::xmlTypeName
                                : generator.isGabberKick() ? plugins::GabberKickPlugin::xmlTypeName
+                               : generator.isAcousticDrums() ? plugins::AcousticDrumsPlugin::xmlTypeName
+                               : generator.isElectricBass() ? plugins::ElectricBassPlugin::xmlTypeName
                                                           : te::FourOscPlugin::xmlTypeName;
 
         te::Plugin::Ptr plugin;
@@ -1726,6 +1732,181 @@ namespace
         }
     }
 
+    // An electric bass's clips. The notes as drawn, with three adjustments
+    // for how a note is reached (model::Note::getTechnique):
+    //
+    //   * a note slid to has its note-on brought forward by the slide's
+    //     length (Note::getSlideLength), so the slide leaves the note before
+    //     that early and lands on this note's own beat;
+    //   * the note a hammer-on or slide leaves from is held until the next
+    //     note starts -- the finger never leaves the string, and a note-off
+    //     in the gap would let it go quiet just before it carries on (gaps
+    //     over a beat are left alone: that far apart, it is a new phrase);
+    //   * in front of every note reached some way other than plucked as
+    //     usual, a trigger saying how, which note it is for and, for a slide,
+    //     how long it takes in milliseconds at the tempo it starts in
+    //     (see ElectricBassPlugin::sysexId).
+    void wantedBassContentFor (const model::Pattern& pattern, double patternLength, double clipLength,
+                               int transpose, double clipStartBeat, const te::TempoSequence& tempo,
+                               std::vector<WantedNote>& notes, std::vector<WantedTrigger>& triggers)
+    {
+        using Technique = model::Note::Technique;
+
+        auto secondsAt = [&] (double clipBeat)
+        {
+            return tempo.toTime (te::BeatPosition::fromBeats (clipStartBeat + clipBeat)).inSeconds();
+        };
+
+        struct Entry
+        {
+            WantedNote note;
+            Technique technique;
+            double slideLength;   // beats
+            double slideOut;      // signed beats, 0 for none
+            double drawnEnd;      // where the note ended as drawn
+            bool carriedOn = false;   // a hammer or slide leaves from it
+        };
+
+        std::vector<Entry> entries;
+        constexpr int maxRepeats = 512;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            for (const auto& note : pattern.getNotes())
+            {
+                const auto start = offset + note.getStart();
+
+                if (start >= clipLength - 1.0e-9)
+                    continue;
+
+                entries.push_back ({ { model::Note::clampPitch (note.getPitch() + transpose), start,
+                                       std::min (note.getLength(), clipLength - start), note.getVelocity() },
+                                     note.getTechnique(), note.getSlideLength(), note.getSlideOut(),
+                                     start + std::min (note.getLength(), clipLength - start) });
+            }
+        }
+
+        std::sort (entries.begin(), entries.end(),
+                   [] (const Entry& a, const Entry& b) { return a.note.startBeats < b.note.startBeats; });
+
+        constexpr double maxGapBeats = 1.0;
+
+        // Slides first: they move their notes' note-ons, which decide which
+        // note is the one before which. A slide never leaves before the note
+        // it leaves from has started.
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            auto& e = entries[i];
+
+            if (e.technique != Technique::slide)
+                continue;
+
+            const Entry* before = nullptr;
+
+            for (const auto& other : entries)
+                if (other.note.startBeats < e.note.startBeats - 1.0e-9
+                     && (before == nullptr || other.note.startBeats > before->note.startBeats))
+                    before = &other;
+
+            // Nothing to slide from, or too far back to still be ringing:
+            // left where it is, so it is plucked on its beat rather than early.
+            if (before == nullptr
+                 || e.note.startBeats - (before->note.startBeats + before->note.lengthBeats) > maxGapBeats)
+            {
+                e.slideLength = 0.0;
+                continue;
+            }
+
+            const auto length = std::min (e.slideLength, e.note.startBeats - before->note.startBeats - 1.0e-3);
+
+            if (length <= 0.0)
+            {
+                e.slideLength = 0.0;
+                continue;
+            }
+
+            e.note.startBeats -= length;
+            e.note.lengthBeats += length;
+            e.slideLength = length;
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            const auto& e = entries[i];
+
+            if (e.technique == Technique::hammer || e.technique == Technique::slide)
+            {
+                // Hold the note before (the one that starts last before this
+                // one does) up to this one.
+                Entry* before = nullptr;
+
+                for (auto& other : entries)
+                    if (other.note.startBeats < e.note.startBeats - 1.0e-9
+                         && (before == nullptr || other.note.startBeats > before->note.startBeats))
+                        before = &other;
+
+                if (before != nullptr)
+                {
+                    if (const auto gap = e.note.startBeats - (before->note.startBeats + before->note.lengthBeats);
+                        gap > 0.0 && gap <= maxGapBeats)
+                        before->note.lengthBeats = e.note.startBeats - before->note.startBeats;
+
+                    // The string carries on into this note, so it is not slid
+                    // off into nothing as well.
+                    if (e.note.startBeats - before->drawnEnd <= maxGapBeats)
+                        before->carriedOn = true;
+                }
+            }
+        }
+
+        for (const auto& e : entries)
+        {
+            notes.push_back (e.note);
+
+            // A slide out: a trigger part-way through the note, the slide's
+            // length before it ends as drawn, saying which way and how long
+            // (technique number 4, then the direction as 1 up / 0 down).
+            if (std::abs (e.slideOut) > 0.0 && ! e.carriedOn)
+            {
+                const auto length = std::min (std::abs (e.slideOut), e.drawnEnd - e.note.startBeats);
+                const auto at = e.drawnEnd - length;
+                const auto ms = juce::jlimit (1, (1 << 21) - 1, juce::roundToInt ((secondsAt (e.drawnEnd) - secondsAt (at)) * 1000.0));
+                juce::MemoryBlock payload;
+
+                for (auto byte : { plugins::ElectricBassPlugin::sysexId[0], plugins::ElectricBassPlugin::sysexId[1],
+                                   plugins::ElectricBassPlugin::sysexId[2], (uint8_t) 4, (uint8_t) e.note.pitch,
+                                   (uint8_t) (e.slideOut > 0.0 ? 1 : 0),
+                                   (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f), (uint8_t) (ms & 0x7f) })
+                    payload.append (&byte, 1);
+
+                if (length > 0.0)
+                    triggers.push_back ({ at, std::move (payload) });
+            }
+
+            if (e.technique == Technique::automatic)
+                continue;
+
+            const auto start = e.note.startBeats;
+            const auto ms = e.technique == Technique::slide && e.slideLength > 0.0
+                              ? juce::jlimit (1, (1 << 21) - 1,
+                                              juce::roundToInt ((secondsAt (start + e.slideLength) - secondsAt (start)) * 1000.0))
+                              : 0;
+            juce::MemoryBlock payload;
+
+            for (auto byte : { plugins::ElectricBassPlugin::sysexId[0], plugins::ElectricBassPlugin::sysexId[1],
+                               plugins::ElectricBassPlugin::sysexId[2], (uint8_t) e.technique, (uint8_t) e.note.pitch,
+                               (uint8_t) ((ms >> 14) & 0x7f), (uint8_t) ((ms >> 7) & 0x7f), (uint8_t) (ms & 0x7f) })
+                payload.append (&byte, 1);
+
+            triggers.push_back ({ start, std::move (payload) });
+        }
+    }
+
     bool triggersMatch (const te::MidiClip& clip, const std::vector<WantedTrigger>& wanted)
     {
         const auto& live = clip.getSequence().getSysexEvents();
@@ -1839,6 +2020,11 @@ namespace
             {
                 wantedBreakContentFor (pattern, patternLength, clipLength, transpose, clipStartBeat,
                                        edit.tempoSequence, want.notes, want.triggers);
+            }
+            else if (generator.isElectricBass())
+            {
+                wantedBassContentFor (pattern, patternLength, clipLength, transpose, clipStartBeat,
+                                      edit.tempoSequence, want.notes, want.triggers);
             }
             else
             {

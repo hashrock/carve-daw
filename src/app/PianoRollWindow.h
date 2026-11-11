@@ -417,6 +417,151 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayModeBar)
 };
 
+//==============================================================================
+// The strip over the roll for an electric bass: how a note is reached from
+// the one before -- left to the bass's own setting (Auto), plucked, hammered
+// on (or pulled off) or slid to -- and what that applies to: the selected
+// notes, or with nothing selected the next note drawn.
+class TechniqueBar : public juce::Component
+{
+public:
+    static constexpr int preferredHeight = 30;
+
+    using Technique = model::Note::Technique;
+    std::function<void (Technique)> onTechniqueChosen;
+    std::function<void (double beats)> onSlideLengthChosen;
+    std::function<void (double signedBeats)> onSlideOutChosen;
+
+    TechniqueBar()
+    {
+        header.setFont (uiFont (fonts::small));
+        header.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+        header.setText ("Into the note", juce::dontSendNotification);
+        addAndMakeVisible (header);
+
+        const char* tips[] = {
+            "Auto: plucked, unless it starts over a held note -- then as the bass's Left Hand setting says",
+            "Pluck: plucked afresh, even over a held note",
+            "Hammer: from the note before without plucking -- a hammer-on going up, a pull-off going down",
+            "Slide: slid to from the note before, through the frets in between, landing on this note's beat",
+        };
+
+        for (size_t i = 0; i < techniques.size(); ++i)
+        {
+            auto& b = buttons[i];
+            b.setButtonText (model::Note::getTechniqueName (techniques[i]));
+            b.setTooltip (tips[i]);
+            b.setClickingTogglesState (false);
+            b.setWantsKeyboardFocus (false);
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe0a24f));
+            b.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff232327));
+            b.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0)
+                                 | (i + 1 < techniques.size() ? juce::Button::ConnectedOnRight : 0));
+            const auto technique = techniques[i];
+            b.onClick = [this, technique] { if (onTechniqueChosen) onTechniqueChosen (technique); };
+            addAndMakeVisible (b);
+        }
+
+        target.setFont (uiFont (fonts::small));
+        target.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+        target.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (target);
+
+        // How far ahead of the beat the slide leaves, in note values so it
+        // keeps time.
+        const char* names[] = { "1/32", "1/16", "1/8", "1/4", "1/2" };
+
+        for (size_t i = 0; i < std::size (model::Note::slideLengths); ++i)
+            lengthBox.addItem (juce::String (names[i]) + " slide", lengthIdFor (model::Note::slideLengths[i]));
+
+        lengthBox.setTooltip ("How long before this note's beat the slide leaves the note before");
+        lengthBox.setWantsKeyboardFocus (false);
+        lengthBox.onChange = [this]
+        {
+            if (! updating && onSlideLengthChosen && lengthBox.getSelectedId() > 0)
+                onSlideLengthChosen ((lengthBox.getSelectedId() - 1) / 1000.0);
+        };
+        addChildComponent (lengthBox);
+
+        // Out of the note: stay, or slide off its end into nothing.
+        outHeader.setFont (uiFont (fonts::small));
+        outHeader.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+        outHeader.setJustificationType (juce::Justification::centredRight);
+        outHeader.setText ("Out", juce::dontSendNotification);
+        addAndMakeVisible (outHeader);
+
+        outBox.addItem ("Stay", outIdFor (0.0));
+        outBox.addSeparator();
+
+        for (const auto sign : { -1.0, 1.0 })
+            for (size_t i = 0; i < std::size (model::Note::slideLengths); ++i)
+                outBox.addItem (juce::String (sign < 0.0 ? "Slide down " : "Slide up ") + names[i],
+                                outIdFor (sign * model::Note::slideLengths[i]));
+
+        outBox.setTooltip ("Slide off the end of the note into nothing, over its last this-much. "
+                           "How far is the bass's Out Frets");
+        outBox.setWantsKeyboardFocus (false);
+        outBox.onChange = [this]
+        {
+            if (! updating && onSlideOutChosen && outBox.getSelectedId() > 0)
+                onSlideOutChosen ((outBox.getSelectedId() - outIdFor (0.0)) / 1000.0);
+        };
+        addAndMakeVisible (outBox);
+    }
+
+    void show (std::optional<Technique> technique, std::optional<double> slideLength,
+               std::optional<double> slideOut, int numSelected)
+    {
+        {
+            const juce::ScopedValueSetter<bool> guard (updating, true);
+            outBox.setSelectedId (slideOut ? outIdFor (*slideOut) : 0, juce::dontSendNotification);
+            lengthBox.setSelectedId (slideLength ? lengthIdFor (*slideLength) : 0, juce::dontSendNotification);
+            lengthBox.setVisible (technique && *technique == Technique::slide);
+        }
+
+        for (size_t i = 0; i < techniques.size(); ++i)
+            buttons[i].setToggleState (technique && *technique == techniques[i], juce::dontSendNotification);
+
+        target.setText (numSelected == 0 ? "next note"
+                                         : numSelected == 1 ? "1 note" : juce::String (numSelected) + " notes",
+                        juce::dontSendNotification);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff26262b));
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (6, 4);
+        header.setBounds (area.removeFromLeft (96));
+
+        for (auto& b : buttons)
+            b.setBounds (area.removeFromLeft (70));
+
+        area.removeFromLeft (10);
+        lengthBox.setBounds (area.removeFromLeft (120));
+        area.removeFromLeft (10);
+        outHeader.setBounds (area.removeFromLeft (34));
+        outBox.setBounds (area.removeFromLeft (150));
+        target.setBounds (area);
+    }
+
+private:
+    static int lengthIdFor (double beats)  { return 1 + juce::roundToInt (beats * 1000.0); }
+    static int outIdFor (double signedBeats)  { return 5000 + juce::roundToInt (signedBeats * 1000.0); }
+
+    juce::ComboBox lengthBox, outBox;
+    juce::Label outHeader;
+    bool updating = false;
+
+    static constexpr std::array<Technique, 4> techniques { Technique::automatic, Technique::pluck,
+                                                          Technique::hammer, Technique::slide };
+    juce::Label header, target;
+    std::array<juce::TextButton, 4> buttons;
+};
+
 class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
@@ -525,6 +670,26 @@ public:
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
         pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); };
+
+        techniqueBar.onTechniqueChosen = [this] (model::Note::Technique technique)
+        {
+            pianoRoll.setTechnique (technique);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        techniqueBar.onSlideOutChosen = [this] (double signedBeats)
+        {
+            pianoRoll.setSlideOut (signedBeats);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        techniqueBar.onSlideLengthChosen = [this] (double beats)
+        {
+            pianoRoll.setSlideLength (beats);
+            refreshPlayModeBar();
+            pianoRoll.grabKeyboardFocus();
+        };
+        addChildComponent (techniqueBar);
 
         playModeBar.onPlayModeChosen = [this] (model::Note::PlayMode mode)
         {
@@ -644,6 +809,18 @@ public:
         pianoRoll.setLyricCheck (std::move (check));
     }
 
+    // The technique bar and the notes' technique marks, for an electric bass.
+    void setShowsTechniques (bool shouldShow)
+    {
+        if (pianoRoll.showsTechniques() == shouldShow)
+            return;
+
+        pianoRoll.setShowsTechniques (shouldShow);
+        techniqueBar.setVisible (shouldShow);
+        refreshPlayModeBar();
+        resized();
+    }
+
     // The play-mode bar and the notes' play-mode marks, for a break slicer.
     void setShowsPlayModes (bool shouldShow)
     {
@@ -732,6 +909,9 @@ public:
 
         if (playModeBar.isVisible())
             playModeBar.setBounds (area.removeFromTop (PlayModeBar::preferredHeight));
+
+        if (techniqueBar.isVisible())
+            techniqueBar.setBounds (area.removeFromTop (TechniqueBar::preferredHeight));
 
         // The ruler and the lane are placed by updateStrips(), which has to
         // keep them to the viewport's *visible* width; here they only reserve
@@ -1060,6 +1240,10 @@ private:
 
     void refreshPlayModeBar()
     {
+        if (techniqueBar.isVisible())
+            techniqueBar.show (pianoRoll.getShownTechnique(), pianoRoll.getShownSlideLength(),
+                               pianoRoll.getShownSlideOut(), pianoRoll.getNumSelectedNotes());
+
         if (playModeBar.isVisible())
             playModeBar.show (pianoRoll.getShownPlayMode(), pianoRoll.getShownRetrigger(),
                               pianoRoll.getShownBuzzPitch(), pianoRoll.getShownBuzzRamped(),
@@ -1086,6 +1270,7 @@ private:
     PianoRollVelocityLane velocityLane { pianoRoll };
     ShortcutHelpBar shortcutBar;
     PlayModeBar playModeBar;
+    TechniqueBar techniqueBar;
 };
 
 } // namespace carve::app

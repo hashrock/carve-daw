@@ -65,8 +65,10 @@ void MidiInputController::setTarget (const juce::String& generatorId, const juce
     {
         // The A key on the kick for a drum generator, on middle C otherwise.
         const auto generator = song.findGenerator (generatorId);
-        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth() || generator->isGabberKick() || generator->isBreak());
-        typing.setHomeNote (drums ? drumkit::firstNote : 60);
+        const bool drums = generator && (generator->isDrumKit() || generator->isDrumSynth() || generator->isGabberKick()
+                                          || generator->isAcousticDrums() || generator->isBreak());
+        const bool bass = generator && generator->isElectricBass();
+        typing.setHomeNote (drums ? drumkit::firstNote : bass ? 36 : 60);
     }
 
     targetGeneratorId = generatorId;

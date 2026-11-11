@@ -9,20 +9,21 @@ Synapse Audio の **Orion** を参考にした、Generator 中心・パターン
 
 ## 機能
 
-- **楽器**: Slate (内蔵シンセ) / Analog Drums / Gabber Kick / サンプラー / 16 パッドのドラムキット /
+- **楽器**: Slate (内蔵シンセ) / Analog Drums / Gabber Kick / **Acoustic Drums** (実録キットの再合成) /
+  **Electric Bass** (実録ベースの再合成、ハンマリング・スライド) / サンプラー / 16 パッドのドラムキット /
   SF2 Player (.sf2) / **Singer** (ピアノロールで歌詞を打つと UTAU 形式の音源が歌う) /
   **Break Slicer** (ドラムループを切って刻む) / VST3・AU / オーディオトラック
 - **作曲**: パターンとプレイリスト、ピアノロール、テンポ・拍子の変更、
   オートメーションと LFO
 - **ミキサー**: インサートエフェクト、センド / リターン、グループバス、
-  サイドチェイン。自前の Overtop (マルチバンドコンプ)・Delay・Limiter など。
+  サイドチェイン。自前の Overtop (マルチバンドコンプ)・Bus Compressor (パラレル)・Delay・Limiter など。
   重い仕上げ用エフェクトはマスタリングチェーンに置き、マスタリングモードの
   間だけ鳴らす (書き出しには常に入る)
 - **演奏と録音**: MIDI キーボードと PC キーボードで弾き、録音する。録音して
   いなくても直前のフレーズを拾える (Capture)
 - **書き出し**: WAV / Ogg Vorbis、ミックスダウンかステム。ゲーム用の
   イントロ付きループ (`LOOPSTART` / `LOOPLENGTH`) にも対応
-- **付属**: サンプル曲 3 曲とドラムキット
+- **付属**: サンプル曲 4 曲とドラムキット
 
 画面ごとの使い方と各機能の詳細は [docs/GUIDE.md](docs/GUIDE.md)。
 
