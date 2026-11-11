@@ -24,6 +24,25 @@ inline juce::Rectangle<int> usableScreenArea()
     return {};
 }
 
+// A viewport whose content is edited by dragging: notes, clips, knobs. JUCE
+// scrolls a viewport under a dragging finger unless told not to, so a note
+// being moved took the whole roll with it. Here the finger belongs to the
+// content, and the scroll bars -- widened to be something a finger can hold --
+// do the scrolling.
+inline void scrollByBarsOnly (juce::Viewport& viewport)
+{
+    if (! isTouchUi)
+        return;
+
+    viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
+    viewport.setScrollBarThickness (20);
+}
+
+struct BarScrolledViewport : juce::Viewport
+{
+    BarScrolledViewport() { scrollByBarsOnly (*this); }
+};
+
 // The title bar of every window but the main one. On the desktop it is the
 // system's. iOS has no system title bar to ask for -- a second window would
 // come up as a bare rectangle with nothing to close it by or move it with --

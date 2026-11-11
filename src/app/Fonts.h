@@ -100,6 +100,44 @@ public:
     {
         return atLeastMinimumHeight (juce::LookAndFeel_V4::getAlertWindowFont());
     }
+
+    // The close button of a window that draws its own title bar, which today
+    // is every secondary window on the iPad. JUCE's is a dark red cross on a
+    // dark bar, hard to find and harder to hit; this one is a bright cross
+    // that fills red under the finger.
+    juce::Button* createDocumentWindowButton (int buttonType) override
+    {
+        if (buttonType == juce::DocumentWindow::closeButton)
+            return new CloseButton();
+
+        return juce::LookAndFeel_V4::createDocumentWindowButton (buttonType);
+    }
+
+private:
+    struct CloseButton : juce::Button
+    {
+        CloseButton() : juce::Button ("close") {}
+
+        void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+        {
+            const auto red = juce::Colour (0xffff5f57);
+            const auto bounds = getLocalBounds().toFloat();
+
+            if (highlighted || down)
+            {
+                g.setColour (down ? red.darker (0.2f) : red);
+                g.fillRect (bounds);
+            }
+
+            const auto side = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.38f;
+            const auto cross = bounds.withSizeKeepingCentre (side, side);
+
+            g.setColour (! isEnabled() ? juce::Colours::grey
+                                       : (highlighted || down) ? juce::Colours::white : red);
+            g.drawLine ({ cross.getTopLeft(), cross.getBottomRight() }, 2.2f);
+            g.drawLine ({ cross.getTopRight(), cross.getBottomLeft() }, 2.2f);
+        }
+    };
 };
 
 } // namespace carve::app
