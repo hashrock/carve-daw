@@ -24,11 +24,38 @@ inline juce::Rectangle<int> usableScreenArea()
     return {};
 }
 
-// A viewport whose content is edited by dragging: notes, clips, knobs. JUCE
-// scrolls a viewport under a dragging finger unless told not to, so a note
-// being moved took the whole roll with it. Here the finger belongs to the
-// content, and the scroll bars -- widened to be something a finger can hold --
-// do the scrolling.
+// A press on empty space in a viewport that scrolls under a finger. It may be
+// the start of a scroll or it may be a tap, and only the release says which,
+// so whatever a tap there does -- draw a note, paint a clip -- waits for it.
+struct TouchTap
+{
+    void arm (juce::Point<float> where)
+    {
+        armed = true;
+        position = where;
+        pressedAt = juce::Time::getMillisecondCounter();
+    }
+
+    // Call from mouseUp. True if the press that was armed ended as a tap:
+    // short, and without having moved. A long press is not one (it is the
+    // right click; see LongPress.h).
+    bool wasTap (const juce::MouseEvent& e)
+    {
+        return std::exchange (armed, false)
+            && ! e.mouseWasDraggedSinceMouseDown()
+            && juce::Time::getMillisecondCounter() - pressedAt < 400;
+    }
+
+    bool armed = false;
+    juce::Point<float> position;
+    juce::uint32 pressedAt = 0;
+};
+
+// A viewport whose content is all controls -- knobs, pads, envelopes -- where
+// there is no empty space for a finger to scroll by. JUCE scrolls a viewport
+// under a dragging finger unless told not to, which there would turn every
+// knob drag into a scroll as well, so the scroll bars do it, widened to be
+// something a finger can hold.
 inline void scrollByBarsOnly (juce::Viewport& viewport)
 {
     if (! isTouchUi)

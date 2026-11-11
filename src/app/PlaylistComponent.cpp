@@ -3351,6 +3351,12 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
     dragMode = DragMode::none;
     pendingToggleClip = {};
 
+    // Under a finger the viewport scrolls with a drag unless the press landed
+    // on something the drag belongs to; the two places below that clear this
+    // are the empty ones.
+    touchTap.armed = false;
+    setViewportIgnoreDragFlag (true);
+
     if (rackMode)
     {
         rackMouseDown (e);
@@ -3508,7 +3514,10 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
 
     const int row = clipRowAt (e.position.y);
     if (row < 0 || row >= song.getNumGenerators())
+    {
+        setViewportIgnoreDragFlag (false);
         return;
+    }
 
     auto generator = song.getGenerator (row);
 
@@ -3670,6 +3679,15 @@ void PlaylistComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    // An empty stretch of a row under a finger: the drag scrolls, and what a
+    // tap does here (mouseUp) waits until it is known to have been one.
+    if (isTouchUi)
+    {
+        touchTap.arm (e.position);
+        setViewportIgnoreDragFlag (false);
+        return;
+    }
+
     if (getEffectiveTool (e.mods) == Tool::paint)
     {
         // The clips this gesture paints become the selection, the way a note
@@ -3807,6 +3825,23 @@ void PlaylistComponent::mouseUp (const juce::MouseEvent& e)
 {
     if (rackMode)
         return;
+
+    // A tap on an empty stretch of a row, held back at the press in case it
+    // was a scroll: the paint tool paints one clip, the select tool lets go
+    // of the selection.
+    if (touchTap.wasTap (e))
+    {
+        clearSelection();
+
+        if (const int row = clipRowAt (touchTap.position.y);
+            getEffectiveTool (e.mods) == Tool::paint && row >= 0 && row < song.getNumGenerators())
+        {
+            undoManager.beginNewTransaction();
+
+            if (auto painted = paintClip (row, xToBeat (touchTap.position.x)); painted.isValid())
+                addToSelection (painted);
+        }
+    }
 
     // A ruler click that never grew into a drag moves the transport to the bar
     // it landed on. Clearing the loop moved to the ruler's right click.

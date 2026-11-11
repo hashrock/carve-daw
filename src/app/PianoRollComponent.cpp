@@ -3,6 +3,7 @@
 #include <tuple>
 
 #include "PianoRollComponent.h"
+#include "TouchUi.h"
 #include "PlayModeGlyphs.h"
 #include "Fonts.h"
 
@@ -1584,8 +1585,16 @@ void PianoRollComponent::eraseAlong (juce::Point<float> from, juce::Point<float>
 
 void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 {
+    // Under a finger the viewport scrolls with a drag unless the press landed
+    // on something the drag belongs to. Decided afresh at every press; the
+    // viewport asks as the drag goes.
+    touchTap.armed = false;
+    setViewportIgnoreDragFlag (false);
+
     if (! pattern || e.position.x < (float) getKeyboardWidth())
         return;
+
+    setViewportIgnoreDragFlag (true);
 
     grabKeyboardFocus();   // the tool keys and Backspace are ours once the roll is clicked
 
@@ -1699,6 +1708,15 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    // Empty grid under a finger: the drag scrolls, and what a tap does here
+    // (mouseUp) waits until it is known to have been one.
+    if (isTouchUi)
+    {
+        touchTap.arm (e.position);
+        setViewportIgnoreDragFlag (false);
+        return;
+    }
+
     if (getEffectiveTool (e.mods) == Tool::select)
     {
         // Empty grid with the select tool: rubber band. Cmd adds to what is
@@ -1718,10 +1736,16 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    const auto minLength = minLengthBeats (e.mods);
+    drawNoteAt (e.position, e.mods);
+    updateCursor (e);
+}
+
+void PianoRollComponent::drawNoteAt (juce::Point<float> position, juce::ModifierKeys mods)
+{
+    const auto minLength = minLengthBeats (mods);
     const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLength);
-    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x), e.mods));
-    const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (e.position.y));
+    const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (position.x), mods));
+    const auto pitch = juce::jlimit (lowestPitch, highestPitch, yToPitch (position.y));
     const auto length = juce::jmax (minLength,
                                     juce::jmin (lastNoteLength, pattern->getLengthBeats() - start));
 
@@ -1744,10 +1768,9 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     setSelection ({ draggedNote->state });
 
     dragMode = DragMode::move;
-    grabOffsetBeats = xToBeat (e.position.x) - start;
-    dragStartPosition = e.position;
+    grabOffsetBeats = xToBeat (position.x) - start;
+    dragStartPosition = position;
     beginSelectionDrag();
-    updateCursor (e);
 }
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
@@ -1818,6 +1841,20 @@ void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 
 void PianoRollComponent::mouseUp (const juce::MouseEvent& e)
 {
+    // A tap on empty grid, held back at the press in case it was a scroll.
+    if (touchTap.wasTap (e) && pattern)
+    {
+        if (getEffectiveTool (e.mods) == Tool::select)
+        {
+            clearSelection();
+        }
+        else
+        {
+            undoManager.beginNewTransaction();
+            drawNoteAt (touchTap.position, e.mods);
+        }
+    }
+
     if (draggedNote && dragMode == DragMode::resize)
         lastNoteLength = draggedNote->getLength();
 

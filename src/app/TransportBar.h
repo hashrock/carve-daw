@@ -103,6 +103,11 @@ private:
     int heldDirection = 0;
     int repeatCount = 0;
 
+    // A vertical drag on the number itself.
+    static constexpr int pixelsPerScrubStep = 4;
+    bool scrubbing = false;
+    int scrubStepsDone = 0;
+
     juce::Rectangle<int> upArrow, downArrow;
     juce::Label value;
 
@@ -214,7 +219,8 @@ public:
     std::function<void (bool on)> onMasteringModeChanged;
     void setMasteringMode (bool on);
 
-    static constexpr int preferredHeight = 48;
+    static constexpr int preferredHeight = 48;   // of one row
+    static constexpr int rowGap = 4;
 
     void setSong (model::Song newSong);
 
@@ -228,8 +234,12 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // The bar is one row or two depending on how wide it is; this is how
+    // tall it wants to be at that width.
+    int getHeightForWidth (int width);
+
     // One pass of the layout at this spacing. False if it did not fit.
-    bool layOut (int gapWidth, int meterWidth, bool showMastering);
+    bool layOut (int gapWidth, bool inTwoRows);
 
 private:
     void timerCallback() override;
@@ -257,6 +267,8 @@ private:
     te::Edit& edit;
     model::Song song;
     juce::UndoManager& undoManager;
+
+    bool twoRows = false;
 
     // What the recorder says it is doing, not what this bar asked for.
     bool recording = false;

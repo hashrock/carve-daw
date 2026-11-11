@@ -1310,7 +1310,7 @@ void MainComponent::timerCallback()
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
-    transportBar->setBounds (area.removeFromTop (TransportBar::preferredHeight));
+    transportBar->setBounds (area.removeFromTop (transportBar->getHeightForWidth (area.getWidth())));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
     clipProperties.setBounds (area.removeFromRight (210));
 

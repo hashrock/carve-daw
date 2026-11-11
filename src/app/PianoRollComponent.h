@@ -7,6 +7,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "TouchUi.h"
 #include "SelectionModifiers.h"
 #include "TimeSigSupport.h"
 #include "model/SongModel.h"
@@ -450,6 +451,10 @@ private:
     double pixelsPerBeat = defaultPixelsPerBeat;
     std::optional<double> playheadBeat;
     Tool tool = Tool::draw;
+
+    // The draw tool's press on empty grid: a new note, grabbed for the drag.
+    void drawNoteAt (juce::Point<float> position, juce::ModifierKeys mods);
+    TouchTap touchTap;
 
     enum class DragMode { none, move, resize, erase, rubberBand };
     DragMode dragMode = DragMode::none;

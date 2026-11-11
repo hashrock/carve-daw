@@ -25,7 +25,9 @@ public:
         bool operator== (const Entry&) const = default;
     };
 
-    static constexpr int preferredHeight = 24;
+    // No height at all on a touch screen: nearly every entry is a key or a
+    // mouse button, and the rows it takes are worth more to the editor.
+    static constexpr int preferredHeight = isTouchUi ? 0 : 24;
 
     ShortcutHelpBar()
     {
