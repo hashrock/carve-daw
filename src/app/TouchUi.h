@@ -191,4 +191,77 @@ inline void useSystemTitleBar (juce::DocumentWindow& window)
     });
 }
 
+// A menu as it should be shown on this platform.
+//
+// JUCE opens a submenu once the pointer has rested on its item for a moment,
+// and a finger tap is over before that: on the iPad a tap on "Open Recent >"
+// does nothing, and only pressing and holding opens it. So there each submenu
+// is laid out in place instead, under a header carrying its name -- a longer
+// menu, but every item one tap away. Item IDs are kept, so the callback that
+// handles the result needs no change. Elsewhere the menu is returned as is.
+inline juce::PopupMenu forThisPlatform (const juce::PopupMenu& menu)
+{
+   #if JUCE_IOS
+    juce::PopupMenu flat;
+    bool separatorDue = false; // added before the next item, so none trails
+
+    auto add = [&] (const juce::PopupMenu::Item& item)
+    {
+        if (separatorDue && flat.getNumItems() > 0)
+            flat.addSeparator();
+
+        separatorDue = false;
+        flat.addItem (item);
+    };
+
+    for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+    {
+        const auto& item = it.getItem();
+
+        if (item.isSeparator)
+        {
+            separatorDue = true;
+            continue;
+        }
+
+        if (item.subMenu == nullptr)
+        {
+            add (item);
+            continue;
+        }
+
+        const auto inner = forThisPlatform (*item.subMenu);
+
+        // An empty or disabled submenu stays a single dim line, as the
+        // desktop shows it.
+        if (! item.isEnabled || inner.getNumItems() == 0)
+        {
+            juce::PopupMenu::Item dim (item.text);
+            dim.isEnabled = false;
+            add (dim);
+            continue;
+        }
+
+        separatorDue = true;
+        juce::PopupMenu::Item header (item.text);
+        header.isSectionHeader = true;
+        add (header);
+
+        for (juce::PopupMenu::MenuItemIterator sub (inner); sub.next();)
+        {
+            if (sub.getItem().isSeparator)
+                separatorDue = true;
+            else
+                add (sub.getItem());
+        }
+
+        separatorDue = true;
+    }
+
+    return flat;
+   #else
+    return menu;
+   #endif
+}
+
 } // namespace carve::app

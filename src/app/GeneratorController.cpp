@@ -3,6 +3,9 @@
 #include "DrumPadGrid.h"
 #include "model/MidiPatternIO.h"
 #include "voice/Voicebank.h"
+#include "SandboxAccess.h"
+#include "AppFiles.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -212,7 +215,7 @@ void GeneratorController::launchSampleChooser (std::function<void (const juce::F
                                     | juce::FileBrowserComponent::canSelectFiles,
                                 [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
-        if (const auto sample = chooser.getResult(); sample.existsAsFile())
+        if (const auto sample = sandbox::claimChosen (chooser.getURLResult()); sample.existsAsFile())
         {
             rememberSampleDirectory (sample);
             onChosen (sample);
@@ -285,7 +288,7 @@ void GeneratorController::launchSoundFontChooser (std::function<void (const juce
                                     | juce::FileBrowserComponent::canSelectFiles,
                                 [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
-        if (const auto soundFont = chooser.getResult(); soundFont.existsAsFile())
+        if (const auto soundFont = sandbox::claimChosen (chooser.getURLResult()); soundFont.existsAsFile())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastSoundFontDirectoryKey, soundFont.getParentDirectory().getFullPathName());
@@ -377,7 +380,7 @@ void GeneratorController::launchVoicebankChooser (std::function<void (const juce
                                     | juce::FileBrowserComponent::canSelectDirectories,
                                 [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
-        if (const auto folder = chooser.getResult(); folder.isDirectory())
+        if (const auto folder = sandbox::claimChosen (chooser.getURLResult()); folder.isDirectory())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastVoicebankDirectoryKey, folder.getParentDirectory().getFullPathName());
@@ -459,7 +462,7 @@ void GeneratorController::launchBreakChooser (std::function<void (const juce::Fi
                                     | juce::FileBrowserComponent::canSelectFiles,
                                 [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
-        if (const auto loop = chooser.getResult(); loop.existsAsFile())
+        if (const auto loop = sandbox::claimChosen (chooser.getURLResult()); loop.existsAsFile())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastBreakDirectoryKey, loop.getParentDirectory().getFullPathName());
@@ -1092,7 +1095,7 @@ void GeneratorController::showPatternMenu (juce::Rectangle<int> screenArea)
     menu.addSeparator();
     menu.addItem (5, "Delete", generator->getNumPatterns() > 1);
 
-    menu.showMenuAsync (juce::PopupMenu::Options()
+    forThisPlatform (menu).showMenuAsync (juce::PopupMenu::Options()
                             .withTargetScreenArea (screenArea),
                         [this, generatorId, patternId, otherGeneratorIds] (int result)
     {
@@ -1305,23 +1308,13 @@ void GeneratorController::exportPatternToMidi (const juce::String& generatorId,
 
     // Named after both, because a folder of files called "Ba1.mid" says
     // nothing a week later about which instrument each one was for.
-    const auto suggested = juce::File::createLegalFileName (
-        generator->getName() + " - " + pattern->getName() + ".mid");
+    const auto name = generator->getName() + " - " + pattern->getName();
+    const auto suggested = juce::File::createLegalFileName (name + ".mid");
 
-    midiChooser = std::make_unique<juce::FileChooser> (
-        "Export pattern as MIDI",
-        juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile (suggested),
-        model::midiio::fileWildcard);
-
-    midiChooser->launchAsync (juce::FileBrowserComponent::saveMode
-                                  | juce::FileBrowserComponent::canSelectFiles
-                                  | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [this, generatorId, patternId] (const juce::FileChooser& chooser)
+    auto write = [this, generatorId, patternId] (juce::File destination)
     {
-        auto destination = chooser.getResult();
-
         if (destination == juce::File())
-            return;
+            return false;
 
         if (destination.getFileExtension().isEmpty())
             destination = destination.withFileExtension ("mid");
@@ -1331,21 +1324,47 @@ void GeneratorController::exportPatternToMidi (const juce::String& generatorId,
         auto current = song.findGenerator (generatorId);
 
         if (! current)
-            return;
+            return false;
 
         auto currentPattern = current->findPattern (patternId);
 
         if (! currentPattern)
-            return;
+            return false;
 
         // The song's tempo and meter, not the pattern's: a pattern has neither,
         // and these are what it is being played at here.
         if (! model::midiio::writePattern (*currentPattern, destination, song.getTempo(),
                                            song.getTimeSigAt (0.0)))
+        {
             juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                          "Export failed",
-                                                         "Could not write " + destination.getFullPathName());
-    });
+                                                         "Could not write " + appfiles::describe (destination));
+            return false;
+        }
+
+        return true;
+    };
+
+    // The iPad writes into the app's own folder and says where (AppFiles.h).
+    if (appfiles::writesIntoDocuments)
+    {
+        const auto destination = appfiles::freshChild (appfiles::exports(), name, ".mid");
+
+        if (write (destination))
+            juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Exported",
+                                                         "Saved to " + appfiles::describe (destination));
+        return;
+    }
+
+    midiChooser = std::make_unique<juce::FileChooser> (
+        "Export pattern as MIDI",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile (suggested),
+        model::midiio::fileWildcard);
+
+    midiChooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                  | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [write] (const juce::FileChooser& chooser) { write (chooser.getResult()); });
 }
 
 void GeneratorController::importMidiIntoPattern (const juce::String& generatorId,
@@ -1360,7 +1379,7 @@ void GeneratorController::importMidiIntoPattern (const juce::String& generatorId
                                   | juce::FileBrowserComponent::canSelectFiles,
                               [this, generatorId, patternId] (const juce::FileChooser& chooser)
     {
-        const auto source = chooser.getResult();
+        const auto source = sandbox::claimChosen (chooser.getURLResult());
 
         if (! source.existsAsFile())
             return;

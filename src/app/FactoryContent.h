@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include <juce_core/juce_core.h>
 
 namespace carve::app
@@ -47,6 +49,39 @@ inline juce::File factoryDrumsFolder()
 
     const auto drums = content.getChildFile ("Drums");
     return drums.isDirectory() ? drums : juce::File();
+}
+
+// A path into the app's own files as another copy of the app had them, moved
+// to where this one has them -- or File() for any other path.
+//
+// Songs and the browser keep absolute paths, and two kinds of them point
+// into the app itself: the factory content inside the bundle, and, on the
+// iPad, the app's Documents folder. Both move. iOS gives the app a new bundle
+// folder and data folder on every update, so a path stored yesterday names a
+// folder that no longer exists; on the Mac the bundle moves when the app does;
+// and a song made on one goes to the other with the other's paths in it. The
+// part inside the content (or Documents) folder is the same in every copy,
+// so that is what is kept.
+inline juce::File relocateIntoThisInstall (const juce::File& file)
+{
+    const auto path = file.getFullPathName();
+
+    // A bundle's content folder, in either system's layout, and only if it
+    // is a bundle of this app's.
+    for (const auto* marker : { ".app/Contents/Resources/Content/", ".app/Content/" })
+        if (const auto at = path.lastIndexOf (marker); at >= 0 && path.substring (0, at).endsWith ("/Carve DAW"))
+            if (const auto content = factoryContentFolder(); content != juce::File())
+                return content.getChildFile (path.substring (at + (int) std::strlen (marker)));
+
+   #if JUCE_IOS
+    // Another install's Documents: .../Data/Application/<id>/Documents/...
+    if (const auto at = path.indexOf ("/Data/Application/"); at >= 0)
+        if (const auto docs = path.indexOf (at, "/Documents/"); docs >= 0)
+            return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                       .getChildFile (path.substring (docs + (int) std::strlen ("/Documents/")));
+   #endif
+
+    return {};
 }
 
 } // namespace carve::app

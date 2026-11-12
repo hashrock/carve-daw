@@ -10,4 +10,9 @@ bool isSandboxed()                        { return false; }
 void restoreAccess (const juce::File&)    {}
 void rememberAccess (const juce::File&)   {}
 
+juce::File claimChosen (juce::URL url)
+{
+    return url.isLocalFile() ? url.getLocalFile() : juce::File();
+}
+
 } // namespace carve::sandbox

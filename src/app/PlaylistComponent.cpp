@@ -1,6 +1,7 @@
 #include "PlaylistComponent.h"
 #include "Fonts.h"
 #include "TimelineView.h"
+#include "TouchUi.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2919,7 +2920,7 @@ void PlaylistComponent::showLaneMenu (double beat, juce::Point<float> position)
 
     juce::Component::SafePointer<PlaylistComponent> safeThis (this);
 
-    menu.showMenuAsync (options, [safeThis, tempoBeat, sigBeat] (int result)
+    forThisPlatform (menu).showMenuAsync (options, [safeThis, tempoBeat, sigBeat] (int result)
     {
         if (safeThis == nullptr || result <= 0)
             return;

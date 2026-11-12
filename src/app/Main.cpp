@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include "EngineSetup.h"
+#include "FactoryContent.h"
 #include "Fonts.h"
 #include "LegalNotices.h"
 #include "LongPress.h"
@@ -60,6 +61,7 @@ public:
                                            .getChildFile (carve::applicationName)
                                            .getChildFile ("FileAccess.xml"));
         carve::model::FileRef::onFileReferenced() = [] (const juce::File& file) { carve::sandbox::rememberAccess (file); };
+        carve::model::FileRef::relocate() = [] (const juce::File& file) { return carve::app::relocateIntoThisInstall (file); };
 
         engine = carve::createEngine (nullptr, CARVE_PLUGIN_HOSTING != 0);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);

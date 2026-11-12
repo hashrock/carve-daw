@@ -5,7 +5,8 @@ project(CarveDAW VERSION 0.18.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# The iPad build is a prototype. Configure it with the Xcode generator:
+# The iPad build. scripts/appstore-ios.sh makes the store's .ipa; for the
+# simulator, configure it with the Xcode generator:
 #
 #   cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
 #         -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -303,10 +304,10 @@ juce_add_gui_app(carve
     ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
     BUILD_VERSION "${CARVE_BUILD_NUMBER}"
     PLIST_TO_MERGE "${CARVE_PLIST_TO_MERGE}"
-    # Not on the Mac: the app never opens an audio input there (see
+    # Never: the app opens no audio input on either system (see
     # EngineSetup.h), and an Info.plist that says why it wants the microphone
-    # is a claim that it does. The iPad build keeps what it had.
-    MICROPHONE_PERMISSION_ENABLED ${CARVE_IOS}
+    # is a claim that it does -- one App Review holds an app to.
+    MICROPHONE_PERMISSION_ENABLED FALSE
     # iOS only. iPad alone, any way up, and the app's Documents folder shows
     # in Files so songs can get in and out. The two that would otherwise
     # write a UI... key into the Mac's Info.plist are switched by platform.
@@ -376,11 +377,12 @@ target_sources(carve PRIVATE
     src/app/TypingKeyboard.cpp
     src/app/TimeSigSupport.h
     src/app/TouchUi.h
-    src/app/SandboxAccess.h)
+    src/app/SandboxAccess.h
+    src/app/AppFiles.h)
 # Security-scoped bookmarks are Foundation, so the real thing is Objective-C++.
-# It is the macOS App Sandbox's scheme; iOS has no app-scoped bookmarks, and
-# the prototype keeps its songs in its own Documents folder.
-if(APPLE AND NOT CARVE_IOS)
+# The Mac's App Sandbox and the iPad, which keeps a file picked in Files
+# readable the same way (see claimChosen).
+if(APPLE)
     target_sources(carve PRIVATE src/app/SandboxAccess.mm)
 else()
     target_sources(carve PRIVATE src/app/SandboxAccess.cpp)

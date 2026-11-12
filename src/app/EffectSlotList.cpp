@@ -10,6 +10,7 @@
 #include "../plugins/DistortionPlugin.h"
 #include "../plugins/SaturationPlugin.h"
 #include "../plugins/BitcrusherPlugin.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -453,7 +454,7 @@ void EffectSlotList::showAddMenu()
         menu.addSubMenu ("Plugins", pluginMenu);
     }
 
-    menu.showMenuAsync (juce::PopupMenu::Options()
+    forThisPlatform (menu).showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (this)
                             .withTargetScreenArea (localAreaToGlobal (getRowBounds ((int) slots.size()))),
                         [safe = juce::Component::SafePointer (this), plugins] (int result)

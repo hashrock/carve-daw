@@ -2,6 +2,7 @@
 
 #include "ClipPropertiesPanel.h"
 #include "Fonts.h"
+#include "SandboxAccess.h"
 
 namespace carve::app
 {
@@ -485,7 +486,7 @@ void ClipPropertiesPanel::relocateAudioFile()
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [safe = juce::Component::SafePointer (this), node] (const juce::FileChooser& fc)
     {
-        const auto file = fc.getResult();
+        const auto file = sandbox::claimChosen (fc.getURLResult());
 
         // The clip can have been deleted while the dialog was up.
         if (safe == nullptr || file == juce::File() || ! node.isAChildOf (safe->song.state))

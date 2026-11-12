@@ -1,6 +1,7 @@
 #include "TransportBar.h"
 #include "model/SampleSongs.h"
 #include "Fonts.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -457,7 +458,7 @@ void TransportBar::showFileMenu()
     menu.addItem (noticesId, "Third-Party Notices...");
    #endif
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (logoButton),
+    forThisPlatform (menu).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (logoButton),
                         [safe = juce::Component::SafePointer (this)] (int result)
     {
         if (safe == nullptr)

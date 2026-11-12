@@ -525,8 +525,16 @@ void SampleBrowser::loadSettings()
 
     if (auto xml = settings->getXmlValue ("favourites"))
         for (auto* child : xml->getChildIterator())
-            if (const juce::File file (child->getStringAttribute ("path")); file != juce::File())
+            if (juce::File file (child->getStringAttribute ("path")); file != juce::File())
+            {
+                // The factory kit, or the iPad's Documents, as another copy
+                // of the app had them (see relocateIntoThisInstall).
+                if (! file.isDirectory())
+                    if (const auto moved = relocateIntoThisInstall (file); moved.isDirectory())
+                        file = moved;
+
                 favourites.push_back (file);
+            }
 
     // First run: the browser opened on the music folder, which on most
     // machines is either empty or somebody's iTunes library, and the drum kit
@@ -628,7 +636,7 @@ void SampleBrowser::chooseFolderToAdd()
                                     | juce::FileBrowserComponent::canSelectDirectories,
                                 [this] (const juce::FileChooser& chooser)
     {
-        if (const auto chosen = chooser.getResult(); chosen.isDirectory())
+        if (const auto chosen = sandbox::claimChosen (chooser.getURLResult()); chosen.isDirectory())
         {
             sandbox::rememberAccess (chosen);
             addFavourite (chosen);

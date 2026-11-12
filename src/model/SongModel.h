@@ -264,6 +264,13 @@ struct FileRef
     // app/SandboxAccess.h). Empty unless someone sets it.
     static std::function<void (const juce::File&)>& onFileReferenced();
 
+    // Asked, when a song is loaded, about a file that is at neither of the
+    // places the song has for it: where that file is now, or File() for
+    // nowhere. For files whose folder is known to move under the song's feet
+    // -- the app's own, which iOS moves on every update. The model does
+    // nothing with this itself; empty unless someone sets it.
+    static std::function<juce::File (const juce::File&)>& relocate();
+
     // Whether the node names a file at all, and what that file is called.
     // Both read the stored strings rather than getFile(): a hand-written song
     // can hold a relative `file`, or a `relPath` alone, and getFile() gives

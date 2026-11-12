@@ -100,6 +100,7 @@ private:
     // to throw the document away afterwards can stop instead.
     void saveSong (std::function<void (bool saved)> onDone = {});
     void saveSongAs (std::function<void (bool saved)> onDone = {});
+    void saveSongIntoDocuments (std::function<void (bool)> onDone);
     bool writeSongTo (const juce::File& file);
     void newSong();
     void openSong();
