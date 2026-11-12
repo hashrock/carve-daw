@@ -5,6 +5,7 @@
 #include "voice/Voicebank.h"
 #include "SandboxAccess.h"
 #include "AppFiles.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -1094,7 +1095,7 @@ void GeneratorController::showPatternMenu (juce::Rectangle<int> screenArea)
     menu.addSeparator();
     menu.addItem (5, "Delete", generator->getNumPatterns() > 1);
 
-    menu.showMenuAsync (juce::PopupMenu::Options()
+    forThisPlatform (menu).showMenuAsync (juce::PopupMenu::Options()
                             .withTargetScreenArea (screenArea),
                         [this, generatorId, patternId, otherGeneratorIds] (int result)
     {

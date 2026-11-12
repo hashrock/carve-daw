@@ -966,7 +966,7 @@ public:
         setVisible (true);
         toFront (true);
 
-        rollContent.scrollToMiddleOfPitchRange();
+        rollContent.scrollToContent();
         showTab (Tab::pianoRoll);
     }
 

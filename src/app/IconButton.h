@@ -18,7 +18,7 @@ enum class Icon
     instrument, pianoRoll,
     plus, clone, menu,
     pencil, select,
-    zoomIn, zoomOut,
+    zoomIn, zoomOut, rowsTaller, rowsShorter,
     folder, audioFile, star, arrowUp, speaker,
     capture, keyboard,
     trash
@@ -347,6 +347,27 @@ namespace icons
                 p.addRectangle (0.34f, 0.40f, 0.09f, 0.46f);
                 p.addRectangle (0.57f, 0.40f, 0.09f, 0.46f);
                 p.setUsingNonZeroWinding (false);
+                break;
+
+            case Icon::rowsTaller:
+            case Icon::rowsShorter:
+                // Vertical zoom: two rules, and arrows pushing them apart or
+                // drawing them together -- the magnifier is the other axis.
+                p.addRectangle (0.06f, 0.0f, 0.88f, 0.1f);
+                p.addRectangle (0.06f, 0.9f, 0.88f, 0.1f);
+
+                if (icon == Icon::rowsTaller)
+                {
+                    p.addRectangle (0.44f, 0.34f, 0.12f, 0.32f);
+                    p.addTriangle (0.5f, 0.18f, 0.26f, 0.4f, 0.74f, 0.4f);
+                    p.addTriangle (0.5f, 0.82f, 0.26f, 0.6f, 0.74f, 0.6f);
+                }
+                else
+                {
+                    p.addRectangle (0.06f, 0.46f, 0.88f, 0.08f);
+                    p.addTriangle (0.5f, 0.4f, 0.28f, 0.18f, 0.72f, 0.18f);
+                    p.addTriangle (0.5f, 0.6f, 0.28f, 0.82f, 0.72f, 0.82f);
+                }
                 break;
 
             case Icon::zoomIn:

@@ -147,6 +147,7 @@ public:
     // Where a pitch sits in the roll's own coordinates, for a container that
     // has to scroll to it.
     int pitchToViewY (int pitch) const;
+    int beatToViewX (double beat) const  { return (int) beatToX (beat); }
 
     // The notes of the pattern on screen, empty when there is none. The
     // velocity lane draws one bar per note and needs them all.
@@ -228,6 +229,39 @@ public:
 
     // Every note of the pattern, which is what Cmd+A asks for.
     void selectAllNotes();
+    void deselectAll()  { clearSelection(); }
+
+    //==============================================================================
+    // The selection handled as a whole, from the iPad's note bar (see
+    // NoteActionBar in PianoRollWindow.h): a finger has no right button, and
+    // the edge of a short note is a sliver to aim at, so the bar under the
+    // selection carries handles to drag instead.
+    //
+    // The selection's outline, in this component's coordinates; empty when
+    // nothing is selected.
+    juce::Rectangle<float> getSelectionBounds() const;
+
+    // A handle drag: begin, then any number of moves or stretches measured
+    // from where the selection was when it began, then end. One step of undo
+    // for the whole drag. Moves and stretches snap the way the roll's own
+    // drags do, and clamp the same way, so a chord keeps its shape at the ends
+    // of the pattern and the keyboard.
+    void beginHandleGesture();
+    void moveSelectionBy (double deltaBeats, int deltaPitch);
+    void stretchSelectionBy (double deltaBeats);
+    void endHandleGesture();
+    int getPitchRowHeight() const  { return getRowHeight(); }   // what one semitone of drag is
+
+    // A copy of the selection laid straight after it -- on the next grid line
+    // past its end -- and selected in its place, so that tapping again keeps
+    // extending the phrase. What does not fit in the pattern is left out.
+    void duplicateSelection();
+
+    void deleteSelectedNotes()  { deleteSelection(); }
+
+    // A drum pattern's rows are instruments, not pitches: moving a hit up a row
+    // makes it another drum, so a handle drag there moves in time only.
+    bool showsDrumRows() const  { return ! drumMap.empty(); }
 
     //==============================================================================
     // Velocity lane support. The lane owns the geometry of its bars, because
@@ -287,6 +321,17 @@ public:
     void zoomBy (double factor);
     double getPixelsPerBeat() const  { return pixelsPerBeat; }
 
+    // Vertical zoom: how tall a row is, as a multiple of the desktop's size,
+    // keeping the pitch in the middle of the view where it was. A finger needs
+    // a taller row than a pointer does, so the touch build starts at twice the
+    // height (see defaultRowZoom). Drum and lyric rows, which carry text, never
+    // go below their own size.
+    void setRowZoom (double zoom);
+    void rowZoomBy (double factor)  { setRowZoom (rowZoom * factor); }
+    double getRowZoom() const  { return rowZoom; }
+    static constexpr double defaultRowZoom = isTouchUi ? 2.0 : 1.0;
+    static constexpr double minRowZoom = 0.75, maxRowZoom = 3.0;
+
     // Where in this pattern the transport currently is, in pattern beats, or
     // nothing while it is playing somewhere the pattern is not placed. The
     // owner works this out from the playlist; the roll only draws the line.
@@ -310,7 +355,15 @@ private:
     static constexpr int drumRowHeight = 16;
     static constexpr int lyricRowHeight = 16;   // a lyric is text too, and the same rule holds
 
-    int getRowHeight() const  { return ! drumMap.empty() ? drumRowHeight : showsLyrics ? lyricRowHeight : noteRowHeight; }
+    int getRowHeight() const
+    {
+        if (! drumMap.empty() || showsLyrics)
+            return juce::roundToInt ((! drumMap.empty() ? drumRowHeight : lyricRowHeight) * juce::jmax (1.0, rowZoom));
+
+        return juce::roundToInt (noteRowHeight * rowZoom);
+    }
+
+    double rowZoom = defaultRowZoom;
 
     static constexpr int lowestPitch = 24;    // C1
     static constexpr int highestPitch = 96;   // C7

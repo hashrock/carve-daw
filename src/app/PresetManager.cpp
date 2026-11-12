@@ -3,6 +3,7 @@
 
 #include "plugins/GabberKickPlugin.h"
 #include "sync/EngineIds.h"
+#include "TouchUi.h"
 
 namespace carve::app
 {
@@ -478,7 +479,7 @@ void PresetBar::showMenu()
     menu.addSeparator();
     menu.addItem (revealId, "Show Presets Folder");
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (menuButton),
+    forThisPlatform (menu).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (menuButton),
                         [safe = juce::Component::SafePointer (this), names] (int result)
     {
         if (safe == nullptr || result == 0 || ! safe->presets.isAlive())

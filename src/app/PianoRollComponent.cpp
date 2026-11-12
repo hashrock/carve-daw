@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <tuple>
 
 #include "PianoRollComponent.h"
@@ -888,6 +889,33 @@ void PianoRollComponent::zoomBy (double factor)
     setPixelsPerBeat (pixelsPerBeat * factor, anchorX);
 }
 
+void PianoRollComponent::setRowZoom (double zoom)
+{
+    zoom = juce::jlimit (minRowZoom, maxRowZoom, zoom);
+
+    if (std::abs (zoom - rowZoom) < 1.0e-6)
+        return;
+
+    // The pitch in the middle of the view stays there, the way a horizontal
+    // zoom holds the beat in the middle.
+    auto* viewport = getViewport();
+    const auto centreY = viewport != nullptr ? (float) (viewport->getViewPositionY() + viewport->getViewHeight() / 2)
+                                             : (float) getHeight() / 2.0f;
+    const auto centreRows = centreY / (float) getRowHeight();
+
+    rowZoom = zoom;
+    updateSize();
+
+    if (viewport != nullptr)
+        viewport->setViewPosition (viewport->getViewPositionX(),
+                                   juce::roundToInt (centreRows * (float) getRowHeight()) - viewport->getViewHeight() / 2);
+
+    if (onViewChanged)
+        onViewChanged();
+
+    repaint();
+}
+
 double PianoRollComponent::snapDown (double beat, const juce::ModifierKeys& mods) const
 {
     if (! isSnapActive (mods))
@@ -1233,6 +1261,116 @@ void PianoRollComponent::deleteSelection()
         pattern->removeNote (model::Note (state), &undoManager);
 
     clearSelection();
+}
+
+juce::Rectangle<float> PianoRollComponent::getSelectionBounds() const
+{
+    juce::Rectangle<float> bounds;
+
+    for (const auto& state : selectedNotes)
+    {
+        const auto b = noteBounds (model::Note (state));
+        bounds = bounds.isEmpty() ? b : bounds.getUnion (b);
+    }
+
+    return bounds;
+}
+
+void PianoRollComponent::beginHandleGesture()
+{
+    if (! pattern || selectedNotes.empty())
+        return;
+
+    undoManager.beginNewTransaction();
+
+    // The earliest note anchors the move, the way the note under the pointer
+    // anchors a drag in the roll: it is the one that lands on the grid.
+    auto anchor = selectedNotes.front();
+
+    for (const auto& state : selectedNotes)
+        if (model::Note (state).getStart() < model::Note (anchor).getStart())
+            anchor = state;
+
+    draggedNote = model::Note (anchor);
+    beginSelectionDrag();
+
+    resizeTargets = selectedNotes;
+    resizeOriginLengths.clear();
+
+    for (const auto& state : resizeTargets)
+        resizeOriginLengths.push_back (model::Note (state).getLength());
+}
+
+void PianoRollComponent::moveSelectionBy (double deltaBeats, int deltaPitch)
+{
+    if (! draggedNote)
+        return;
+
+    dragSelectionTo (snapNearest (dragAnchorOriginStart + deltaBeats, {}),
+                     dragAnchorOriginPitch + (showsDrumRows() ? 0 : deltaPitch));
+}
+
+void PianoRollComponent::stretchSelectionBy (double deltaBeats)
+{
+    if (isSnapActive ({}) && gridBeats > 0.0)
+        deltaBeats = std::round (deltaBeats / gridBeats) * gridBeats;
+
+    resizeSelectionBy (deltaBeats, {});
+}
+
+void PianoRollComponent::endHandleGesture()
+{
+    draggedNote.reset();
+    resizeTargets.clear();
+    resizeOriginLengths.clear();
+}
+
+void PianoRollComponent::duplicateSelection()
+{
+    if (! pattern || selectedNotes.empty())
+        return;
+
+    const auto originals = selectedNotes;
+    double first = std::numeric_limits<double>::max(), end = 0.0;
+
+    for (const auto& state : originals)
+    {
+        const model::Note note (state);
+        first = juce::jmin (first, note.getStart());
+        end = juce::jmax (end, note.getStart() + note.getLength());
+    }
+
+    // The copy starts where the selection ends, moved on to the next grid line
+    // so that a phrase drawn on the grid stays on it.
+    auto offset = end - first;
+
+    if (snapEnabled && gridBeats > 0.0)
+        offset = std::ceil (offset / gridBeats - 1.0e-6) * gridBeats;
+
+    if (offset <= 0.0)
+        return;
+
+    const auto patternLength = pattern->getLengthBeats();
+    std::vector<juce::ValueTree> copies;
+
+    undoManager.beginNewTransaction();
+
+    for (const auto& state : originals)
+    {
+        const model::Note note (state);
+        const auto start = note.getStart() + offset;
+
+        if (start >= patternLength - 1.0e-9)
+            continue;
+
+        const auto length = juce::jmin (note.getLength(), patternLength - start);
+        auto copy = pattern->addNote (start, length, note.getPitch(), note.getVelocity(), &undoManager);
+        copy.copyExtrasFrom (state, &undoManager);
+        copies.push_back (copy.state);
+    }
+
+    if (! copies.empty())
+        setSelection (std::move (copies));
 }
 
 void PianoRollComponent::updateRubberBand (juce::Point<float> position)

@@ -562,6 +562,180 @@ private:
     std::array<juce::TextButton, 4> buttons;
 };
 
+// The iPad's stand-in for right clicks and edge drags: a small bar under the
+// selected notes while there are any. Two of its buttons are handles -- press
+// and drag the four-way one and the selection moves with the finger, in time
+// and in pitch; drag the other one sideways and every selected note gets
+// longer or shorter -- and two are taps, duplicate and delete. Each drag or
+// tap is one step of undo. Only the touch build makes one (see
+// PianoRollContent).
+class NoteActionBar : public juce::Component
+{
+public:
+    explicit NoteActionBar (PianoRollComponent& rollToEdit)
+        : roll (rollToEdit)
+    {
+        moveHandle.onDrag = [this] (juce::Point<float> moved)
+        {
+            roll.moveSelectionBy (moved.x / roll.getPixelsPerBeat(),
+                                  -juce::roundToInt (moved.y / (float) roll.getPitchRowHeight()));
+        };
+
+        stretchHandle.onDrag = [this] (juce::Point<float> moved)
+        {
+            roll.stretchSelectionBy (moved.x / roll.getPixelsPerBeat());
+        };
+
+        for (auto* handle : { &moveHandle, &stretchHandle })
+        {
+            handle->onBegin = [this] { roll.beginHandleGesture(); };
+            handle->onEnd = [this] { roll.endHandleGesture(); };
+        }
+
+        duplicateButton.onTap = [this] { roll.duplicateSelection(); };
+        deleteButton.onTap = [this] { roll.deleteSelectedNotes(); };
+
+        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton })
+            addAndMakeVisible (*c);
+    }
+
+    static constexpr int preferredHeight = 40;
+    static constexpr int preferredWidth = 4 * 40 + 2 * 3 + 8;
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (4, 3);
+        const auto w = area.getWidth() / 4;
+
+        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton })
+            c->setBounds (area.removeFromLeft (w));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto area = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (juce::Colour (0xf0222226));
+        g.fillRoundedRectangle (area, 8.0f);
+        g.setColour (juce::Colour (0xff4a4a54));
+        g.drawRoundedRectangle (area, 8.0f, 1.0f);
+    }
+
+private:
+    enum class Glyph { move, stretch, duplicate, remove };
+
+    // One square of the bar: a glyph, lit while the finger is on it. A handle
+    // reports how far the finger has gone since it came down, in screen
+    // pixels -- the bar follows the notes while they move, so its own
+    // coordinates would slide out from under the finger. A tap button fires
+    // when the finger lifts still over it.
+    class Pad : public juce::Component
+    {
+    public:
+        Pad (Glyph g, juce::Colour c) : glyph (g), colour (c) {}
+
+        std::function<void()> onBegin, onEnd, onTap;
+        std::function<void (juce::Point<float>)> onDrag;
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            pressed = true;
+            origin = e.getScreenPosition().toFloat();
+            repaint();
+
+            if (onBegin)
+                onBegin();
+        }
+
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (onDrag)
+                onDrag (e.getScreenPosition().toFloat() - origin);
+        }
+
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            pressed = false;
+            repaint();
+
+            if (onEnd)
+                onEnd();
+
+            if (onTap && getScreenBounds().contains (e.getScreenPosition()))
+                onTap();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto area = getLocalBounds().toFloat().reduced (2.0f);
+
+            if (pressed)
+            {
+                g.setColour (juce::Colour (0xff3d4a5c));
+                g.fillRoundedRectangle (area, 6.0f);
+            }
+
+            const auto r = area.withSizeKeepingCentre (18.0f, 18.0f);
+            const auto c = r.getCentre();
+            juce::Path p;
+
+            switch (glyph)
+            {
+                case Glyph::move:
+                {
+                    p.startNewSubPath (r.getX(), c.y);      p.lineTo (r.getRight(), c.y);
+                    p.startNewSubPath (c.x, r.getY());      p.lineTo (c.x, r.getBottom());
+
+                    auto head = [&p] (juce::Point<float> tip, juce::Point<float> back)
+                    {
+                        const auto side = juce::Point<float> (back.y - tip.y, tip.x - back.x) * 0.8f;
+                        p.startNewSubPath (back + side);
+                        p.lineTo (tip);
+                        p.lineTo (back - side);
+                    };
+
+                    head ({ r.getX(), c.y }, { r.getX() + 4.0f, c.y });
+                    head ({ r.getRight(), c.y }, { r.getRight() - 4.0f, c.y });
+                    head ({ c.x, r.getY() }, { c.x, r.getY() + 4.0f });
+                    head ({ c.x, r.getBottom() }, { c.x, r.getBottom() - 4.0f });
+                    break;
+                }
+
+                case Glyph::stretch:
+                    p.startNewSubPath (r.getX(), r.getY() + 3.0f);       p.lineTo (r.getX(), r.getBottom() - 3.0f);
+                    p.startNewSubPath (r.getX() + 3.0f, c.y);            p.lineTo (r.getRight(), c.y);
+                    p.startNewSubPath (r.getRight() - 5.0f, c.y - 5.0f); p.lineTo (r.getRight(), c.y);
+                    p.lineTo (r.getRight() - 5.0f, c.y + 5.0f);
+                    break;
+
+                case Glyph::duplicate:
+                    p.addRoundedRectangle (r.getX(), r.getY() + 5.0f, 12.0f, 12.0f, 2.0f);
+                    p.addRoundedRectangle (r.getX() + 6.0f, r.getY(), 12.0f, 12.0f, 2.0f);
+                    break;
+
+                case Glyph::remove:
+                    p.startNewSubPath (r.getX() + 2.0f, r.getY() + 2.0f);       p.lineTo (r.getRight() - 2.0f, r.getBottom() - 2.0f);
+                    p.startNewSubPath (r.getRight() - 2.0f, r.getY() + 2.0f);   p.lineTo (r.getX() + 2.0f, r.getBottom() - 2.0f);
+                    break;
+            }
+
+            g.setColour (colour);
+            g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+    private:
+        Glyph glyph;
+        juce::Colour colour;
+        bool pressed = false;
+        juce::Point<float> origin;
+    };
+
+    PianoRollComponent& roll;
+    Pad moveHandle { Glyph::move, juce::Colour (0xffe8e8ee) };
+    Pad stretchHandle { Glyph::stretch, juce::Colour (0xffe8e8ee) };
+    Pad duplicateButton { Glyph::duplicate, juce::Colour (0xffe8e8ee) };
+    Pad deleteButton { Glyph::remove, juce::Colour (0xffff8a80) };
+};
+
 class PianoRollContent : public juce::Component,
                          private juce::ValueTree::Listener
 {
@@ -619,12 +793,15 @@ public:
         selectToolButton.setTooltip ("Select (E): rubber-band notes, then move or delete them");
         zoomOutButton.setTooltip ("Zoom out (- key, or cmd-scroll)");
         zoomInButton.setTooltip ("Zoom in (= key, or cmd-scroll)");
+        rowsShorterButton.setTooltip ("Shorter rows");
+        rowsTallerButton.setTooltip ("Taller rows");
         quantiseButton.setTooltip ("Quantise (Q): pull the whole pattern's note starts onto the grid, with swing");
 
         quantiseButton.setWantsKeyboardFocus (false);
         quantiseButton.onClick = [this] { showQuantisePanel(); };
 
-        for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton })
+        for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
+                         &rowsShorterButton, &rowsTallerButton })
         {
             b->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
             b->setColour (juce::TextButton::textColourOnId, juce::Colours::black);
@@ -637,11 +814,26 @@ public:
         selectToolButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
         zoomOutButton.setConnectedEdges (juce::Button::ConnectedOnRight);
         zoomInButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+        rowsShorterButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+        rowsTallerButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
 
         drawToolButton.onClick = [this] { pianoRoll.setTool (PianoRollComponent::Tool::draw); };
         selectToolButton.onClick = [this] { pianoRoll.setTool (PianoRollComponent::Tool::select); };
         zoomOutButton.onClick = [this] { pianoRoll.zoomBy (1.0 / 1.5); };
         zoomInButton.onClick = [this] { pianoRoll.zoomBy (1.5); };
+
+        // How tall a row is is remembered, as the grid and snap are: a hand
+        // that wanted bigger rows once wants them in the next pattern too.
+        pianoRoll.setRowZoom (settings->getDoubleValue (rowZoomKey, PianoRollComponent::defaultRowZoom));
+
+        auto zoomRows = [this] (double factor)
+        {
+            pianoRoll.rowZoomBy (factor);
+            settings->setValue (rowZoomKey, pianoRoll.getRowZoom());
+        };
+
+        rowsShorterButton.onClick = [zoomRows] { zoomRows (1.0 / 1.25); };
+        rowsTallerButton.onClick = [zoomRows] { zoomRows (1.25); };
 
         // The tool can also change from the keyboard, and the modifiers change
         // without any click at all, so the strip and the help bar are refreshed
@@ -654,12 +846,13 @@ public:
             updateToolStrip();
             updateShortcutBar();
             velocityLane.repaint();
+            updateNoteBar();
         };
 
         // Zooming rescales the roll under the ruler and the lane, and nothing
         // else tells them that the arithmetic they copy has changed. The roll
         // fires this for a signature change too, for the same reason.
-        pianoRoll.onViewChanged = [this] { updateStrips(); ruler.repaint(); velocityLane.repaint(); };
+        pianoRoll.onViewChanged = [this] { updateStrips(); ruler.repaint(); velocityLane.repaint(); updateNoteBar(); };
 
         ruler.onSeek = [this] (double beat)
         {
@@ -669,7 +862,7 @@ public:
 
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
-        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); };
+        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); updateNoteBar(); };
 
         techniqueBar.onTechniqueChosen = [this] (model::Note::Technique technique)
         {
@@ -748,13 +941,19 @@ public:
         viewport.setViewedComponent (&pianoRoll, false);
         viewport.setScrollBarsShown (true, true);
         leaveDragsToContent (viewport);
-        viewport.onVisibleAreaChanged = [this] { updateStrips(); };
+        viewport.onVisibleAreaChanged = [this] { updateStrips(); updateNoteBar(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
-                 &lengthHeader, &lengthSlider, &lengthNote, &gridHeader, &gridBox,
+                 &rowsShorterButton, &rowsTallerButton, &lengthHeader, &lengthSlider, &lengthNote, &gridHeader, &gridBox,
                  &snapButton, &quantiseButton, &ruler, &viewport, &velocityLane, &shortcutBar })
             addAndMakeVisible (c);
+
+        if (isTouchUi)
+        {
+            noteBar = std::make_unique<NoteActionBar> (pianoRoll);
+            addChildComponent (*noteBar);
+        }
 
         updateToolStrip();
         refreshFromPattern();
@@ -844,7 +1043,7 @@ public:
         // anything to aim at. The range only moves when the generator does, so
         // this does not fight the user's own scrolling afterwards.
         if (const auto after = pianoRoll.getDrumPitchRange(); after && after != before)
-            scrollToMiddleOfPitchRange();
+            scrollToContent();
     }
 
     void setPattern (std::optional<model::Pattern> newPattern)
@@ -865,26 +1064,87 @@ public:
 
         pianoRoll.setPattern (std::move (newPattern));
         refreshFromPattern();
+
+        // Another pattern is another place to look.
+        scrollToContent();
     }
 
-    // Start scrolled to the middle of the pitch range, where the notes usually
-    // are. Only meaningful once the viewport has a size.
-    void scrollToMiddleOfPitchRange()
+    // Open where there is something to see: on the notes when the pattern
+    // has any, on a drum or slicer generator's rows when it has none, and
+    // around middle C otherwise. Asked for when the window opens and whenever
+    // the pattern or the generator's rows change; done as soon as the viewport
+    // has its real size, which on the window's first showing comes later than
+    // the ask -- and never again until the next ask, so it does not fight the
+    // user's own scrolling.
+    void scrollToContent()
     {
-        // A drum generator's rows are its sounds, and they sit in one band an
-        // octave or two wide: open on that rather than in the middle of a
-        // keyboard whose interesting part is somewhere off the bottom.
-        if (const auto drums = pianoRoll.getDrumPitchRange())
-        {
-            const auto top = pianoRoll.pitchToViewY (drums->getEnd());
-            const auto bottom = pianoRoll.pitchToViewY (drums->getStart());
-            const auto centre = (top + bottom) / 2;
+        autoScrollPending = true;
+        scrollToContentIfReady();
+    }
 
-            viewport.setViewPosition (0, juce::jmax (0, centre - viewport.getMaximumVisibleHeight() / 2));
+    void scrollToContentIfReady()
+    {
+        const auto viewHeight = viewport.getMaximumVisibleHeight();
+        const auto viewWidth = viewport.getMaximumVisibleWidth();
+
+        if (! autoScrollPending || viewHeight <= 0 || pianoRoll.getHeight() <= 0)
             return;
+
+        autoScrollPending = false;
+
+        const auto notes = pianoRoll.getNotes();
+        const auto rowHeight = pianoRoll.getPitchRowHeight();
+        std::optional<juce::Range<int>> pitches;
+        auto x = 0;
+
+        if (! notes.empty())
+        {
+            auto low = notes.front().getPitch(), high = low;
+            auto first = notes.front().getStart();
+
+            for (const auto& note : notes)
+            {
+                low = juce::jmin (low, note.getPitch());
+                high = juce::jmax (high, note.getPitch());
+                first = juce::jmin (first, note.getStart());
+            }
+
+            pitches = juce::Range<int> (low, high);
+
+            // Only scrolled sideways when the first note would be off screen:
+            // a pattern that starts on its downbeat opens at the start.
+            const auto firstX = pianoRoll.beatToViewX (first);
+
+            if (firstX + 40 > viewWidth)
+                x = firstX - pianoRoll.beatToViewX (0.0);
+        }
+        else
+        {
+            pitches = pianoRoll.getDrumPitchRange();
         }
 
-        viewport.setViewPosition (0, juce::jmax (0, pianoRoll.getHeight() / 2 - 200));
+        int y;
+
+        if (pitches)
+        {
+            const auto top = pianoRoll.pitchToViewY (pitches->getEnd());
+            const auto bottom = pianoRoll.pitchToViewY (pitches->getStart()) + rowHeight;
+
+            // A span that fits is centred. One that does not shows its top for
+            // notes -- the tune is usually up there -- and its bottom for a
+            // drum map, where the kick and the snare are.
+            if (bottom - top <= viewHeight)
+                y = (top + bottom) / 2 - viewHeight / 2;
+            else
+                y = notes.empty() ? bottom - viewHeight : top - rowHeight;
+        }
+        else
+        {
+            y = pianoRoll.pitchToViewY (60) - viewHeight / 2;
+        }
+
+        viewport.setViewPosition (juce::jmax (0, x), juce::jmax (0, y));
+        autoScrolledTo = viewport.getViewPosition();
     }
 
     // The roll owns the tool keys, Backspace and the zoom keys, so it starts
@@ -921,6 +1181,15 @@ public:
         viewport.setBounds (area);
         updateStrips();
 
+        // A window that is still being laid out -- full screen on the iPad
+        // arrives a size or two after it opens -- aims again at its new size,
+        // for as long as the user has not scrolled away from where it aimed.
+        if (autoScrolledTo && viewport.getViewPosition() == *autoScrolledTo)
+            autoScrollPending = true;
+
+        scrollToContentIfReady();
+        updateNoteBar();
+
         auto place = [&toolbar] (juce::Component& c, int width, int gap = 6)
         {
             c.setBounds (toolbar.removeFromLeft (width));
@@ -931,7 +1200,9 @@ public:
         place (drawToolButton, toolStrip::toolWidth, 0);
         place (selectToolButton, toolStrip::toolWidth, 12);
         place (zoomOutButton, toolStrip::zoomWidth, 0);
-        place (zoomInButton, toolStrip::zoomWidth, 18);
+        place (zoomInButton, toolStrip::zoomWidth, 6);
+        place (rowsShorterButton, toolStrip::zoomWidth, 0);
+        place (rowsTallerButton, toolStrip::zoomWidth, 18);
         place (lengthHeader, 74, 4);
         place (lengthSlider, 64, 6);
         place (lengthNote, 130, 18);
@@ -944,6 +1215,7 @@ public:
 private:
     static constexpr int toolbarHeight = toolStrip::height;
     static constexpr const char* snapKey = "snap";
+    static constexpr const char* rowZoomKey = "rowZoom";
 
     // Its own file rather than a second handle on the mixer's or the browser's:
     // two PropertiesFile objects on one path would each write the other's keys
@@ -1238,6 +1510,41 @@ private:
         refreshFromPattern();
     }
 
+    // Under the selection while there is one, from its left edge -- where it
+    // stays put while a stretch drags the right edge -- or above it where
+    // there is no room below. Always inside the roll's visible area, so a
+    // selection scrolled out of view still has its bar at the nearest edge.
+    void updateNoteBar()
+    {
+        if (noteBar == nullptr)
+            return;
+
+        if (pianoRoll.getNumSelectedNotes() == 0)
+        {
+            noteBar->setVisible (false);
+            return;
+        }
+
+        const auto width = NoteActionBar::preferredWidth;
+        const auto height = NoteActionBar::preferredHeight;
+        const auto view = viewport.getBounds().reduced (4);
+        const auto selection = getLocalArea (&pianoRoll, pianoRoll.getSelectionBounds()).toNearestInt();
+        constexpr int gap = 6;
+
+        auto x = selection.getX();
+        auto y = selection.getBottom() + gap;
+
+        if (y + height > view.getBottom())
+            y = selection.getY() - gap - height;
+
+        x = juce::jlimit (view.getX(), juce::jmax (view.getX(), view.getRight() - width), x);
+        y = juce::jlimit (view.getY(), juce::jmax (view.getY(), view.getBottom() - height), y);
+
+        noteBar->setBounds (x, y, width, height);
+        noteBar->setVisible (true);
+        noteBar->toFront (false);
+    }
+
     void refreshPlayModeBar()
     {
         if (techniqueBar.isVisible())
@@ -1263,6 +1570,7 @@ private:
     juce::ToggleButton snapButton { "Snap" };
     IconButton drawToolButton { "Draw", Icon::pencil }, selectToolButton { "Select", Icon::select };
     IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
+    IconButton rowsShorterButton { "", Icon::rowsShorter }, rowsTallerButton { "", Icon::rowsTaller };
     juce::TextButton quantiseButton { "Quantise" };
     RollViewport viewport;
     PianoRollComponent pianoRoll;
@@ -1271,6 +1579,9 @@ private:
     ShortcutHelpBar shortcutBar;
     PlayModeBar playModeBar;
     TechniqueBar techniqueBar;
+    std::unique_ptr<NoteActionBar> noteBar;   // the touch build only
+    bool autoScrollPending = true;            // see scrollToContent
+    std::optional<juce::Point<int>> autoScrolledTo;
 };
 
 } // namespace carve::app
