@@ -115,7 +115,7 @@ void MissingMediaComponent::locate (juce::ValueTree node)
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [safe = juce::Component::SafePointer (this), node] (const juce::FileChooser& fc)
     {
-        const auto file = fc.getResult();
+        const auto file = sandbox::claimChosen (fc.getURLResult());
 
         if (safe == nullptr || file == juce::File())
             return;
@@ -136,7 +136,7 @@ void MissingMediaComponent::searchInFolder()
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
                           [safe = juce::Component::SafePointer (this)] (const juce::FileChooser& fc)
     {
-        const auto folder = fc.getResult();
+        const auto folder = sandbox::claimChosen (fc.getURLResult());
 
         if (safe == nullptr || folder == juce::File())
             return;

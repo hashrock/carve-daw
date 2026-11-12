@@ -1,4 +1,5 @@
 #include "ExportComponent.h"
+#include "AppFiles.h"
 #include "sync/EditSync.h"
 #include "Fonts.h"
 #include "sync/EngineIds.h"
@@ -527,6 +528,19 @@ void ExportComponent::chooseDestinationAndRender()
     if (isRendering())
         return;
 
+    // The iPad writes into the app's own folder, under the song's name, and
+    // says where (see AppFiles.h).
+    if (appfiles::writesIntoDocuments)
+    {
+        if (isStemExport())
+            renderStemsTo (appfiles::freshChild (appfiles::exports(), fileStemFor (song) + " Stems", {}));
+        else
+            renderTo (appfiles::freshChild (appfiles::exports(), song.getName().isNotEmpty() ? song.getName() : "Untitled",
+                                            getSelectedExtension()));
+
+        return;
+    }
+
     if (isStemExport())
     {
         const auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
@@ -863,7 +877,7 @@ void ExportComponent::renderFinished()
 
     if (folder != juce::File())
         setStatus ("Exported " + juce::String (count) + (count == 1 ? " stem to " : " stems to ")
-                       + folder.getFullPathName() + "  (" + total + ")",
+                       + appfiles::describe (folder) + "  (" + total + ")",
                    okColour);
     else
     {
@@ -880,7 +894,7 @@ void ExportComponent::renderFinished()
                          << (lastReport->heldByCeiling ? ", held at the peak ceiling" : "") << ")";
         }
 
-        setStatus ("Exported " + file.getFullPathName() + "  (" + total + ")" + loudness, okColour);
+        setStatus ("Exported " + appfiles::describe (file) + "  (" + total + ")" + loudness, okColour);
     }
 }
 

@@ -425,6 +425,12 @@ std::function<void (const juce::File&)>& FileRef::onFileReferenced()
     return callback;
 }
 
+std::function<juce::File (const juce::File&)>& FileRef::relocate()
+{
+    static std::function<juce::File (const juce::File&)> callback;
+    return callback;
+}
+
 void FileRef::setFile (juce::ValueTree state, const juce::File& file, juce::UndoManager* um)
 {
     if (auto& referenced = onFileReferenced())
@@ -461,11 +467,19 @@ void FileRef::resolve (juce::ValueTree state, const juce::File& songDirectory)
 {
     const auto relative = state[ids::relPath].toString();
 
-    if (relative.isEmpty())
-        return;
+    if (relative.isNotEmpty())
+        if (const auto resolved = songDirectory.getChildFile (relative); resolved.exists())   // a file, or a voicebank's folder
+        {
+            state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
+            return;
+        }
 
-    if (const auto resolved = songDirectory.getChildFile (relative); resolved.exists())   // a file, or a voicebank's folder
-        state.setProperty (ids::file, resolved.getFullPathName(), nullptr);
+    // Neither place has it: the app may know where it went.
+    const auto absolute = getFile (state);
+
+    if (auto& where = relocate(); where != nullptr && absolute != juce::File() && ! absolute.exists())
+        if (const auto moved = where (absolute); moved != juce::File() && moved.exists())
+            state.setProperty (ids::file, moved.getFullPathName(), nullptr);
 }
 
 void FileRef::refresh (juce::ValueTree state, const juce::File& songDirectory)

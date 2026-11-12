@@ -40,4 +40,15 @@ void restoreAccess (const juce::File& store);
 // has no access to (nothing is stored).
 void rememberAccess (const juce::File&);
 
+// What a FileChooser came back with (getURLResult()), as a plain File the app
+// can read from now on -- or File() for a cancelled one.
+//
+// On the iPad this is the step that makes a file picked in Files readable at
+// all: the system hands the picker's URL over with a token, JUCE files the
+// token inside the juce::URL and lets go of the access, and a juce::File made
+// from the path is then a file the app may not open. Here the token is
+// claimed for the rest of the run and remembered for the next one, the way
+// restoreAccess claims the Mac's. Everywhere else it is the URL's file.
+juce::File claimChosen (juce::URL);
+
 } // namespace carve::sandbox

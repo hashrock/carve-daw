@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "AppFiles.h"
 #include "Fonts.h"
 #include "KnobPanel.h"
 #include "PresetManager.h"
@@ -971,35 +972,46 @@ private:
         if (kick == nullptr || kick->samples.empty())
             return;
 
-        chooser = std::make_unique<juce::FileChooser> ("Export kick", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                                                                          .getChildFile ("gabber-kick.wav"), "*.wav");
-
-        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                                  | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [kick] (const juce::FileChooser& fc)
+        auto write = [kick] (const juce::File& file)
         {
-            const auto file = fc.getResult();
-
             if (file == juce::File())
-                return;
+                return false;
 
             file.deleteFile();
             auto stream = file.createOutputStream();
 
             if (stream == nullptr)
-                return;
+                return false;
 
             juce::WavAudioFormat format;
             std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (stream.get(), kick->sampleRate, 1, 16, {}, 0));
 
             if (writer == nullptr)
-                return;
+                return false;
 
             stream.release();   // the writer owns it now
 
             const float* channels[] { kick->samples.data() };
-            writer->writeFromFloatArrays (channels, 1, (int) kick->samples.size());
-        });
+            return writer->writeFromFloatArrays (channels, 1, (int) kick->samples.size());
+        };
+
+        // The iPad writes into the app's own folder and says where (AppFiles.h).
+        if (appfiles::writesIntoDocuments)
+        {
+            const auto file = appfiles::freshChild (appfiles::exports(), "gabber-kick", ".wav");
+
+            if (write (file))
+                juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Exported",
+                                                             "Saved to " + appfiles::describe (file));
+            return;
+        }
+
+        chooser = std::make_unique<juce::FileChooser> ("Export kick", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                                                          .getChildFile ("gabber-kick.wav"), "*.wav");
+
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [write] (const juce::FileChooser& fc) { write (fc.getResult()); });
     }
 
     void moveStage (int from, int to)

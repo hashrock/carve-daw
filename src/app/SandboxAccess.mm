@@ -4,6 +4,13 @@
 #include <vector>
 
 #import <Foundation/Foundation.h>
+#include <TargetConditionals.h>
+
+// The Mac App Store build and the iPad build both come through here. The two
+// systems keep the same idea -- a bookmark that buys access back -- with
+// different spellings: the Mac's is "security-scoped" and asked for by name,
+// the iPad's is any bookmark made from a URL the user picked, which carries
+// the access implicitly.
 
 namespace carve::sandbox
 {
@@ -47,7 +54,13 @@ namespace
         @autoreleasepool
         {
             NSError* error = nil;
-            NSData* data = [urlFor (path) bookmarkDataWithOptions: NSURLBookmarkCreationWithSecurityScope
+           #if TARGET_OS_IPHONE
+            const NSURLBookmarkCreationOptions options = 0;
+           #else
+            const NSURLBookmarkCreationOptions options = NSURLBookmarkCreationWithSecurityScope;
+           #endif
+
+            NSData* data = [urlFor (path) bookmarkDataWithOptions: options
                                    includingResourceValuesForKeys: nil
                                                     relativeToURL: nil
                                                             error: &error];
@@ -64,6 +77,36 @@ namespace
     {
         return path == parent || path.startsWith (parent.endsWithChar ('/') ? parent : parent + "/");
     }
+
+    NSURL* resolve (NSData* data, BOOL& stale)
+    {
+        NSError* error = nil;
+
+       #if TARGET_OS_IPHONE
+        const NSURLBookmarkResolutionOptions options = NSURLBookmarkResolutionWithoutUI;
+       #else
+        const NSURLBookmarkResolutionOptions options = NSURLBookmarkResolutionWithSecurityScope
+                                                     | NSURLBookmarkResolutionWithoutUI
+                                                     | NSURLBookmarkResolutionWithoutMounting;
+       #endif
+
+        return [NSURL URLByResolvingBookmarkData: data
+                                         options: options
+                                   relativeToURL: nil
+                             bookmarkDataIsStale: &stale
+                                           error: &error];
+    }
+
+   #if TARGET_OS_IPHONE
+    // The app's own container and bundle are always open to it -- and their
+    // paths are not even stable, since the system moves both on an update --
+    // so nothing under them is worth a bookmark.
+    bool isInsideApp (const juce::String& path)
+    {
+        return isCoveredBy (path, juce::String::fromUTF8 (NSHomeDirectory().UTF8String))
+            || isCoveredBy (path, juce::String::fromUTF8 (NSBundle.mainBundle.bundlePath.UTF8String));
+    }
+   #endif
 
     void save()
     {
@@ -88,6 +131,10 @@ namespace
 
 bool isSandboxed()
 {
+   #if TARGET_OS_IPHONE
+    return true;   // every iOS app is
+   #endif
+
     // Set by the system for every sandboxed process, and by nothing else.
     static const bool sandboxed = std::getenv ("APP_SANDBOX_CONTAINER_ID") != nullptr;
     return sandboxed;
@@ -121,14 +168,7 @@ void restoreAccess (const juce::File& store)
         {
             NSData* data = [NSData dataWithBytes: entry.bookmark.getData() length: entry.bookmark.getSize()];
             BOOL stale = NO;
-            NSError* error = nil;
-            NSURL* url = [NSURL URLByResolvingBookmarkData: data
-                                                   options: NSURLBookmarkResolutionWithSecurityScope
-                                                             | NSURLBookmarkResolutionWithoutUI
-                                                             | NSURLBookmarkResolutionWithoutMounting
-                                             relativeToURL: nil
-                                       bookmarkDataIsStale: &stale
-                                                     error: &error];
+            NSURL* url = resolve (data, stale);
 
             // Never stopped: the access is wanted for as long as the app is
             // open, and the system takes it back when the process ends.
@@ -167,6 +207,11 @@ void rememberAccess (const juce::File& file)
     auto& state = getState();
     const auto path = file.getFullPathName();
 
+   #if TARGET_OS_IPHONE
+    if (isInsideApp (path))
+        return;
+   #endif
+
     // Already covered by something claimed back or granted this run -- the
     // file itself, or a folder above it. Moved to the front, so that what is
     // in use is what survives the cap.
@@ -202,6 +247,49 @@ void rememberAccess (const juce::File& file)
         state.entries.resize (maxBookmarks);
 
     save();
+}
+
+juce::File claimChosen (juce::URL chosen)
+{
+    if (! chosen.isLocalFile())
+        return {};
+
+   #if TARGET_OS_IPHONE
+    // The token the picker handed over, which JUCE keeps beside the URL
+    // (getURLBookmark is the URL's friend, found by argument lookup).
+    if (auto* token = (__bridge NSData*) getURLBookmark (chosen))
+    {
+        @autoreleasepool
+        {
+            BOOL stale = NO;
+            NSURL* url = resolve (token, stale);
+
+            // Never stopped, as at startup: the file is wanted for as long as
+            // the app is open.
+            if (url != nil && [url startAccessingSecurityScopedResource])
+            {
+                const auto path = juce::String::fromUTF8 (url.path.UTF8String);
+
+                if (! isInsideApp (path))
+                {
+                    auto& state = getState();
+                    std::erase_if (state.entries, [&path] (const Entry& e) { return e.path == path; });
+                    state.entries.insert (state.entries.begin(),
+                                          Entry { path, juce::MemoryBlock (token.bytes, (size_t) token.length), true });
+
+                    if (state.entries.size() > maxBookmarks)
+                        state.entries.resize (maxBookmarks);
+
+                    save();
+                }
+
+                return juce::File (path);
+            }
+        }
+    }
+   #endif
+
+    return chosen.getLocalFile();
 }
 
 } // namespace carve::sandbox

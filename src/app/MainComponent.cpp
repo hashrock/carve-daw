@@ -5,6 +5,7 @@
 
 #include "EngineSetup.h"
 #include "SandboxAccess.h"
+#include "AppFiles.h"
 #include "model/DemoSong.h"
 #include "model/SampleSongs.h"
 
@@ -1036,6 +1037,59 @@ void MainComponent::openPluginManager()
 // only takes keys from its own fixed SettingID enum.
 static constexpr const char* lastSongDirectoryKey = "lastSongDirectory";
 
+// The iPad's Save As: a name, and the song goes into the app's Documents
+// folder under it (see AppFiles.h) -- a save panel there could only offer
+// places the song could not then be saved in.
+void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
+{
+    const auto suggested = currentFile != juce::File() ? currentFile.getFileNameWithoutExtension()
+                         : song.getName().isNotEmpty() ? song.getName()
+                                                       : juce::String ("Untitled");
+
+    // Owned by the callback, so it goes when the box is answered.
+    auto prompt = std::make_shared<juce::AlertWindow> ("Save song", "In On My iPad > Carve DAW",
+                                                       juce::MessageBoxIconType::NoIcon, this);
+    prompt->addTextEditor ("name", suggested);
+    prompt->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    prompt->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    // Above the floating windows, as the look and feel puts its own alerts:
+    // under the mixer, nothing could reach its buttons.
+    prompt->setAlwaysOnTop (true);
+
+    prompt->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safe = juce::Component::SafePointer (this), prompt, onDone = std::move (onDone)] (int result)
+    {
+        if (safe == nullptr)
+            return;
+
+        const auto name = juce::File::createLegalFileName (prompt->getTextEditorContents ("name").trim());
+
+        if (result != 1 || name.isEmpty())
+        {
+            if (onDone)
+                onDone (false);
+
+            return;
+        }
+
+        // The song's own file again is a save; any other song of that name
+        // is kept, and this one numbered beside it.
+        auto file = appfiles::documents().getChildFile (name + ".carve");
+
+        if (file.exists() && file != safe->currentFile)
+            file = appfiles::freshChild (appfiles::documents(), name, ".carve");
+
+        const bool saved = safe->writeSongTo (file);
+
+        if (onDone)
+            onDone (saved);
+    }), false);
+
+    if (auto* editor = prompt->getTextEditor ("name"))
+        editor->grabKeyboardFocus();
+}
+
 juce::File MainComponent::songBrowseDirectory() const
 {
     const juce::File remembered (engine.getPropertyStorage().getPropertiesFile()
@@ -1095,7 +1149,11 @@ void MainComponent::openRecentSong (int index)
 
 void MainComponent::saveSong (std::function<void (bool)> onDone)
 {
-    if (currentFile != juce::File())
+    // On the iPad a song opened from elsewhere in Files can be read but not
+    // saved over (see AppFiles.h), so saving it means naming a copy.
+    const bool canSaveInPlace = ! appfiles::writesIntoDocuments || appfiles::isInDocuments (currentFile);
+
+    if (currentFile != juce::File() && canSaveInPlace)
     {
         const bool saved = writeSongTo (currentFile);
 
@@ -1110,6 +1168,12 @@ void MainComponent::saveSong (std::function<void (bool)> onDone)
 
 void MainComponent::saveSongAs (std::function<void (bool)> onDone)
 {
+    if (appfiles::writesIntoDocuments)
+    {
+        saveSongIntoDocuments (std::move (onDone));
+        return;
+    }
+
     const auto startAt = currentFile != juce::File() ? currentFile : songBrowseDirectory();
 
     fileChooser = std::make_shared<juce::FileChooser> ("Save song", startAt, "*.carve");
@@ -1148,7 +1212,7 @@ bool MainComponent::writeSongTo (const juce::File& file)
     {
         juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                      "Save failed",
-                                                     "Could not write " + file.getFullPathName());
+                                                     "Could not write " + appfiles::describe (file));
         return false;
     }
 
@@ -1253,7 +1317,7 @@ void MainComponent::openSong()
                                             | juce::FileBrowserComponent::canSelectFiles,
                                         [safe] (const juce::FileChooser& chooser)
         {
-            const auto file = chooser.getResult();
+            const auto file = sandbox::claimChosen (chooser.getURLResult());
 
             if (safe != nullptr && file != juce::File())
                 safe->openSongFile (file);

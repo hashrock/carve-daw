@@ -1247,6 +1247,38 @@ TEST_CASE ("A node with no file is not missing", "[song][media]")
     REQUIRE (song.relinkMissingMedia (juce::File::getSpecialLocation (juce::File::tempDirectory), nullptr) == 0);
 }
 
+// A file at neither of a song's paths is put to the app, which knows where
+// its own files went (the iPad moves them on every update) -- and kept as it
+// was when the app has no better answer.
+TEST_CASE ("A loaded song asks where a missing file went", "[song][media]")
+{
+    const juce::TemporaryFile songFile (".carve");
+    const juce::TemporaryFile moved (".wav");
+    REQUIRE (moved.getFile().replaceWithText ("not really audio"));
+
+    const juce::File gone ("/nowhere/Carve DAW.app/Content/Drums/Kick.wav");
+    const juce::File alsoGone ("/nowhere/else.wav");
+
+    auto song = Song::create ("moved");
+    auto audio = song.addGenerator ("Audio", Generator::audioType, nullptr);
+    song.getPlaylist().addAudioClip (audio, gone, 0.0, 1.0, nullptr);
+    song.getPlaylist().addAudioClip (audio, alsoGone, 1.0, 1.0, nullptr);
+    REQUIRE (song.saveToFile (songFile.getFile()));
+
+    auto& relocate = FileRef::relocate();
+    const auto previous = relocate;
+    relocate = [&] (const juce::File& f) { return f == gone ? moved.getFile() : juce::File ("/still/nowhere.wav"); };
+
+    const auto loaded = Song::loadFromFile (songFile.getFile());
+    relocate = previous;
+
+    REQUIRE (loaded.has_value());
+    const auto clips = loaded->getPlaylist().getAudioClips();
+    REQUIRE (clips.size() == 2);
+    CHECK (clips[0].getFile() == moved.getFile());
+    CHECK (clips[1].getFile() == alsoGone);
+}
+
 // The properties panel's Relocate button is an edit, unlike the load-time
 // relink: the placement is repointed through the undo manager, so it has to
 // come back whole -- absolute path and the relative one a save wrote -- and

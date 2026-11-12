@@ -167,13 +167,18 @@ cmake --build build-appstore --target carve --parallel
    See above: the first is ignored in JUCE 8.0.6, and the second is not a
    macro here.
 
-### The iPad build (prototype)
+### The iPad build
 
 An iOS app has no route to its users but the App Store, so there is no AGPL
 iPad binary: configuring for iOS forces `CARVE_APP_STORE` on, and everything
 above about the commercial licences and their notices applies to it as it
 does to the Mac one. About and Third-Party Notices are in the logo menu
 there, since iOS has no application menu.
+
+`scripts/appstore-ios.sh` builds it for a device, checks it the way
+`scripts/appstore.sh` checks the Mac app, and cloud-signs the `.ipa` for
+Transporter (`--check-only` stops before anything is signed for the store).
+For the simulator:
 
 ```sh
 cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
@@ -184,8 +189,17 @@ xcrun simctl install booted "build-ios/carve_artefacts/Debug/Carve DAW.app"
 xcrun simctl launch booted com.hashrock.carve
 ```
 
-It has only been run in the simulator. A build for a real iPad needs a
-development team and a provisioning profile, which this tree does not set.
+Files on the iPad (`src/app/AppFiles.h`, `src/app/SandboxAccess.h`):
+
+- A file or folder picked in Files is read where it is. The picker's access
+  is claimed and kept as a bookmark, so a song that uses it still finds it
+  on the next launch.
+- What the app writes -- songs, renders, stems, MIDI -- goes into its own
+  Documents folder, which Files shows as On My iPad > Carve DAW. A song
+  opened from elsewhere is saved as a named copy there.
+- iOS moves the app's bundle and data folders on every update, so paths into
+  the factory content or Documents are mapped onto this install's when a
+  song is loaded (`relocateIntoThisInstall`).
 
 ### Signing
 
