@@ -43,6 +43,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.addItem (4, "Drum Kit (16 pads)");
     menu.addItem (7, "SF2 Player (.sf2)");
     menu.addItem (8, "Singer (voicebank)");
+    menu.addItem (15, "Vocal Model (modelled Japanese singer)");
     menu.addItem (9, "Break Slicer (drum loop)");
     menu.addItem (5, "Audio track");
     menu.addItem (13, "Reference track");
@@ -133,6 +134,13 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 
             if (onOpenInstrumentForSetup)
                 onOpenInstrumentForSetup();
+        }
+        else if (result == 15)
+        {
+            // Sings as it is made (its default character); the editor is
+            // there to shape the voice, the piano roll to give it words.
+            addGenerator ("Vocal " + juce::String (song.getNumGenerators() + 1),
+                          model::Generator::vocalModelType, nullptr);
         }
         else if (result == 9)
         {

@@ -63,7 +63,7 @@ te::Engine& testEngine()
 // nothing here is about them.
 enum class Op
 {
-    addSynth, addDrumSynth, addGabberKick, addAcousticDrums, addElectricBass, addPiano, addSampler, addSoundFont, addUtau, addBreak, addAudioGenerator, removeGenerator,
+    addSynth, addDrumSynth, addGabberKick, addAcousticDrums, addElectricBass, addPiano, addSampler, addSoundFont, addUtau, addVocalModel, addBreak, addAudioGenerator, removeGenerator,
     addReturn, removeReturn,
     addGroup, removeGroup, setGroup,
     addGeneratorEffect, addReturnEffect, addGroupEffect, addMasterEffect, addMasteringEffect,
@@ -185,6 +185,12 @@ void apply (Song& song, juce::UndoManager& um, te::Edit& edit, const Step& step)
             // No voicebank, like the SoundFont case: what every new singer
             // syncs as before a folder is chosen.
             song.addGenerator ("Singer", Generator::utauType, &um);
+            break;
+
+        case Op::addVocalModel:
+            // Its own state, like the internal instruments, and triggers in
+            // its clips, like the singer above.
+            song.addGenerator ("Vocal", Generator::vocalModelType, &um);
             break;
 
         case Op::addBreak:
