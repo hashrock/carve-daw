@@ -85,6 +85,7 @@ namespace
                      || dynamic_cast<const plugins::GabberKickPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::AcousticDrumsPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::ElectricBassPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::PianoPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
@@ -217,6 +218,7 @@ namespace
                  : generator.isGabberKick() ? dynamic_cast<plugins::GabberKickPlugin*> (existing) != nullptr
                  : generator.isAcousticDrums() ? dynamic_cast<plugins::AcousticDrumsPlugin*> (existing) != nullptr
                  : generator.isElectricBass() ? dynamic_cast<plugins::ElectricBassPlugin*> (existing) != nullptr
+                 : generator.isPiano() ? dynamic_cast<plugins::PianoPlugin*> (existing) != nullptr
                                             : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
@@ -226,6 +228,7 @@ namespace
                                : generator.isGabberKick() ? plugins::GabberKickPlugin::xmlTypeName
                                : generator.isAcousticDrums() ? plugins::AcousticDrumsPlugin::xmlTypeName
                                : generator.isElectricBass() ? plugins::ElectricBassPlugin::xmlTypeName
+                               : generator.isPiano() ? plugins::PianoPlugin::xmlTypeName
                                                           : te::FourOscPlugin::xmlTypeName;
 
         te::Plugin::Ptr plugin;

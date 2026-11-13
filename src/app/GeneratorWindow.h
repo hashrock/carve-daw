@@ -14,6 +14,7 @@
 #include "GabberKickEditor.h"
 #include "AcousticDrumsEditor.h"
 #include "ElectricBassEditor.h"
+#include "PianoEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
 #include "BreakEditor.h"
@@ -234,6 +235,9 @@ public:
 
         if (electricBass != nullptr)
             return juce::Point<int> (electricBass->getWidth(), electricBass->getHeight());
+
+        if (pianoEditor != nullptr)
+            return juce::Point<int> (pianoEditor->getWidth(), pianoEditor->getHeight());
 
         if (soundFont != nullptr)
             return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
@@ -472,6 +476,18 @@ public:
                         onPreviewNote (note, velocity);
                 };
                 viewport.setViewedComponent (electricBass.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto piano = dynamic_cast<plugins::PianoPlugin*> (instrument))
+            {
+                pianoEditor = std::make_unique<PianoEditor> (*piano);
+                pianoEditor->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (pianoEditor.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -768,7 +784,8 @@ public:
         }
 
         if (slate != nullptr || drumSynth != nullptr || gabberKick != nullptr || soundFont != nullptr || utau != nullptr
-             || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr)
+             || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr
+             || pianoEditor != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         // ...except this one, which fills the window it is given.
@@ -842,6 +859,7 @@ private:
         gabberKick.reset();
         acousticDrums.reset();
         electricBass.reset();
+        pianoEditor.reset();
         soundFont.reset();
         breakEditor.reset();
         utau.reset();
@@ -905,6 +923,7 @@ private:
     std::unique_ptr<GabberKickEditor> gabberKick;
     std::unique_ptr<AcousticDrumsEditor> acousticDrums;
     std::unique_ptr<ElectricBassEditor> electricBass;
+    std::unique_ptr<PianoEditor> pianoEditor;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
     std::unique_ptr<BreakEditor> breakEditor;

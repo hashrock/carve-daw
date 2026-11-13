@@ -547,6 +547,10 @@ public:
     static constexpr const char* acousticDrumsType = "acoustic-drums";
     static constexpr const char* electricBassType = "electric-bass";
 
+    // A modelled acoustic piano: computed, not recorded, so nothing to
+    // load either, and its knobs kept the same way.
+    static constexpr const char* pianoType = "piano";
+
     // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
     // the file is kept the way a sampler sound's is -- one SOUND node, with
     // the relative-path, missing-media and relink handling that comes with
@@ -566,8 +570,9 @@ public:
     bool isGabberKick() const { return getType() == gabberKickType; }
     bool isAcousticDrums() const { return getType() == acousticDrumsType; }
     bool isElectricBass() const  { return getType() == electricBassType; }
+    bool isPiano() const         { return getType() == pianoType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
-                                                 || isAcousticDrums() || isElectricBass(); }
+                                                 || isAcousticDrums() || isElectricBass() || isPiano(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType || isReference(); }
     bool isReference() const  { return getType() == referenceType; }

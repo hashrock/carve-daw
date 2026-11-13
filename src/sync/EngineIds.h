@@ -6,6 +6,7 @@
 #include "plugins/GabberKickPlugin.h"
 #include "plugins/AcousticDrumsPlugin.h"
 #include "plugins/ElectricBassPlugin.h"
+#include "plugins/PianoPlugin.h"
 #include "plugins/NoteMonitorPlugin.h"
 #include "plugins/SoundFontPlugin.h"
 #include "plugins/BreakPlugin.h"
@@ -42,6 +43,7 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
                   || dynamic_cast<plugins::GabberKickPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::AcousticDrumsPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::ElectricBassPlugin*> (plugin) != nullptr
+                  || dynamic_cast<plugins::PianoPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::SoundFontPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::UtauPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::BreakPlugin*> (plugin) != nullptr
