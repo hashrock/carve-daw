@@ -526,3 +526,123 @@ TEST_CASE ("speed quickens the move into a note and leaves the rest of it alone"
     CHECK (latest (fast[1]) == latest (normal[1]));
     CHECK (fast[1].size() == normal[1].size());
 }
+
+//==============================================================================
+// English (Modelled Voice (EN)): words through the pronouncing dictionary, a
+// syllable per vowel, clusters and final consonants, "+" carrying a word on.
+
+namespace
+{
+    // A few words of the CMU Pronouncing Dictionary, in the form
+    // tools/build-en-dict.mjs writes it (the app compiles in the whole).
+    const char* const testDictionary =
+        "hello hh ah0 l ow1\n"
+        "friends f r eh1 n d z\n"
+        "little l ih1 t ah0 l\n"
+        "star s t aa1 r\n"
+        "twinkle t w ih1 ng k ah0 l\n"
+        "my m ay1\n";
+
+    void useTestDictionary()
+    {
+        static const std::string text (testDictionary);
+        setEnglishDictionary (text.data(), text.size());
+    }
+}
+
+TEST_CASE ("English lyrics read as syllables, from words or ARPAbet", "[voice]")
+{
+    useTestDictionary();
+
+    const auto hello = parseEnglish ("hello");
+    REQUIRE (hello.size() == 2);
+    CHECK (hello[0].c == Cons::h);
+    CHECK (hello[0].v == enVowelChar (vAX));   // a weak AH is the reduced vowel
+    CHECK (hello[0].stress == 0);
+    CHECK (hello[1].c == Cons::l);
+    CHECK (hello[1].v == enVowelChar (vOWs));
+    CHECK (hello[1].v2 == enVowelChar (vUH));  // ou glides
+
+    const auto friends = parseEnglish ("[friends]");
+    REQUIRE (friends.size() == 1);
+    CHECK (friends[0].nPre == 1);
+    CHECK (friends[0].pre[0] == Cons::f);
+    CHECK (friends[0].c == Cons::rr);
+    CHECK (friends[0].nCoda == 3);              // n d z
+
+    CHECK (parseEnglish ("my friends").size() == 2);
+    CHECK (parseEnglish ("s.t.aa1.r")[0].nPre == 1);
+    CHECK (parseEnglish ("+")[0].cont);
+    CHECK (parseEnglish ("xyzzy").empty());     // not in the dictionary, and not ARPAbet
+}
+
+TEST_CASE ("an English part sings through, a word shared out over + notes", "[voice]")
+{
+    useTestDictionary();
+
+    // twin-kle twin-kle lit-tle star / hel-lo my friends
+    const char* lyrics[] = { "twinkle", "+", "twinkle", "+", "little", "+", "star", "hello", "+", "my", "friends" };
+    const int pitches[] = { 60, 60, 67, 67, 69, 69, 67, 64, 67, 69, 67 };
+    std::vector<PartNote> part;
+    double t = 0.5;
+
+    for (size_t i = 0; i < std::size (lyrics); ++i)
+    {
+        const double len = i == 6 ? 1.2 : 0.6;
+        part.push_back ({ t, len, pitches[i], 100, lyrics[i] });
+        t += len;
+    }
+
+    const auto options = getCharacter (defaultCharacter).toOptions();
+    Synth synth (fs, options);
+    const auto planned = planPart (part, synth.getCenter(), 1.0, 1.0, true);
+    REQUIRE (planned.size() == part.size());
+
+    for (size_t i = 0; i < planned.size(); ++i)
+    {
+        INFO ("note " << i << " (" << lyrics[i] << ")");
+        CHECK (! planned[i].empty());   // every note, + included, has its syllable
+    }
+
+    std::vector<Event> all;
+
+    for (const auto& e : planned)
+        all.insert (all.end(), e.begin(), e.end());
+
+    std::stable_sort (all.begin(), all.end(), [] (const Event& a, const Event& b) { return a.t < b.t; });
+    synth.schedule (all.data(), (int) all.size());
+
+    std::vector<float> out ((size_t) ((t + 1.0) * fs));
+    std::vector<bool> voiced;
+    const size_t hop = (size_t) (fs * 0.005);
+
+    for (size_t i = 0; i < out.size(); i += hop)
+    {
+        synth.process (out.data() + i, (int) std::min (hop, out.size() - i));
+        voiced.push_back (synth.isVoiced());
+    }
+
+    bool finite = true;
+    double peak = 0;
+
+    for (auto s : out)
+    {
+        finite = finite && std::isfinite (s);
+        peak = std::max (peak, (double) std::abs (s));
+    }
+
+    CHECK (finite);
+    CHECK (peak > 0.05);
+    CHECK (peak < 1.0);
+
+    // Each note's vowel sounds: voiced at its middle.
+    for (size_t i = 0; i < part.size(); ++i)
+    {
+        const auto at = (size_t) ((part[i].start + part[i].length * 0.5) / 0.005);
+        INFO ("note " << i << " (" << lyrics[i] << ") voiced at its middle");
+        CHECK (voiced[at]);
+    }
+
+    // ...and it stops at the end.
+    CHECK (dB (power (out, t + 0.6, t + 0.95)) < -50.0);
+}

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -21,19 +23,51 @@
 namespace carve::voice::vocal
 {
 
-enum class Cons : std::uint8_t { none, k, g, t, d, p, b, s, z, sh, hy, f, h, ch, ts, j, m, n, ny, r, y, w };
+// English adds v, th, dh, zh, ng, l (air past the tongue's sides), rr (the
+// English r: glides from the r-coloured vowel), fl (the flap of little's t),
+// and ek, eg (English k and g, with a burst of their own).
+enum class Cons : std::uint8_t { none, k, g, t, d, p, b, s, z, sh, hy, f, h, ch, ts, j, m, n, ny, r, y, w,
+                                 v, th, dh, zh, ng, l, rr, fl, ek, eg };
+
+// The English vowels, as Mora::v: 1 + their offset from vIY (control
+// characters, so none collides with a Japanese vowel or N, Q, -).
+constexpr char enVowelChar (Vowel v)   { return (char) (1 + (int) v - (int) vIY); }
 
 struct Mora
 {
     Cons c = Cons::none;
     bool pal = false;    // a contracted sound (きゃ): passes through the い shape
-    char v = 'a';        // a i u e o, or N (ん), Q (っ), - (ー)
+    char v = 'a';        // a i u e o, or N (ん), Q (っ), - (ー); or an English vowel (enVowelChar)
+
+    // English syllables: the consonants before c (st, tw: c is the last of
+    // them), those after the vowel, where a diphthong goes, and the stress
+    // (0 weak, 1 primary, 2 secondary).
+    bool en = false;
+    std::uint8_t nPre = 0, nCoda = 0;
+    std::array<Cons, 3> pre {};
+    std::array<Cons, 4> coda {};
+    char v2 = 0;         // a diphthong's second vowel (enVowelChar), 0 for none
+    std::uint8_t stress = 1;
+    bool cont = false;   // "+": the rest of the word on the note before (planPart shares it out)
 };
 
 // Hiragana, katakana and romaji (a run of letters is one mora). Anything it
 // cannot read -- spaces, punctuation -- is skipped. UTF-8 in. Full-width
 // letters are read as letters; half-width katakana are not read.
 std::vector<Mora> parseLyrics (const std::string& utf8);
+
+// English: words looked up in the pronouncing dictionary (any number, split
+// by spaces), or ARPAbet if it has a dot or a stress digit in it
+// ("hh.ah0.l.ow1"). Each vowel is a syllable. "+" alone is the rest of the
+// word on the note before. Brackets around it ([hello]) are allowed.
+std::vector<Mora> parseEnglish (const std::string& utf8);
+
+// The pronouncing dictionary (the CMU Pronouncing Dictionary as the
+// prototype's tools/build-en-dict.mjs writes it: "word arpabet..." a line).
+// Read once, on first use, from whatever was handed here; until then English
+// words read as nothing (ARPAbet still reads).
+void setEnglishDictionary (const char* text, std::size_t size);
+bool hasEnglishDictionary();
 
 // How a note is sung, beyond its pitch (autoExpress's result): a scoop up
 // from below and an overshoot past the pitch [semitones], an accent, how the
@@ -67,11 +101,15 @@ struct PlanState
     int vowel = -1;      // the vowel last sung ('a'...), -1 for none
     int nasal = -1;      // the Place a ん closed, -1 for none
     bool abdOpen = false;
+
+    // Places an English syllable's end left closed or narrowed (an l, the d
+    // of a held nd, a final fricative), opened at the next note's start.
+    std::array<std::int8_t, 4> hold { -1, -1, -1, -1 };
 };
 
 struct EventList
 {
-    static constexpr int capacity = 64;
+    static constexpr int capacity = 128;   // an English syllable with a cluster and a coda takes more than a mora
     Event events[capacity];
     int size = 0;
 
@@ -118,6 +156,9 @@ struct PartNote
 // on the part's clock. Velocity scales the note's dynamics (100 = as planned).
 // A note whose lyric reads as nothing has no events.
 // `speed` is SungNote::speed for every note.
-std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed = 1);
+// `english` reads the lyrics with parseEnglish (and shares a word out over
+// the "+" notes after it) rather than parseLyrics.
+std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed = 1,
+                                          bool english = false);
 
 } // namespace carve::voice::vocal

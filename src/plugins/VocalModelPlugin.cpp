@@ -1,4 +1,5 @@
 #include "VocalModelPlugin.h"
+#include "InstrumentData.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,6 +86,13 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     strengthValue.referTo (state, "strength", um, 1.0f);
     speedValue.referTo (state, "speed", um, 1.0f);
     liveLyric.referTo (state, "liveLyric", um, {});
+    englishValue.referTo (state, "english", nullptr, false);
+
+    // The pronouncing dictionary, compiled in; read into a table the first
+    // time an English word is looked up.
+    if (! vocal::hasEnglishDictionary())
+        if (const auto dict = findInstrumentData ("en-dict.txt"); dict.data != nullptr)
+            vocal::setEnglishDictionary (static_cast<const char*> (dict.data), dict.size);
 
     auto times = [] (float v) { return juce::String::charToString (0x00d7) + juce::String (v, 2); };
     auto percent = [] (float v) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; };
@@ -185,7 +193,7 @@ void VocalModelPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v
     te::copyPropertiesToCachedValues (v, vowelPresetValue, vibratoValue, vibratoRateValue, driftValue,
                                       brightnessValue, bodyValue, ringValue, airValue, reverbValue, volumeValue);
     te::copyPropertiesToCachedValues (v, strengthValue, speedValue, liveLyric);
-    te::copyPropertiesToCachedValues (v, pharynxValue, jitterValue, shimmerValue);
+    te::copyPropertiesToCachedValues (v, pharynxValue, jitterValue, shimmerValue, englishValue);
 
     for (auto parameter : getAutomatableParameters())
         parameter->updateFromAttachedValue();
@@ -284,7 +292,7 @@ std::vector<VocalModelPlugin::Prepared> VocalModelPlugin::preparePart (const juc
     plannedStrength = strength->getCurrentValue();
     plannedSpeed = speed->getCurrentValue();
 
-    const auto planned = vocal::planPart (notes, plannedCenter, plannedStrength, plannedSpeed);
+    const auto planned = vocal::planPart (notes, plannedCenter, plannedStrength, plannedSpeed, isEnglish());
     auto& part = parts[partKey];
     const auto previousIds = part.ids;
     part.notes = notes;
@@ -386,7 +394,7 @@ void VocalModelPlugin::replanAll()
 
     for (auto& [key, part] : parts)
     {
-        const auto planned = vocal::planPart (part.notes, plannedCenter, plannedStrength, plannedSpeed);
+        const auto planned = vocal::planPart (part.notes, plannedCenter, plannedStrength, plannedSpeed, isEnglish());
 
         for (size_t i = 0; i < part.ids.size() && i < planned.size(); ++i)
         {
@@ -486,10 +494,22 @@ bool VocalModelPlugin::parseTrigger (const juce::MidiMessage& m, int& id, double
 //==============================================================================
 // Live keys
 
+void VocalModelPlugin::setEnglish (bool english)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (englishValue.get() == english)
+        return;
+
+    englishValue = english;
+    setLiveLyric (liveLyric.get());
+    replanAll();
+}
+
 void VocalModelPlugin::setLiveLyric (const juce::String& lyric)
 {
     parsedLiveLyric = lyric;
-    auto moras = vocal::parseLyrics (lyricText (lyric));
+    auto moras = isEnglish() ? vocal::parseEnglish (lyricText (lyric)) : vocal::parseLyrics (lyricText (lyric));
 
     const juce::SpinLock::ScopedLockType sl (liveLock);
     numLiveMoras = (int) std::min (moras.size(), liveMoras.size());

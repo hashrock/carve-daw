@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <map>
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 
 // voice-jp.js, expression by expression (see VocalModel.cpp on why the order
 // of the arithmetic matters).
@@ -208,7 +211,7 @@ namespace
     // how long it takes against its kind's (lead). The areas and leads marked
     // were tuned by ear in the prototype's phoneme lab.
 
-    enum class Kind : std::uint8_t { stop, fric, aff, h, nas, tap, gl };
+    enum class Kind : std::uint8_t { stop, fric, aff, h, nas, tap, gl, lat };
 
     struct ConsInfo
     {
@@ -219,6 +222,7 @@ namespace
         double area = 0;
         Vowel glide = va;
         double lead = 1;
+        bool vz = false;     // an English voiced fricative: keeps voicing (the glottis stays shut, the narrowing a little wider)
     };
 
     ConsInfo consInfo (Cons c)
@@ -246,6 +250,19 @@ namespace
             case Cons::r:  return { true, alv, Kind::tap, false, 0, va, 1.45 };
             case Cons::y:  return { true, -1, Kind::gl, false, 0, vi };
             case Cons::w:  return { true, -1, Kind::gl, false, 0, vu };
+            // English. The voiced fricatives keep their voicing (vz): opened a
+            // little, as ざ is, the air behind the narrowing soon stops the
+            // folds and v, dh, zh come out as f, th, sh.
+            case Cons::v:  return { true, lab, Kind::fric, false, 0.25e-4, va, 1, true };
+            case Cons::th: return { true, ide, Kind::fric, true, 0.2e-4, va };
+            case Cons::dh: return { true, ide, Kind::fric, false, 0.3e-4, va, 1, true };
+            case Cons::zh: return { true, apl, Kind::fric, false, 0.2e-4, va, 1, true };
+            case Cons::ng: return { true, vel, Kind::nas, false, 0, va };
+            case Cons::l:  return { true, lat, Kind::lat, false, 0.15e-4, va };
+            case Cons::rr: return { true, -1, Kind::gl, false, 0, vER };
+            case Cons::fl: return { true, alv, Kind::tap, false, 0.03e-4, va, 0.5 };   // a 20-30ms flick, not shut
+            case Cons::ek: return { true, veE, Kind::stop, true, 0, va, 1.25 };
+            case Cons::eg: return { true, veE, Kind::stop, false, 0, va };
             case Cons::none: break;
         }
 
@@ -265,6 +282,7 @@ namespace
             case Kind::nas:  return 0.115;
             case Kind::tap:  return 0.055;
             case Kind::gl:   return 0.12;
+            case Kind::lat:  return 0.08;
         }
 
         return 0.03;
@@ -286,9 +304,18 @@ namespace
             case 'u': return vu;
             case 'e': return ve;
             case 'o': return vo;
-            default:  return vx;
+            default:  return v >= 1 && v <= enVowelChar (vER) ? (Vowel) ((int) vIY + v - 1) : vx;
         }
     }
+
+    // The narrow vowels: a phrase on one ends without a breathy tail.
+    bool isNarrow (char v)
+    {
+        return v == 'i' || v == 'u' || v == enVowelChar (vIY) || v == enVowelChar (vUW) || v == enVowelChar (vIH)
+                || v == enVowelChar (vUH) || v == enVowelChar (vER);
+    }
+
+    constexpr double clusterLead = 0.7;   // a consonant further from the vowel in a cluster (st, tw) is a little shorter
 
     // Live keys, where what comes next is unknown.
     Expression liveExpr (bool phraseStart, double up)
@@ -331,6 +358,183 @@ namespace
         Event e;
         e.t = t; e.kind = Event::open; e.target = (std::uint8_t) place; e.duration = d;
         return e;
+    }
+
+    // One consonant's moves (the prototype's consGesture). t0 is when it
+    // opens into what follows (the vowel, or the next consonant of a cluster),
+    // sc its time scale against its kind's lead. `into` is a consonant
+    // straight after it (st, ts): then it holds its narrowing until that one
+    // closes, and between two voiceless ones the glottis stays open -- no
+    // vowel slips in between. `coda` is an English syllable's end: no extra
+    // push of breath, a gentle release, and the last one neither opens nor
+    // voices again (this, love: opened, it falls back into a vowel); held is
+    // a stop after a nasal at its place (nd, mb): the mouth is shut already,
+    // so the velum only rises.
+    enum class CodaMode : std::uint8_t { none, coda, held };
+
+    struct GestureContext
+    {
+        bool phraseStart = false;
+        double psNote = 0;
+        bool narrowV = false;
+        int m = 60;
+        const ConsInfo* into = nullptr;
+        CodaMode coda = CodaMode::none;
+    };
+
+    void consGesture (EventList& ev, const ConsInfo& c, double t0, double sc, const GestureContext& o)
+    {
+        auto R = [&ev] (double t, Param p, double v, double d)  { ev.push (rampEvent (t, p, v, d)); };
+        auto T = [t0, sc] (double dt)  { return t0 - dt * sc; };
+        auto D = [sc] (double d)       { return d * sc; };
+        const int pl = c.place;
+        const bool keepOpen = o.into != nullptr && o.into->voiceless;
+        const bool last = o.coda != CodaMode::none && o.into == nullptr;   // the syllable's final consonant
+
+        if (c.kind == Kind::stop)
+        {
+            if (o.coda == CodaMode::held)
+            {
+                R (T (0.1), velum, 0, D (0.03));
+                return;
+            }
+
+            // Close, let the pressure build, and the release bursts. Pushed
+            // harder while closed, for a clearer release.
+            ev.push (closeEvent (T (0.1), pl, 0, D (0.028)));
+            ev.push (openEvent (o.coda != CodaMode::none ? T (0.03) : T (0.016), pl, o.coda != CodaMode::none ? 0.06 : D (0.018)));
+
+            if (c.voiceless)
+            {
+                R (T (0.105), abd, 0.26e-4, D (0.035));
+
+                if (! keepOpen && ! last)
+                    R (t0 + (o.narrowV ? -0.006 : 0.004), abd, ADD, 0.04);
+            }
+
+            if (! o.phraseStart && o.coda == CodaMode::none)
+                R (T (0.085), ps, o.psNote * 1.3, D (0.04));
+
+            // A voiced one keeps voicing through the closure, as a singer
+            // does: closed off, the air behind the lips or tongue soon
+            // pushes as hard as the lungs, the folds stop, and だ・ば・が
+            // came out as a gap as silent as た・ぱ・か's -- every such note
+            // cut off from the one before. A little air let out through the
+            // nose keeps it flowing, a hum under the closure (and in が, the
+            // [ŋ] Japanese sings it with between vowels). Shut as the
+            // closure opens: shut any sooner, the pressure it traps pops.
+            if (! c.voiceless && ! o.phraseStart)
+            {
+                R (T (0.1), velum, VELUM * voicedLeak, D (0.03));
+                R (t0, velum, 0, D (0.015));
+            }
+        }
+        else if (c.kind == Kind::fric)
+        {
+            // Narrow with the air flowing. Voiced (ざ) opens the glottis a
+            // little; an English voiced one (vz) keeps it shut.
+            ev.push (closeEvent (T (0.17), pl, c.area, 0.028));
+
+            if (! last)
+                ev.push (o.into != nullptr ? openEvent (t0 + 0.005, pl, 0.03) : openEvent (T (0.024), pl, D (0.035)));
+
+            if (c.voiceless)
+            {
+                R (T (0.18), abd, OPEN, D (0.045));
+
+                if (! keepOpen && ! last)
+                    R (o.into != nullptr ? t0 : T (0.042), abd, ADD, 0.045);
+            }
+            else if (! c.vz)
+            {
+                R (T (0.17), abd, 0.11e-4, D (0.04));
+                R (T (0.032), abd, ADD, 0.04);
+            }
+        }
+        else if (c.kind == Kind::aff)
+        {
+            // Close, then open part way and hiss.
+            ev.push (closeEvent (T (0.17), pl, 0, D (0.03)));
+            R (T (0.1), cParam ((Place) pl), c.area, 0.012);
+            ev.push (openEvent (T (0.02), pl, D (0.03)));
+
+            if (c.voiceless)
+            {
+                R (T (0.175), abd, OPEN, D (0.04));
+
+                if (! keepOpen)
+                    R (T (0.038), abd, ADD, 0.045);
+            }
+            else
+            {
+                R (T (0.1), abd, 0.1e-4, 0.02);
+                R (T (0.03), abd, ADD, 0.04);
+
+                // じ: hum through the closure, as a voiced stop does, until
+                // it opens into its hiss.
+                if (! o.phraseStart)
+                {
+                    R (T (0.17), velum, VELUM * voicedLeak, D (0.03));
+                    R (T (0.1), velum, 0, 0.02);
+                }
+            }
+        }
+        else if (c.kind == Kind::h)
+        {
+            // は: the mouth keeps the vowel's shape, the glottis opens, breath only.
+            R (T (0.12), abd, c.area, D (0.045));
+            R (T (0.028), abd, ADD, 0.05);
+        }
+        else if (c.kind == Kind::nas)
+        {
+            // な・ま: close the mouth and lower the velum.
+            R (T (0.12), velum, VELUM, D (0.035));
+            ev.push (closeEvent (T (0.11), pl, 0, D (0.03)));
+            ev.push (openEvent (T (0.012), pl, 0.022));
+            R (t0 - 0.005, velum, 0, 0.04);
+        }
+        else if (c.kind == Kind::tap)
+        {
+            // ら: the tongue tip flicks the ridge, shut (tuned by ear; the
+            // voice carrying through it is checked by the song tests).
+            ev.push (closeEvent (T (0.055), pl, c.area, D (0.018)));
+            ev.push (openEvent (T (0.022), pl, 0.02));
+        }
+        else if (c.kind == Kind::gl)
+        {
+            // や・わ: glide from い or う into the vowel.
+            ev.push (vowelEvent (T (0.12), c.glide, 0.05, o.m));
+        }
+        else if (c.kind == Kind::lat)
+        {
+            // l: the tongue tip on the ridge, air past its sides; the voice goes on.
+            ev.push (closeEvent (T (0.08), pl, c.area, D (0.03)));
+            ev.push (openEvent (o.into != nullptr ? t0 + 0.005 : T (0.025), pl, 0.04));
+        }
+    }
+
+    void hold (PlanState& st, int place)
+    {
+        for (auto& h : st.hold)
+            if (h == place)
+                return;
+
+        for (auto& h : st.hold)
+            if (h < 0)
+            {
+                h = (std::int8_t) place;
+                return;
+            }
+    }
+
+    void openHeld (PlanState& st, double t, double d, EventList& ev)
+    {
+        for (auto& h : st.hold)
+            if (h >= 0)
+            {
+                ev.push (openEvent (t, h, d));
+                h = -1;
+            }
     }
 }
 
@@ -428,6 +632,283 @@ std::vector<Mora> parseLyrics (const std::string& utf8)
     return out;
 }
 
+//==============================================================================
+// English (ARPAbet, and words through the pronouncing dictionary)
+
+namespace
+{
+    struct EnPhone
+    {
+        bool vowel = false;
+        Cons c = Cons::none;
+        Vowel v = vAA, v2 = vx;
+        std::uint8_t stress = 1;
+    };
+
+    std::optional<EnPhone> enPhone (std::string tok)
+    {
+        int stress = -1;
+
+        if (! tok.empty() && tok.back() >= '0' && tok.back() <= '2')
+        {
+            stress = tok.back() - '0';
+            tok.pop_back();
+        }
+
+        for (auto& ch : tok)
+            if (ch >= 'A' && ch <= 'Z')
+                ch = (char) (ch - 'A' + 'a');
+
+        struct V { const char* k; Vowel a, b; };
+        static const V vowels[] = {
+            { "aa", vAA, vx }, { "ae", vAE, vx }, { "ah", vAH, vx }, { "ao", vAO, vx }, { "aw", vAA, vUH }, { "ay", vAA, vIH },
+            { "eh", vEH, vx }, { "er", vER, vx }, { "ey", vEYs, vIY }, { "ih", vIH, vx }, { "iy", vIY, vx }, { "ow", vOWs, vUH },
+            { "oy", vAO, vIY }, { "uh", vUH, vx }, { "uw", vUW, vx }, { "ax", vAX, vx },
+        };
+
+        for (const auto& e : vowels)
+            if (tok == e.k)
+            {
+                EnPhone p;
+                p.vowel = true;
+                p.v = e.a == vAH && stress == 0 ? vAX : e.a;   // a weak AH is the reduced vowel
+                p.v2 = e.b;
+                p.stress = (std::uint8_t) (stress < 0 ? 1 : stress);
+                return p;
+            }
+
+        struct K { const char* k; Cons c; };
+        static const K cons[] = {
+            { "p", Cons::p }, { "b", Cons::b }, { "t", Cons::t }, { "d", Cons::d }, { "k", Cons::ek }, { "g", Cons::eg },
+            { "ch", Cons::ch }, { "jh", Cons::j }, { "f", Cons::f }, { "v", Cons::v }, { "th", Cons::th }, { "dh", Cons::dh },
+            { "s", Cons::s }, { "z", Cons::z }, { "sh", Cons::sh }, { "zh", Cons::zh }, { "hh", Cons::h }, { "m", Cons::m },
+            { "n", Cons::n }, { "ng", Cons::ng }, { "l", Cons::l }, { "r", Cons::rr }, { "w", Cons::w }, { "y", Cons::y },
+        };
+
+        if (stress < 0)
+            for (const auto& e : cons)
+                if (tok == e.k)
+                {
+                    EnPhone p;
+                    p.c = e.c;
+                    return p;
+                }
+
+        return std::nullopt;
+    }
+
+    std::vector<std::string> splitOn (const std::string& s, const char* seps)
+    {
+        std::vector<std::string> out;
+        std::string cur;
+
+        for (char ch : s)
+        {
+            if (std::strchr (seps, ch) != nullptr)
+            {
+                if (! cur.empty())
+                    out.push_back (cur);
+
+                cur.clear();
+            }
+            else
+            {
+                cur += ch;
+            }
+        }
+
+        if (! cur.empty())
+            out.push_back (cur);
+
+        return out;
+    }
+
+    // ARPAbet -> syllables: each vowel one; a single consonant between two
+    // vowels starts the second, of two or more the first ends the first.
+    std::vector<Mora> parseArpabet (const std::string& text)
+    {
+        std::vector<EnPhone> ph;
+
+        for (const auto& tok : splitOn (text, " .\t"))
+        {
+            const auto p = enPhone (tok);
+
+            if (! p)
+                return {};
+
+            ph.push_back (*p);
+        }
+
+        std::vector<size_t> vi;
+
+        for (size_t i = 0; i < ph.size(); ++i)
+            if (ph[i].vowel)
+                vi.push_back (i);
+
+        std::vector<Mora> out;
+
+        for (size_t k = 0; k < vi.size(); ++k)
+        {
+            const size_t i = vi[k];
+            const size_t prevV = k > 0 ? vi[k - 1] + 1 : 0, nextV = k + 1 < vi.size() ? vi[k + 1] : ph.size();
+            std::vector<Cons> before, after;
+
+            for (size_t j = prevV; j < i; ++j)
+                before.push_back (ph[j].c);
+
+            for (size_t j = i + 1; j < nextV; ++j)
+                after.push_back (ph[j].c);
+
+            if (k > 0 && before.size() > 1)
+                before.erase (before.begin());   // went to the syllable before
+
+            if (k + 1 < vi.size())
+                after.resize (std::min<size_t> (after.size() > 1 ? 1 : 0, after.size()));
+
+            Mora m;
+            m.en = true;
+            m.v = enVowelChar (ph[i].v);
+            m.v2 = ph[i].v2 != vx ? enVowelChar (ph[i].v2) : 0;
+            m.stress = ph[i].stress;
+
+            if (! before.empty())
+            {
+                m.c = before.back();
+                before.pop_back();
+            }
+
+            for (auto c : before)
+                if (m.nPre < m.pre.size())
+                    m.pre[m.nPre++] = c;
+
+            for (auto c : after)
+                if (m.nCoda < m.coda.size())
+                    m.coda[m.nCoda++] = c;
+
+            out.push_back (m);
+        }
+
+        return out;
+    }
+
+    struct Dictionary
+    {
+        const char* text = nullptr;
+        std::size_t size = 0;
+        std::once_flag built;
+        std::unordered_map<std::string, std::string> words;
+    };
+
+    Dictionary& dictionary()
+    {
+        static Dictionary d;
+        return d;
+    }
+
+    const std::string* lookUp (const std::string& word)
+    {
+        auto& d = dictionary();
+
+        if (d.text == nullptr)
+            return nullptr;
+
+        std::call_once (d.built, [&d]
+        {
+            d.words.reserve (130000);
+            std::size_t i = 0;
+
+            while (i < d.size)
+            {
+                std::size_t e = i;
+
+                while (e < d.size && d.text[e] != '\n')
+                    ++e;
+
+                const std::string line (d.text + i, e - i);
+
+                if (const auto sp = line.find (' '); sp != std::string::npos)
+                    d.words.emplace (line.substr (0, sp), line.substr (sp + 1));
+
+                i = e + 1;
+            }
+        });
+
+        const auto it = d.words.find (word);
+        return it != d.words.end() ? &it->second : nullptr;
+    }
+}
+
+void setEnglishDictionary (const char* text, std::size_t size)
+{
+    auto& d = dictionary();
+
+    if (d.text == nullptr)
+    {
+        d.text = text;
+        d.size = size;
+    }
+}
+
+bool hasEnglishDictionary()  { return dictionary().text != nullptr; }
+
+std::vector<Mora> parseEnglish (const std::string& utf8)
+{
+    std::string body;
+
+    for (char ch : utf8)
+        if (ch != '[' && ch != ']')
+            body += ch;
+
+    const auto tokens = splitOn (body, " \t\r\n");
+
+    if (tokens.size() == 1 && tokens[0] == "+")
+    {
+        Mora m;
+        m.v = '-';
+        m.cont = true;
+        return { m };
+    }
+
+    if (tokens.empty())
+        return {};
+
+    if (body.find_first_of (".012") == std::string::npos)
+    {
+        std::vector<Mora> out;
+        bool all = true;
+
+        for (auto word : tokens)
+        {
+            for (auto& ch : word)
+                if (ch >= 'A' && ch <= 'Z')
+                    ch = (char) (ch - 'A' + 'a');
+
+            while (! word.empty() && ! ((word.front() >= 'a' && word.front() <= 'z') || word.front() == '\''))
+                word.erase (word.begin());
+
+            while (! word.empty() && ! ((word.back() >= 'a' && word.back() <= 'z') || word.back() == '\''))
+                word.pop_back();
+
+            const auto* pron = word.empty() ? nullptr : lookUp (word);
+
+            if (pron == nullptr)
+            {
+                all = false;
+                break;
+            }
+
+            // A word at a time: no consonant moves across a word's edge.
+            const auto syllables = parseArpabet (*pron);
+            out.insert (out.end(), syllables.begin(), syllables.end());
+        }
+
+        if (all && ! out.empty())
+            return out;
+    }
+
+    return parseArpabet (body);
+}
+
 double pressureFor (int midi, char vowel, double center, double dyn)
 {
     // Per vowel: [the factor at the middle of the range, the least pressure
@@ -449,7 +930,15 @@ double pressureFor (int midi, char vowel, double center, double dyn)
 double leadTime (const Mora& mora)
 {
     const auto c = consInfo (mora.c);
-    return c.exists ? leadOf (c.kind) * c.lead : 0.03;
+    double t = c.exists ? leadOf (c.kind) * c.lead : 0.03;
+
+    for (int j = 0; j < (int) mora.nPre; ++j)
+    {
+        const auto p = consInfo (mora.pre[(size_t) j]);
+        t += leadOf (p.kind) * p.lead * clusterLead;
+    }
+
+    return t;
 }
 
 //==============================================================================
@@ -557,6 +1046,98 @@ std::vector<Expression> autoExpress (const std::vector<SungNote>& notes, double 
 }
 
 //==============================================================================
+// An English syllable's second half (the prototype's planCoda): where a
+// diphthong goes, and the consonants at the end, put at the end of the note
+// (before the next note's consonants), the vowel held until then. A nasal
+// hums on into the next note, as ん does; an l stays on the ridge; a nd's d
+// is not released; the last consonant neither opens nor voices again.
+static void planCoda (const SungNote& n, const SungNote* next, bool phraseEnd, PlanState& st,
+                      double psNote, bool narrowV, EventList& ev)
+{
+    auto R = [&ev] (double t, Param p, double v, double d)  { ev.push (rampEvent (t, p, v, d)); };
+    const auto& mora = n.mora;
+    const double t0 = n.t, te = t0 + n.dur;
+    const int m = n.midi;
+
+    double span0 = 0;
+
+    for (int k = 0; k < (int) mora.nCoda; ++k)
+    {
+        const auto c = consInfo (mora.coda[(size_t) k]);
+        span0 += leadOf (c.kind) * c.lead;
+    }
+
+    const double scd = span0 > 0 ? std::min (1.0, 0.45 * n.dur / span0) : 1;
+    const double nextLead = next != nullptr && ! phraseEnd && ! n.open ? std::min (leadTime (next->mora), 0.5 * n.dur) : 0;
+    const double codaEnd = te - nextLead - (phraseEnd ? 0.02 : 0);
+    double tv = n.open ? t0 + 0.35 : codaEnd - span0 * scd;   // where the vowel ends
+
+    // The reduced vowel and an l (little, twinkle's -le): the syllable is the l.
+    if (mora.v == enVowelChar (vAX) && mora.nCoda > 0 && consInfo (mora.coda[0]).kind == Kind::lat)
+        tv = std::min (tv, t0 + 0.06);
+
+    if (mora.v2 != 0)
+    {
+        const double vd = std::max (0.05, tv - t0);
+        ev.push (vowelEvent (tv - std::min (0.15, 0.35 * vd), vowelOf (mora.v2), std::min (0.12, 0.3 * vd), m));
+        st.vowel = mora.v2;
+    }
+
+    if (n.open)   // a live key: what comes after is unknown, so no final consonants
+        return;
+
+    double cur = tv;
+
+    for (int k = 0; k < (int) mora.nCoda; ++k)
+    {
+        const auto c = consInfo (mora.coda[(size_t) k]);
+        const double csc = scd * c.lead, span = leadOf (c.kind) * csc;
+        const bool hasNext = k + 1 < (int) mora.nCoda;
+        const auto nextC = hasNext ? consInfo (mora.coda[(size_t) k + 1]) : ConsInfo {};
+
+        if (c.kind == Kind::nas)
+        {
+            R (cur, velum, VELUM, 0.04);
+            ev.push (closeEvent (cur + 0.005, c.place, 0, 0.04));
+            st.nasal = c.place;
+        }
+        else if (c.kind == Kind::lat)
+        {
+            ev.push (closeEvent (cur, c.place, c.area, 0.05));
+            hold (st, c.place);
+        }
+        else if (c.kind == Kind::gl)
+        {
+            ev.push (vowelEvent (cur, c.glide, 0.1, m));
+            st.vowel = enVowelChar (c.glide) > 0 && c.glide >= vIY ? enVowelChar (c.glide) : st.vowel;
+        }
+        else
+        {
+            const auto prevC = k > 0 ? consInfo (mora.coda[(size_t) k - 1]) : ConsInfo {};
+            const bool held = c.kind == Kind::stop && prevC.exists && prevC.kind == Kind::nas && prevC.place == c.place;
+            consGesture (ev, c, cur + span, csc, { false, psNote, narrowV, m, hasNext ? &nextC : nullptr,
+                                                   held ? CodaMode::held : CodaMode::coda });
+
+            if (held)
+            {
+                st.nasal = -1;   // the nose shut here; the mouth opens at the next note
+                hold (st, c.place);
+            }
+            else if (! hasNext)
+            {
+                if (c.voiceless)
+                    st.abdOpen = true;
+
+                if (c.kind == Kind::fric)
+                    hold (st, c.place);
+            }
+        }
+
+        cur += span;
+    }
+}
+
+//==============================================================================
 void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
                PlanState& st, double center, EventList& ev)
 {
@@ -573,17 +1154,29 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     const bool phraseStart = gapBefore > 0.12, phraseEnd = ! n.open && gapAfter > 0.12;
     const bool special = mora.v == 'N' || mora.v == 'Q' || mora.v == '-';
     const char vowel = special ? 0 : mora.v;
-    const auto c = special ? ConsInfo {} : consInfo (mora.c);
+    auto c = special ? ConsInfo {} : consInfo (mora.c);
+
+    // English: a t or d between vowels, starting a weak syllable, is a flap
+    // (little: the tongue flicks the ridge).
+    if (mora.en && (mora.c == Cons::t || mora.c == Cons::d) && mora.stress == 0 && mora.nPre == 0
+         && prev != nullptr && prev->mora.en && prev->mora.nCoda == 0 && gapBefore <= 0.12)
+        c = consInfo (Cons::fl);
+
+    const bool weak = mora.en && mora.stress == 0;   // an English weak syllable: softer, unaccented
     const char sung = vowel != 0 ? vowel : st.vowel >= 0 ? (char) st.vowel : 'a';   // the vowel sounding in this mora
-    const bool narrowV = sung == 'i' || sung == 'u';
+    const bool narrowV = isNarrow (sung);
     const int up = prev != nullptr && ! phraseStart ? m - prev->midi : 0;
     const auto x = n.hasExpression ? n.x : liveExpr (phraseStart, up);
-    const double psNote = pressureFor (m, sung, center, dyn) * (1 + 0.12 * x.accent);
+    // English stress: a primary-stressed syllable gets at least a middling accent.
+    const double accent = weak ? 0 : mora.en && mora.stress == 1 ? std::max (x.accent, 0.5) : x.accent;
+    const double psNote = pressureFor (m, sung, center, dyn) * (weak ? 0.85 : 1 + 0.12 * accent);
 
     // After a short note the consonant shrinks (half of the vowel before is
     // kept). The sibilants dig deep into the note before instead, to keep
     // their hiss: a quarter longer after a long one, all but 75ms of a short one.
-    const double lk = c.exists ? c.lead : 1;
+    // After a consonant, a w, y or r glides quickly (tw, pl, fr): drawn out,
+    // it sounds as a vowel of its own.
+    const double lk = c.exists ? c.lead * (mora.nPre > 0 && c.kind == Kind::gl ? 0.5 : 1) : 1;
     double lead = c.exists ? leadOf (c.kind) * lk : 0.03;
     const bool sib = c.exists && (c.kind == Kind::fric || c.kind == Kind::aff);
     const double sc0 = c.exists && ! phraseStart
@@ -592,13 +1185,25 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
                           : 1;
     lead *= sc0;
     const double sc = sc0 * lk;   // the times within the consonant shrink from its kind's lead
-    auto T = [t0, sc] (double dt)  { return t0 - dt * sc; };
-    auto D = [sc] (double d)       { return d * sc; };
+
+    // With the consonants of a cluster before it, how long before t0 each
+    // opens, and how long before the vowel it all starts.
+    std::array<double, 4> preAt {};
+    double leadAll = lead;
+
+    for (int j = (int) mora.nPre - 1; j >= 0; --j)
+    {
+        const auto pc = consInfo (mora.pre[(size_t) j]);
+        preAt[(size_t) j] = leadAll;
+        leadAll += leadOf (pc.kind) * sc0 * clusterLead * pc.lead;
+    }
+
+    const auto first = mora.nPre > 0 ? consInfo (mora.pre[0]) : c;   // the consonant that comes first
 
     // Reopen what a ん closed (or carry on, into a nasal at the same place).
     if (st.nasal >= 0 && mora.v != 'N')
     {
-        const double tn = t0 - lead - 0.01;
+        const double tn = t0 - leadAll - 0.01;
 
         if (! (c.exists && c.kind == Kind::nas && c.place == st.nasal))
             ev.push (openEvent (tn, st.nasal, 0.03));
@@ -609,116 +1214,30 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         st.nasal = -1;
     }
 
+    // Open what an English syllable's end left closed (an l, a held nd, a final fricative).
+    openHeld (st, t0 - leadAll - 0.01, 0.04, ev);
+
     // Close the glottis a っ or a voiceless consonant opened.
-    if (st.abdOpen && ! (c.exists && c.voiceless) && mora.v != 'Q')
+    if (st.abdOpen && ! (first.exists && first.voiceless) && mora.v != 'Q')
     {
-        R (t0 - std::max (lead, 0.04), abd, ADD, 0.04);
+        R (t0 - std::max (leadAll, 0.04), abd, ADD, 0.04);
         st.abdOpen = false;
+    }
+
+    // Consonants before the vowel's own (English st, tw): the furthest from
+    // the vowel first, a little shorter.
+    for (int j = (int) mora.nPre - 1; j >= 0; --j)
+    {
+        const auto pc = consInfo (mora.pre[(size_t) j]);
+        const double psc = sc0 * clusterLead * pc.lead;
+        const auto nextC = j + 1 < (int) mora.nPre ? consInfo (mora.pre[(size_t) j + 1]) : c;
+        GestureContext o { phraseStart, psNote, narrowV, m, nextC.exists ? &nextC : nullptr, CodaMode::none };
+        consGesture (ev, pc, t0 - preAt[(size_t) j], psc, o);
     }
 
     if (c.exists)
     {
-        const int pl = c.place;
-
-        if (c.kind == Kind::stop)
-        {
-            // Close, let the pressure build, and the release bursts. Pushed
-            // harder while closed, for a clearer release.
-            ev.push (closeEvent (T (0.1), pl, 0, D (0.028)));
-            ev.push (openEvent (T (0.016), pl, D (0.018)));
-
-            if (c.voiceless)
-            {
-                R (T (0.105), abd, 0.26e-4, D (0.035));
-                R (t0 + (narrowV ? -0.006 : 0.004), abd, ADD, 0.04);
-            }
-
-            if (! phraseStart)
-                R (T (0.085), ps, psNote * 1.3, D (0.04));
-
-            // A voiced one keeps voicing through the closure, as a singer
-            // does: closed off, the air behind the lips or tongue soon
-            // pushes as hard as the lungs, the folds stop, and だ・ば・が
-            // came out as a gap as silent as た・ぱ・か's -- every such note
-            // cut off from the one before. A little air let out through the
-            // nose keeps it flowing, a hum under the closure (and in が, the
-            // [ŋ] Japanese sings it with between vowels). Shut as the
-            // closure opens: shut any sooner, the pressure it traps pops.
-            if (! c.voiceless && ! phraseStart)
-            {
-                R (T (0.1), velum, VELUM * voicedLeak, D (0.03));
-                R (t0, velum, 0, D (0.015));
-            }
-        }
-        else if (c.kind == Kind::fric)
-        {
-            // Narrow with the air flowing. Voiced (ざ) opens the glottis a little.
-            ev.push (closeEvent (T (0.17), pl, c.area, 0.028));
-            ev.push (openEvent (T (0.024), pl, D (0.035)));
-
-            if (c.voiceless)
-            {
-                R (T (0.18), abd, OPEN, D (0.045));
-                R (T (0.042), abd, ADD, 0.045);
-            }
-            else
-            {
-                R (T (0.17), abd, 0.11e-4, D (0.04));
-                R (T (0.032), abd, ADD, 0.04);
-            }
-        }
-        else if (c.kind == Kind::aff)
-        {
-            // Close, then open part way and hiss.
-            ev.push (closeEvent (T (0.17), pl, 0, D (0.03)));
-            R (T (0.1), cParam ((Place) pl), c.area, 0.012);
-            ev.push (openEvent (T (0.02), pl, D (0.03)));
-
-            if (c.voiceless)
-            {
-                R (T (0.175), abd, OPEN, D (0.04));
-                R (T (0.038), abd, ADD, 0.045);
-            }
-            else
-            {
-                R (T (0.1), abd, 0.1e-4, 0.02);
-                R (T (0.03), abd, ADD, 0.04);
-
-                // じ: hum through the closure, as a voiced stop does, until
-                // it opens into its hiss.
-                if (! phraseStart)
-                {
-                    R (T (0.17), velum, VELUM * voicedLeak, D (0.03));
-                    R (T (0.1), velum, 0, 0.02);
-                }
-            }
-        }
-        else if (c.kind == Kind::h)
-        {
-            // は: the mouth keeps the vowel's shape, the glottis opens, breath only.
-            R (T (0.12), abd, c.area, D (0.045));
-            R (T (0.028), abd, ADD, 0.05);
-        }
-        else if (c.kind == Kind::nas)
-        {
-            // な・ま: close the mouth and lower the velum.
-            R (T (0.12), velum, VELUM, D (0.035));
-            ev.push (closeEvent (T (0.11), pl, 0, D (0.03)));
-            ev.push (openEvent (T (0.012), pl, 0.022));
-            R (t0 - 0.005, velum, 0, 0.04);
-        }
-        else if (c.kind == Kind::tap)
-        {
-            // ら: the tongue tip flicks the ridge, shut (tuned by ear; the
-            // voice carrying through it is checked by the song tests).
-            ev.push (closeEvent (T (0.055), pl, c.area, D (0.018)));
-            ev.push (openEvent (T (0.022), pl, 0.02));
-        }
-        else if (c.kind == Kind::gl)
-        {
-            // や・わ: glide from い or う into the vowel.
-            ev.push (vowelEvent (T (0.12), c.glide, 0.05, m));
-        }
+        consGesture (ev, c, t0, sc, { phraseStart, psNote, narrowV, m, nullptr, CodaMode::none });
 
         if (c.voiceless)
             st.abdOpen = false;
@@ -747,6 +1266,9 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         }
 
         st.vowel = vowel;
+
+        if (mora.en)
+            planCoda (n, next, phraseEnd, st, psNote, narrowV, ev);
     }
     else if (mora.v == '-')
     {
@@ -812,7 +1334,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     else if (x.scoop > 0 && mora.v != '-')
     {
         if (phraseStart)
-            R (t0 - lead - 0.12, pitch, m - x.scoop, 0);
+            R (t0 - leadAll - 0.12, pitch, m - x.scoop, 0);
         else
             R (t0 - 0.09, pitch, m - x.scoop * 0.85, 0.05);
 
@@ -833,7 +1355,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     // Dynamics: a short note leans on its start, a long one swells.
     if (mora.v != 'Q')
     {
-        const double g = x.g, bo = x.bounce;
+        const double g = x.g * (weak ? 0.85 : 1), bo = x.bounce;
 
         if (mora.v == '-')
         {
@@ -860,18 +1382,20 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
             if (gapBefore > 0.7 && ! n.open)
             {
                 // A breath in before the phrase: glottis open, the pressure negative.
-                const double tb = t0 - lead - 0.42;
+                const double tb = t0 - leadAll - 0.42;
                 R (tb, abd, 0.5e-4, 0.08);
                 R (tb + 0.02, ps, -260, 0.08);
                 R (tb + 0.2, ps, 0, 0.09);
-                R (tb + 0.26, abd, c.exists && c.voiceless ? OPEN : ADD, 0.08);
+                R (tb + 0.26, abd, first.exists && first.voiceless ? OPEN : ADD, 0.08);
                 ev.push (vowelEvent (tb, vowelOf (sung), 0.25, m));
             }
 
-            // Starting on a stop: push only once it is closed (a flow cut
-            // off half way through closing clicks).
-            const bool stopStart = c.exists && (c.kind == Kind::stop || c.kind == Kind::aff);
-            R (stopStart ? t0 - lead + 0.035 : t0 - lead - 0.035, ps, psv, stopStart ? 0.04 : 0.07);
+            // Starting on a consonant that closes or narrows the mouth, push
+            // only once it has: before, the vowel sounds first (measure as
+            // "i-measure"), and a flow cut off half way through closing clicks.
+            const bool stopStart = first.exists && (first.kind == Kind::stop || first.kind == Kind::aff || first.kind == Kind::nas
+                                                     || first.kind == Kind::lat || first.vz);
+            R (stopStart ? t0 - leadAll + 0.035 : t0 - leadAll - 0.035, ps, psv, stopStart ? 0.04 : 0.07);
         }
         else if (mora.v == '-')
         {
@@ -916,8 +1440,9 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     // A long note swells and eases off, over its own length.
     if (mora.v != 'Q' && mora.v != '-' && ! n.open && n.dur >= 0.5)
     {
-        R (t0 + 0.1, gain, x.g * (1 + 0.12 * x.bounce), n.dur * 0.5);
-        R (t0 + n.dur * 0.68, gain, x.g * (1 - 0.08 * x.bounce), n.dur * 0.3);
+        const double gw = x.g * (weak ? 0.85 : 1);
+        R (t0 + 0.1, gain, gw * (1 + 0.12 * x.bounce), n.dur * 0.5);
+        R (t0 + n.dur * 0.68, gain, gw * (1 - 0.08 * x.bounce), n.dur * 0.3);
     }
 
     // Vibrato, from part way through a held note.
@@ -948,7 +1473,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
             R (te - w, gain, 0.5, w + 0.05);
         }
 
-        planRelease (te, n.dur, gapAfter, st, narrowV, x.end == Expression::End::up, ev);
+        planRelease (te, n.dur, gapAfter, st, narrowV || (st.vowel >= 0 && isNarrow ((char) st.vowel)), x.end == Expression::End::up, ev);
     }
 }
 
@@ -979,6 +1504,8 @@ void planRelease (double te, double dur, double gapAfter, PlanState& st, bool na
         st.nasal = -1;
     }
 
+    openHeld (st, t2, 0.08, ev);
+
     // A narrow vowel relaxes the mouth before the voice has gone.
     ev.push (vowelEvent (narrow ? te - fo * 0.6 : te + rel * 0.5, vx, narrow ? 0.2 : 0.25, 0));
     st.abdOpen = false;
@@ -986,7 +1513,7 @@ void planRelease (double te, double dur, double gapAfter, PlanState& st, bool na
 
 void planRelease (double te, double dur, double gapAfter, PlanState& st, EventList& ev)
 {
-    planRelease (te, dur, gapAfter, st, st.vowel == 'i' || st.vowel == 'u', false, ev);
+    planRelease (te, dur, gapAfter, st, st.vowel >= 0 && isNarrow ((char) st.vowel), false, ev);
 }
 
 //==============================================================================
@@ -1031,22 +1558,67 @@ std::vector<Event> planScore (const std::vector<SungNote>& notes, double start, 
     return out;
 }
 
-std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed)
+std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed,
+                                          bool english)
 {
     std::vector<SungNote> sung;
     std::vector<size_t> source;
 
+    std::vector<std::vector<Mora>> per (notes.size());
+
+    for (size_t k = 0; k < notes.size(); ++k)
+        per[k] = english ? parseEnglish (notes[k].lyric.empty() ? std::string ("aa1") : notes[k].lyric)
+                         : parseLyrics (notes[k].lyric.empty() ? std::string ("\xe3\x81\x82") : notes[k].lyric);
+
+    // English: a note whose lyric is "+" carries on the word of the note
+    // before, a syllable each (the last note takes what is left over; with
+    // syllables run short, the vowel before is held).
+    if (english)
+        for (size_t i = 0; i < per.size(); ++i)
+        {
+            size_t k = 0;
+
+            while (i + k + 1 < per.size() && per[i + k + 1].size() == 1 && per[i + k + 1][0].cont)
+                ++k;
+
+            if (k == 0)
+                continue;
+
+            const auto all = per[i];
+            Mora dash;
+            dash.v = '-';
+
+            for (size_t j = 0; j <= k; ++j)
+            {
+                if (j < k)
+                    per[i + j] = { j < all.size() ? all[j] : dash };
+                else
+                    per[i + j] = all.size() > k ? std::vector<Mora> (all.begin() + (long) k, all.end()) : std::vector<Mora> { dash };
+            }
+
+            i += k;
+        }
+
     for (size_t k = 0; k < notes.size(); ++k)
     {
         const auto& n = notes[k];
-        const auto moras = parseLyrics (n.lyric.empty() ? std::string ("\xe3\x81\x82") : n.lyric);
-        const auto count = (double) moras.size();
+        const auto& moras = per[k];
+
+        // Two syllables or more on a note: a stressed one longer, a weak one shorter.
+        double sum = 0;
+
+        for (const auto& m : moras)
+            sum += m.en ? (m.stress == 1 ? 1.3 : m.stress == 2 ? 1.1 : 0.7) : 1;
+
+        double at = 0;
 
         for (size_t i = 0; i < moras.size(); ++i)
         {
+            const double w = moras[i].en ? (moras[i].stress == 1 ? 1.3 : moras[i].stress == 2 ? 1.1 : 0.7) : 1;
             SungNote s;
-            s.t = n.start + (double) i * n.length / count;
-            s.dur = n.length / count;
+            s.t = n.start + at;
+            s.dur = n.length * w / sum;
+            at += s.dur;
             s.midi = n.midi;
             s.mora = moras[i];
             s.speed = speed;

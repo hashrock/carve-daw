@@ -593,6 +593,11 @@ public:
     // the way the instruments above keep theirs.
     static constexpr const char* vocalModelType = "vocal-model";
 
+    // The same singer reading its lyrics as English: words through a
+    // pronouncing dictionary, a "+" note carrying on the word before. The
+    // same plugin, told the language when it is made.
+    static constexpr const char* vocalModelEnType = "vocal-model-en";
+
     // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
     // the file is kept the way a sampler sound's is -- one SOUND node, with
     // the relative-path, missing-media and relink handling that comes with
@@ -613,7 +618,8 @@ public:
     bool isAcousticDrums() const { return getType() == acousticDrumsType; }
     bool isElectricBass() const  { return getType() == electricBassType; }
     bool isPiano() const         { return getType() == pianoType; }
-    bool isVocalModel() const    { return getType() == vocalModelType; }
+    bool isVocalModel() const    { return getType() == vocalModelType || getType() == vocalModelEnType; }
+    bool isEnglishVocalModel() const  { return getType() == vocalModelEnType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
                                                  || isAcousticDrums() || isElectricBass() || isPiano()
                                                  || isVocalModel(); }

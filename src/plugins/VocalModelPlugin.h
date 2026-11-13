@@ -80,6 +80,7 @@ public:
                              brightnessValue, bodyValue, ringValue, airValue,      // mic and room
                              reverbValue, volumeValue,
                              strengthValue, speedValue;                            // expression, how quickly it moves
+    juce::CachedValue<bool> englishValue;
 
     te::AutomatableParameter::Ptr tractLength, fold, resonance, breath, press, registerMix, jitter, shimmer,
                                   throat, pharynx, twang,
@@ -88,6 +89,12 @@ public:
 
     // What a live key sings (not automatable: text).
     juce::CachedValue<juce::String> liveLyric;
+
+    // Modelled Voice (EN): the lyrics are English (words, "+" carrying on the
+    // word before) rather than Japanese. Set by the sync as the plugin is
+    // made, from the generator's type; not an undoable edit.
+    bool isEnglish() const   { return englishValue.get(); }
+    void setEnglish (bool);
 
     // Sets every knob a character has, as one undoable change (message thread).
     void applyCharacter (int index);

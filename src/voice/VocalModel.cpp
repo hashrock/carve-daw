@@ -20,13 +20,14 @@ namespace
     constexpr int CTL = 32;           // control period, in steps
 
     // Places along the tract, glottis 0 to lips 1.
-    constexpr double placePos[numPlaces] = { 1.0, 0.915, 0.875, 0.83, 0.755, 0.64, 0.585 };
+    constexpr double placePos[numPlaces] = { 1.0, 0.915, 0.875, 0.83, 0.755, 0.64, 0.585, 0.925, 0.86, 0.64 };
 
     // Turbulence noise per place: [strength, high-pass Hz, low-pass Hz (0 = none)],
     // as tuned by ear in the prototype's phoneme lab.
     constexpr double noiseOf[numPlaces][3] = {
         { 4.7, 1200, 6000 }, { 2.85, 5150, 11000 }, { 2.9, 3650, 8300 }, { 6.5, 3100, 8900 },
-        { 4.4, 1200, 4500 }, { 6.75, 3600, 1000 }, { 0.5, 700, 5000 }
+        { 4.4, 1200, 4500 }, { 6.75, 3600, 1000 }, { 0.5, 700, 5000 },
+        { 0.9, 1500, 9000 }, { 0, 1000, 0 }, { 3, 900, 4500 }   // ide, lat (no hiss), veE
     };
 
     // The nasal cavity's cross-section [cm^2], velum to nostrils.
@@ -147,6 +148,28 @@ namespace
             {{ { 479, { 0.687, 1.303, 0.209, 2.591, 2.706, 1.922 } }, { 579, { 0.678, 1.684, 0.208, 2.229, 2.702, 2.284 } } }},
             {{ { 499, { 0.393, 0.670, 0.212, 2.693, 3.399, 1.095 } }, { 586, { 0.383, 0.670, 0.245, 2.816, 3.400, 1.491 } } }},
         }} },
+    };
+
+    // English vowels (EN_VOWELS), the same for every preset: fitted by
+    // tools/fit-en-vowels.mjs to American English averages at a 17cm tract.
+    struct EnVowel { Vowel v; int count; VowelVariant variants[maxVariants]; };
+    const EnVowel enVowels[] = {
+        { vIY, 4, { { 342, { 0.736, 0.823, 0.239, 2.747, 1.815, 1.816 } }, { 439, { 0.708, 0.993, 0.268, 2.198, 2.036, 2.036 } },
+                    { 533, { 0.681, 1.153, 0.288, 1.876, 2.496, 2.498 } }, { 585, { 0.654, 1.157, 0.360, 1.714, 3.099, 3.090 } } } },
+        { vIH, 3, { { 428, { 0.690, 1.068, 0.215, 2.543, 2.045, 1.695 } }, { 526, { 0.689, 1.328, 0.206, 2.168, 2.134, 2.134 } },
+                    { 587, { 0.693, 1.466, 0.236, 1.866, 2.378, 2.378 } } } },
+        { vEYs, 2, { { 476, { 0.723, 1.369, 0.223, 2.623, 2.551, 2.181 } }, { 573, { 0.695, 1.571, 0.247, 2.136, 2.653, 2.653 } } } },
+        { vEH, 1, { { 581, { 0.619, 1.265, 0.289, 2.057, 2.916, 2.350 } } } },
+        { vAE, 1, { { 588, { 0.647, 1.477, 0.299, 2.086, 2.813, 2.528 } } } },
+        { vAA, 1, { { 767, { 0.289, 0.732, 0.203, 1.579, 3.108, 2.684 } } } },
+        { vAO, 1, { { 650, { 0.363, 0.670, 0.215, 2.387, 3.400, 1.833 } } } },
+        { vOWs, 2, { { 497, { 0.371, 0.670, 0.192, 2.603, 3.208, 1.043 } }, { 588, { 0.370, 0.670, 0.212, 2.748, 3.400, 1.556 } } } },
+        { vUH, 2, { { 469, { 0.355, 0.890, 0.212, 2.401, 3.189, 0.901 } }, { 568, { 0.340, 0.771, 0.216, 2.384, 3.098, 1.220 } } } },
+        { vUW, 3, { { 378, { 0.351, 0.713, 0.197, 2.453, 3.380, 0.700 } }, { 477, { 0.345, 0.670, 0.198, 2.470, 3.047, 0.903 } },
+                    { 577, { 0.349, 0.670, 0.194, 2.601, 3.111, 1.363 } } } },
+        { vAH, 1, { { 623, { 0.359, 0.916, 0.203, 2.153, 2.954, 1.459 } } } },
+        { vAX, 2, { { 499, { 0.644, 1.207, 0.189, 2.350, 3.014, 1.577 } }, { 589, { 0.610, 1.424, 0.186, 2.059, 3.040, 1.771 } } } },
+        { vER, 2, { { 471, { 0.684, 0.670, 0.167, 0.900, 2.733, 0.971 } }, { 566, { 0.645, 0.845, 0.140, 0.900, 2.834, 1.190 } } } },
     };
 
     const Character characters[numCharacters] = {
@@ -390,6 +413,14 @@ Synth::Synth (double sampleRate, const Options& options)
     setVowelTable (getVowelPreset (o.vowelPreset));
     shapes[vx][0] = { 560, toLogArea (buildShape (REST)) };
     shapeCount[vx] = 1;
+
+    for (const auto& e : enVowels)
+    {
+        shapeCount[e.v] = e.count;
+
+        for (int j = 0; j < e.count; ++j)
+            shapes[e.v][(size_t) j] = { e.variants[j].f1, toLogArea (buildShape (e.variants[j].p)) };
+    }
 
     vCur = shapes[vx][0].s;
     vA0 = vCur;
@@ -794,7 +825,10 @@ void Synth::control (bool init)
         if (g <= 0)
             continue;
 
-        anyConstriction = true;
+        // An l (air past the tongue's sides) can be held, as a vowel can: the
+        // mouth counts as open, and the pitch is still corrected through it.
+        if (q != lat)
+            anyConstriction = true;
         const double c = cur[(size_t) cLab + (size_t) q];
         const auto& b = bump[(size_t) q];
 
@@ -823,7 +857,7 @@ void Synth::control (bool init)
 
     // Nasality: the velum a little open during vowels only, and only once
     // the voice is going (opened before, a low い or う cannot start).
-    const double vn = vowel < 5 ? o.vowelNasal[(size_t) vowel] : 1.0;
+    const double vn = vowel < 5 ? o.vowelNasal[(size_t) vowel] : vowel == vx ? 1.0 : 0.2;   // English vowels: a little
     nasV += ((anyC || voiced == 0 ? 0 : o.nasal * vn * 0.25e-4) - nasV) * (init ? 1 : voiced != 0 && ! anyC ? 0.002 : 0.15);
     tract.setAreas (A.data(), std::max (cur[velum], nasV), init ? 0 : CTL);
 

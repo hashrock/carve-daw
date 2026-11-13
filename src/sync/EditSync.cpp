@@ -221,7 +221,8 @@ namespace
                  : generator.isAcousticDrums() ? dynamic_cast<plugins::AcousticDrumsPlugin*> (existing) != nullptr
                  : generator.isElectricBass() ? dynamic_cast<plugins::ElectricBassPlugin*> (existing) != nullptr
                  : generator.isPiano() ? dynamic_cast<plugins::PianoPlugin*> (existing) != nullptr
-                 : generator.isVocalModel() ? dynamic_cast<plugins::VocalModelPlugin*> (existing) != nullptr
+                 : generator.isVocalModel() ? (dynamic_cast<plugins::VocalModelPlugin*> (existing) != nullptr
+                                               && dynamic_cast<plugins::VocalModelPlugin*> (existing)->isEnglish() == generator.isEnglishVocalModel())
                                             : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
@@ -251,6 +252,11 @@ namespace
             if (auto synth = dynamic_cast<te::FourOscPlugin*> (plugin.get()))
                 applyNewSynthDefaults (*synth);
         }
+
+        // Modelled Voice (JP) and (EN) are one plugin, told which language
+        // its lyrics are in.
+        if (auto singer = dynamic_cast<plugins::VocalModelPlugin*> (plugin.get()))
+            singer->setEnglish (generator.isEnglishVocalModel());
 
         if (plugin != nullptr)
             track.pluginList.insertPlugin (plugin, 0, nullptr);

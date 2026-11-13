@@ -245,7 +245,11 @@ juce_add_binary_data(carve-instrument-data
     NAMESPACE CarveInstrumentData
     SOURCES
         assets/instruments/acoustic-drums.ctd
-        assets/instruments/electric-bass.bas)
+        assets/instruments/electric-bass.bas
+        # Modelled Voice (EN)'s pronouncing dictionary: the CMU Pronouncing
+        # Dictionary, as the web-voice prototype's tools/build-en-dict.mjs
+        # writes it (see THIRD_PARTY_NOTICES.txt).
+        assets/voice/en-dict.txt)
 
 function(carve_configure_target target)
     target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})

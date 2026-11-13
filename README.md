@@ -13,7 +13,7 @@ Synapse Audio の **Orion** を参考にした、Generator 中心・パターン
   **Electric Bass** (実録ベースの再合成、ハンマリング・スライド) / **Modelled Piano** (物理モデルのアコースティックピアノ) /
   Sampler / Drum Sampler (16 パッド) /
   SF2 Player (.sf2) / **UTAU Singer** (ピアノロールで歌詞を打つと UTAU 形式の音源が歌う) /
-  **Modelled Voice** (録音を使わない物理モデルの日本語歌声。肺・声帯・声道を計算して歌詞を歌う) /
+  **Modelled Voice (JP) / (EN)** (録音を使わない物理モデルの歌声。肺・声帯・声道を計算して日本語または英語の歌詞を歌う) /
   **Break Slicer** (ドラムループを切って刻む) / VST3・AU / オーディオトラック
 - **作曲**: パターンとプレイリスト、ピアノロール、テンポ・拍子の変更、
   オートメーションと LFO

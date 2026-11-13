@@ -30,7 +30,10 @@ constexpr int NN = 32;           // nasal sections
 constexpr int noseStart = 23;    // where the nose branches off (the velum)
 
 // Places of articulation, glottis 0 to lips 1 (PLACES in the prototype).
-enum Place : std::uint8_t { lab, den, alv, apl, pal, vel, uvu, numPlaces };
+// English adds ide (between the teeth: th), lat (the tongue tip on the ridge,
+// air past its sides: l -- no hiss) and veE (English k and g: where vel is,
+// with a burst of its own).
+enum Place : std::uint8_t { lab, den, alv, apl, pal, vel, uvu, ide, lat, veE, numPlaces };
 
 // The articulators the singer moves, each with a smooth ramp of its own.
 // gXxx is how far the narrowing at place Xxx is closed (0..1), cXxx the area
@@ -38,8 +41,8 @@ enum Place : std::uint8_t { lab, den, alv, apl, pal, vel, uvu, numPlaces };
 enum Param : std::uint8_t
 {
     pitch, ps, abd, velum, vib, breath,
-    gLab, gDen, gAlv, gApl, gPal, gVel, gUvu,
-    cLab, cDen, cAlv, cApl, cPal, cVel, cUvu,
+    gLab, gDen, gAlv, gApl, gPal, gVel, gUvu, gIde, gLat, gVeE,
+    cLab, cDen, cAlv, cApl, cPal, cVel, cUvu, cIde, cLat, cVeE,
     air, gain,
     numParams
 };
@@ -47,8 +50,11 @@ enum Param : std::uint8_t
 constexpr Param gParam (Place p)  { return (Param) ((int) gLab + (int) p); }
 constexpr Param cParam (Place p)  { return (Param) ((int) cLab + (int) p); }
 
-// Vowel shapes. x is the relaxed mouth (between phrases).
-enum Vowel : std::uint8_t { va, vi, vu, ve, vo, vx, numVowels };
+// Vowel shapes. x is the relaxed mouth (between phrases). After it, English
+// (ARPAbet): a diphthong moves between two of them (EYs is ei's start, OWs
+// ou's); AX is the reduced vowel, ER the r-coloured one.
+enum Vowel : std::uint8_t { va, vi, vu, ve, vo, vx,
+                            vIY, vIH, vEYs, vEH, vAE, vAA, vAO, vOWs, vUH, vUW, vAH, vAX, vER, numVowels };
 
 // The shape of a vowel in six numbers (buildShape's arguments): where the
 // tongue is highest, how narrow it is there and over how much, the width of
