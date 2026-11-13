@@ -43,13 +43,13 @@ public:
     explicit UtauPlugin (te::PluginCreationInfo);
     ~UtauPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("Singer"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("UTAU Singer"); }
     static const char* xmlTypeName;
 
-    juce::String getName() const override             { return "Singer"; }
+    juce::String getName() const override             { return "UTAU Singer"; }
     juce::String getPluginType() override             { return xmlTypeName; }
-    juce::String getShortName (int) override          { return "Singer"; }
-    juce::String getSelectableDescription() override  { return TRANS ("Singer"); }
+    juce::String getShortName (int) override          { return "UTAU"; }
+    juce::String getSelectableDescription() override  { return TRANS ("UTAU Singer"); }
 
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
     bool takesMidiInput() override                    { return true; }

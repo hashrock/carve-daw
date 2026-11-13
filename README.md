@@ -9,11 +9,11 @@ Synapse Audio の **Orion** を参考にした、Generator 中心・パターン
 
 ## 機能
 
-- **楽器**: Slate (内蔵シンセ) / Analog Drums / Gabber Kick / **Acoustic Drums** (実録キットの再合成) /
-  **Electric Bass** (実録ベースの再合成、ハンマリング・スライド) / **Piano** (物理モデルのアコースティックピアノ) /
-  サンプラー / 16 パッドのドラムキット /
-  SF2 Player (.sf2) / **Singer** (ピアノロールで歌詞を打つと UTAU 形式の音源が歌う) /
-  **Vocal Model** (録音を使わない物理モデルの日本語歌声。肺・声帯・声道を計算して歌詞を歌う) /
+- **楽器**: Slate Synth (内蔵シンセ) / Drum Synth / Kick Designer (ガバキック) / **Acoustic Drums** (実録キットの再合成) /
+  **Electric Bass** (実録ベースの再合成、ハンマリング・スライド) / **Modelled Piano** (物理モデルのアコースティックピアノ) /
+  Sampler / Drum Sampler (16 パッド) /
+  SF2 Player (.sf2) / **UTAU Singer** (ピアノロールで歌詞を打つと UTAU 形式の音源が歌う) /
+  **Modelled Voice** (録音を使わない物理モデルの日本語歌声。肺・声帯・声道を計算して歌詞を歌う) /
   **Break Slicer** (ドラムループを切って刻む) / VST3・AU / オーディオトラック
 - **作曲**: パターンとプレイリスト、ピアノロール、テンポ・拍子の変更、
   オートメーションと LFO

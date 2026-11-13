@@ -27,13 +27,13 @@ public:
     explicit PianoPlugin (te::PluginCreationInfo);
     ~PianoPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("Piano"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("Modelled Piano"); }
     static const char* xmlTypeName;
 
-    juce::String getName() const override             { return "Piano"; }
+    juce::String getName() const override             { return "Modelled Piano"; }
     juce::String getPluginType() override             { return xmlTypeName; }
     juce::String getShortName (int) override          { return "Piano"; }
-    juce::String getSelectableDescription() override  { return TRANS ("Piano"); }
+    juce::String getSelectableDescription() override  { return TRANS ("Modelled Piano"); }
 
     int getNumOutputChannelsGivenInputs (int numInputChannels) override  { return juce::jmin (numInputChannels, 2); }
     bool takesMidiInput() override                    { return true; }

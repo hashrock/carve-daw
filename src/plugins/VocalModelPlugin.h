@@ -48,13 +48,13 @@ public:
     explicit VocalModelPlugin (te::PluginCreationInfo);
     ~VocalModelPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("Vocal Model"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("Modelled Voice"); }
     static const char* xmlTypeName;
 
-    juce::String getName() const override             { return "Vocal Model"; }
+    juce::String getName() const override             { return "Modelled Voice"; }
     juce::String getPluginType() override             { return xmlTypeName; }
-    juce::String getShortName (int) override          { return "Vocal"; }
-    juce::String getSelectableDescription() override  { return TRANS ("Vocal Model"); }
+    juce::String getShortName (int) override          { return "Voice"; }
+    juce::String getSelectableDescription() override  { return TRANS ("Modelled Voice"); }
 
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
     bool takesMidiInput() override                    { return true; }

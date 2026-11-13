@@ -233,11 +233,10 @@ private:
     // comes through here.
     void rememberMedia (MediaKind, const juce::File&);
 
-    // A generator made empty is named "Sampler 3", "Singer 2"...; the first
-    // file it is given names it instead, unless the user has named it
+    // A generator made empty is named "Sampler 3", "UTAU Singer 2"...; the
+    // first file it is given names it instead, unless the user has named it
     // something else meanwhile.
-    void nameAfterFirstMedia (model::Generator&, bool wasEmpty, const juce::String& placeholderStem,
-                              const juce::String& newName);
+    void nameAfterFirstMedia (model::Generator&, bool wasEmpty, const juce::String& newName);
 
     // Everything behind showPatternMenu works on (generatorId, patternId)
     // rather than on a Pattern, because the menu and the file choosers behind

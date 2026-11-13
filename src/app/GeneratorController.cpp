@@ -1,5 +1,8 @@
 #include "GeneratorController.h"
 
+#include <algorithm>
+#include <map>
+
 #include "DrumPadGrid.h"
 #include "model/MidiPatternIO.h"
 #include "voice/Voicebank.h"
@@ -32,36 +35,79 @@ double GeneratorController::newPatternLengthBeats() const
 
 namespace
 {
-// The kinds of generator the menus offer, in menu order: what each is called
-// there, its type, the name a new one is given ("Piano 3"), and whether it
-// is made empty and so opens on its Inst tab to be filled. The add menu
-// offers all of them; Replace Instrument the ones that play patterns.
+// The kinds of generator the menus offer, by submenu and in menu order:
+// what each is called (and so what a new one is named: "Drum Synth 3"), a
+// word on what it is, shown beside the name, its type, the name it had
+// before the instruments were renamed (an old song's "Slate 3" is still a
+// name the app gave it), and whether it is made empty and so opens on its
+// Inst tab to be filled. The add menu offers all of them; Replace
+// Instrument the ones that play patterns. The rows without a group (audio,
+// reference) sit on the menu itself, under the groups.
 struct GeneratorChoice
 {
     int menuId;
-    const char* label;
+    const char* group;
+    const char* name;
+    const char* hint;
     const char* type;
-    const char* stem;
+    const char* oldStem;
     bool opensSetup;
 };
 
 constexpr GeneratorChoice generatorChoices[]
 {
-    { 1,  "Slate (internal synth)",                 model::Generator::synthType,         "Slate",       false },
-    { 6,  "Analog Drums (internal drum synth)",     model::Generator::drumSynthType,     "Drums",       false },
-    { 10, "Gabber Kick (kick designer)",            model::Generator::gabberKickType,    "Gabber Kick", true },
-    { 11, "Acoustic Drums (recorded kit)",          model::Generator::acousticDrumsType, "Drums",       false },
-    { 12, "Electric Bass (recorded bass)",          model::Generator::electricBassType,  "Bass",        false },
-    { 14, "Piano (modelled acoustic piano)",        model::Generator::pianoType,         "Piano",       false },
-    { 3,  "Sampler",                                model::Generator::samplerType,       "Sampler",     true },
-    { 4,  "Drum Kit (16 pads)",                     model::Generator::drumKitType,       "Drum Kit",    false },
-    { 7,  "SF2 Player (.sf2)",                      model::Generator::soundFontType,     "SF2",         true },
-    { 8,  "Singer (voicebank)",                     model::Generator::utauType,          "Singer",      true },
-    { 15, "Vocal Model (modelled Japanese singer)", model::Generator::vocalModelType,    "Vocal",       false },
-    { 9,  "Break Slicer (drum loop)",               model::Generator::breakType,         "Break",       true },
-    { 5,  "Audio track",                            model::Generator::audioType,         "Audio",       false },
-    { 13, "Reference track",                        model::Generator::referenceType,     "Reference",   false },
+    { 1,  "Synth & Keys", "Slate Synth",    "subtractive synth",     model::Generator::synthType,         "Slate",       false },
+    { 14, "Synth & Keys", "Modelled Piano", "acoustic piano",        model::Generator::pianoType,         "Piano",       false },
+    { 12, "Synth & Keys", "Electric Bass",  "resynthesized Jazz Bass", model::Generator::electricBassType,  "Bass",        false },
+    { 6,  "Drums",        "Drum Synth",     "analog-style kit",      model::Generator::drumSynthType,     "Drums",       false },
+    { 11, "Drums",        "Acoustic Drums", "resynthesized kit",     model::Generator::acousticDrumsType, "Drums",       false },
+    { 4,  "Drums",        "Drum Sampler",   "16 pads",               model::Generator::drumKitType,       "Drum Kit",    false },
+    { 10, "Drums",        "Kick Designer",  "gabber / hard kicks",   model::Generator::gabberKickType,    "Gabber Kick", true },
+    { 15, "Voice",        "Modelled Voice", "Japanese singer",       model::Generator::vocalModelType,    "Vocal",       false },
+    { 8,  "Voice",        "UTAU Singer",    "voicebank",             model::Generator::utauType,          "Singer",      true },
+    { 3,  "Sampler",      "Sampler",        "one sample",            model::Generator::samplerType,       "Sampler",     true },
+    { 7,  "Sampler",      "SF2 Player",     ".sf2",                  model::Generator::soundFontType,     "SF2",         true },
+    { 9,  "Sampler",      "Break Slicer",   "chops a drum loop",     model::Generator::breakType,         "Break",       true },
+    { 5,  nullptr,        "Audio track",    "",                      model::Generator::audioType,         "Audio",       false },
+    { 13, nullptr,        "Reference track", "",                     model::Generator::referenceType,     "Reference",   false },
 };
+
+const GeneratorChoice* findChoiceForType (const juce::String& type)
+{
+    for (const auto& choice : generatorChoices)
+        if (type == choice.type)
+            return &choice;
+
+    return nullptr;
+}
+
+// What a new generator of a choice is named: "Drum Synth 3" (an audio row
+// "Audio 3").
+juce::String newNameStem (const GeneratorChoice& choice)
+{
+    return choice.group != nullptr ? juce::String (choice.name) : juce::String (choice.oldStem);
+}
+
+// The stem of a name the app gave a generator of this type, "Drum Synth" for
+// "Drum Synth 3" (or, from an older song, "Drums" for "Drums 3"); empty for
+// a name the user gave it.
+juce::String givenNameStem (const juce::String& name, const juce::String& type)
+{
+    const auto* choice = findChoiceForType (type);
+
+    if (choice == nullptr)
+        return {};
+
+    for (const auto& stem : { newNameStem (*choice), juce::String (choice->oldStem) })
+    {
+        const auto rest = name.substring (stem.length());
+
+        if (name.startsWith (stem + " ") && rest.length() > 1 && rest.substring (1).containsOnly ("0123456789"))
+            return stem;
+    }
+
+    return {};
+}
 
 const GeneratorChoice* findChoice (int menuId)
 {
@@ -96,24 +142,114 @@ juce::Array<juce::PluginDescription> instrumentPlugins (te::Engine& engine)
 }
 
 constexpr int firstPluginItem = 100;
+
+// The instruments as submenus of `menu`: a submenu a group of the built-in
+// ones, then the plugins, by maker when there are several makers. The
+// current instrument (a built-in type, or a plugin) is ticked, and so is the
+// submenu it is in. Plugin items are firstPluginItem + their index in
+// `instruments`. The ungrouped rows are left to the caller.
+void addInstrumentMenus (juce::PopupMenu& menu, bool playingOnly, const juce::Array<juce::PluginDescription>& instruments,
+                         const juce::String& currentType = {}, const juce::PluginDescription* currentPlugin = nullptr)
+{
+    juce::StringArray groups;
+
+    for (const auto& choice : generatorChoices)
+        if (choice.group != nullptr)
+            groups.addIfNotAlreadyThere (choice.group);
+
+    for (const auto& group : groups)
+    {
+        juce::PopupMenu sub;
+        bool holdsCurrent = false;
+
+        for (const auto& choice : generatorChoices)
+        {
+            if (choice.group == nullptr || group != choice.group || (playingOnly && ! playsPatterns (choice)))
+                continue;
+
+            const bool current = currentType == choice.type;
+            holdsCurrent = holdsCurrent || current;
+            juce::PopupMenu::Item item (choice.name);
+            item.setID (choice.menuId).setTicked (current);
+            item.shortcutKeyDescription = choice.hint;   // drawn dimmed on the right
+            sub.addItem (std::move (item));
+        }
+
+        menu.addSubMenu (group, sub, true, nullptr, holdsCurrent);
+    }
+
+    if (instruments.isEmpty())
+        return;
+
+    auto isCurrent = [&] (const juce::PluginDescription& d)
+    {
+        return currentType == "plugin" && currentPlugin != nullptr
+                && currentPlugin->createIdentifierString() == d.createIdentifierString();
+    };
+
+    // By maker, each sorted by name; one maker's plugins go straight in.
+    struct Caseless
+    {
+        bool operator() (const juce::String& a, const juce::String& b) const  { return a.compareIgnoreCase (b) < 0; }
+    };
+
+    std::map<juce::String, std::vector<int>, Caseless> byMaker;
+
+    for (int i = 0; i < instruments.size(); ++i)
+    {
+        const auto maker = instruments[i].manufacturerName.trim();
+        byMaker[maker.isEmpty() ? juce::String ("Other") : maker].push_back (i);
+    }
+
+    auto addPlugins = [&] (juce::PopupMenu& to, std::vector<int> indices)
+    {
+        std::sort (indices.begin(), indices.end(), [&] (int a, int b)
+                   { return instruments[a].name.compareNatural (instruments[b].name) < 0; });
+
+        bool any = false;
+
+        for (auto i : indices)
+        {
+            to.addItem (firstPluginItem + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")",
+                        true, isCurrent (instruments[i]));
+            any = any || isCurrent (instruments[i]);
+        }
+
+        return any;
+    };
+
+    juce::PopupMenu plugins;
+    bool holdsCurrent = false;
+
+    if (byMaker.size() == 1)
+    {
+        holdsCurrent = addPlugins (plugins, byMaker.begin()->second);
+    }
+    else
+    {
+        for (auto& [maker, indices] : byMaker)
+        {
+            juce::PopupMenu sub;
+            const bool here = addPlugins (sub, indices);
+            plugins.addSubMenu (maker, sub, true, nullptr, here);
+            holdsCurrent = holdsCurrent || here;
+        }
+    }
+
+    menu.addSubMenu ("Plugins", plugins, true, nullptr, holdsCurrent);
+}
 } // namespace
 
 void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
 {
     juce::PopupMenu menu;
+    const auto instruments = instrumentPlugins (engine);
+    addInstrumentMenus (menu, false, instruments);
+    menu.addSeparator();
 
     for (const auto& choice : generatorChoices)
-        menu.addItem (choice.menuId, choice.label);
-
-    const auto instruments = instrumentPlugins (engine);
-
-    if (! instruments.isEmpty())
-    {
-        menu.addSeparator();
-        menu.addSectionHeader ("Plugins");
-        for (int i = 0; i < instruments.size(); ++i)
-            menu.addItem (firstPluginItem + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")");
-    }
+        if (choice.group == nullptr)
+            menu.addItem (choice.menuId, choice.name);
 
    #if CARVE_PLUGIN_HOSTING
     menu.addSeparator();
@@ -137,7 +273,7 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
             // them, and a singer's piano roll to give it words. An audio or
             // reference row has no instrument at all: its clips are the
             // files dropped on it.
-            addGenerator (juce::String (choice->stem) + " " + juce::String (song.getNumGenerators() + 1),
+            addGenerator (newNameStem (*choice) + " " + juce::String (song.getNumGenerators() + 1),
                           choice->type, nullptr);
 
             if (choice->opensSetup && onOpenInstrumentForSetup)
@@ -240,7 +376,7 @@ void GeneratorController::assignSample (model::Generator generator, const juce::
     // unless it is still the one it was made with.
     const bool wasEmpty = generator.getSounds().empty();
     generator.setSingleSound (sample, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "Sampler", sample.getFileNameWithoutExtension());
+    nameAfterFirstMedia (generator, wasEmpty, sample.getFileNameWithoutExtension());
     rememberMedia (MediaKind::sample, sample);
     refresh();
 }
@@ -308,7 +444,7 @@ void GeneratorController::assignSoundFont (model::Generator generator, const juc
     undoManager.beginNewTransaction();
     const bool wasEmpty = generator.getSounds().empty();
     generator.setSoundFontFile (soundFont, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "SF2", soundFont.getFileNameWithoutExtension());
+    nameAfterFirstMedia (generator, wasEmpty, soundFont.getFileNameWithoutExtension());
     rememberMedia (MediaKind::soundFont, soundFont);
     refresh();
 }
@@ -399,7 +535,7 @@ void GeneratorController::assignVoicebank (model::Generator generator, const juc
     undoManager.beginNewTransaction();
     const bool wasEmpty = generator.getSounds().empty();
     generator.setVoicebankFolder (folder, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "Singer", voice::Voicebank::readName (folder));
+    nameAfterFirstMedia (generator, wasEmpty, voice::Voicebank::readName (folder));
     rememberMedia (MediaKind::voicebank, folder);
     refresh();
 }
@@ -505,7 +641,7 @@ void GeneratorController::assignBreak (model::Generator generator, const juce::F
 
     const bool wasEmpty = generator.getSounds().empty();
     generator.setBreakFile (loop, seconds, beatsPerBar, &undoManager);
-    nameAfterFirstMedia (generator, wasEmpty, "Break", loop.getFileNameWithoutExtension());
+    nameAfterFirstMedia (generator, wasEmpty, loop.getFileNameWithoutExtension());
     rememberMedia (MediaKind::breakLoop, loop);
 
     // Otherwise the loop as recorded goes in the pattern the slicer was made
@@ -696,18 +832,14 @@ void GeneratorController::recentMediaChosen (MediaKind kind, const juce::File& f
     }
 }
 
-void GeneratorController::nameAfterFirstMedia (model::Generator& generator, bool wasEmpty,
-                                               const juce::String& placeholderStem, const juce::String& newName)
+void GeneratorController::nameAfterFirstMedia (model::Generator& generator, bool wasEmpty, const juce::String& newName)
 {
     if (! wasEmpty || newName.isEmpty())
         return;
 
     const auto name = generator.getName();
-    const auto number = name.fromFirstOccurrenceOf (placeholderStem + " ", false, false);
-    const bool isPlaceholder = name.startsWith (placeholderStem + " ") && number.isNotEmpty()
-                                && number.containsOnly ("0123456789");
 
-    if (! isPlaceholder)
+    if (givenNameStem (name, generator.getType()).isEmpty())
         return;
 
     // Its first pattern was named from the placeholder too ("Si1" for
@@ -1153,26 +1285,10 @@ void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
     if (generator->canReplaceInstrument())
     {
         juce::PopupMenu replaceMenu;
-        const auto currentType = generator->getType();
-
-        for (const auto& choice : generatorChoices)
-            if (playsPatterns (choice))
-                replaceMenu.addItem (choice.menuId, choice.label, true, currentType == choice.type);
-
         instruments = instrumentPlugins (engine);
-
-        if (! instruments.isEmpty())
-        {
-            const auto current = generator->getPluginDescription();
-            replaceMenu.addSeparator();
-            replaceMenu.addSectionHeader ("Plugins");
-
-            for (int i = 0; i < instruments.size(); ++i)
-                replaceMenu.addItem (firstPluginItem + i,
-                                     instruments[i].name + "  (" + instruments[i].pluginFormatName + ")", true,
-                                     currentType == "plugin" && current
-                                         && current->createIdentifierString() == instruments[i].createIdentifierString());
-        }
+        const auto current = generator->getPluginDescription();
+        addInstrumentMenus (replaceMenu, true, instruments, generator->getType(),
+                            current ? &*current : nullptr);
 
         menu.addSubMenu ("Replace Instrument", replaceMenu);
     }
@@ -1192,7 +1308,7 @@ void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
         else if (result == 3)
             duplicateGenerator (generatorId);
         else if (const auto* choice = findChoice (result); choice != nullptr && playsPatterns (*choice))
-            replaceInstrument (generatorId, choice->type, choice->stem, nullptr, choice->opensSetup);
+            replaceInstrument (generatorId, choice->type, newNameStem (*choice), nullptr, choice->opensSetup);
         else if (result >= firstPluginItem && result < firstPluginItem + instruments.size())
         {
             const auto& description = instruments.getReference (result - firstPluginItem);
@@ -1238,7 +1354,7 @@ void GeneratorController::replaceInstrument (const juce::String& generatorId, co
     if (! generator || ! generator->canReplaceInstrument())
         return;
 
-    // A name the app gave it ("Slate 3", or a plugin's own name) goes with
+    // A name the app gave it ("Slate Synth 3", or a plugin's own name) goes with
     // the instrument it named: "Piano 3". One the user gave it stays.
     const auto oldStem = [&]() -> juce::String
     {
@@ -1246,11 +1362,7 @@ void GeneratorController::replaceInstrument (const juce::String& generatorId, co
             if (auto current = generator->getPluginDescription())
                 return current->name;
 
-        for (const auto& choice : generatorChoices)
-            if (generator->getType() == choice.type)
-                return choice.stem;
-
-        return {};
+        return givenNameStem (generator->getName(), generator->getType());
     }();
 
     const auto name = generator->getName();

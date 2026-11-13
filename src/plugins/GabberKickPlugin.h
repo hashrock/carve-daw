@@ -34,15 +34,15 @@ public:
     explicit GabberKickPlugin (te::PluginCreationInfo);
     ~GabberKickPlugin() override;
 
-    static const char* getPluginName()  { return NEEDS_TRANS ("Gabber Kick"); }
+    static const char* getPluginName()  { return NEEDS_TRANS ("Kick Designer"); }
     static const char* xmlTypeName;
 
     static constexpr int rootNote = 36;
 
-    juce::String getName() const override             { return "Gabber Kick"; }
+    juce::String getName() const override             { return "Kick Designer"; }
     juce::String getPluginType() override             { return xmlTypeName; }
-    juce::String getShortName (int) override          { return "Gabber"; }
-    juce::String getSelectableDescription() override  { return TRANS ("Gabber Kick"); }
+    juce::String getShortName (int) override          { return "Kick"; }
+    juce::String getSelectableDescription() override  { return TRANS ("Kick Designer"); }
 
     int getNumOutputChannelsGivenInputs (int numInputChannels) override  { return juce::jmin (numInputChannels, 2); }
     bool takesMidiInput() override                    { return true; }
