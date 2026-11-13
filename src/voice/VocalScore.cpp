@@ -269,6 +269,7 @@ namespace
 
     constexpr double ADD = 0.05e-4, OPEN = 0.30e-4;   // the glottis [m^2]: voicing, a voiceless consonant
     constexpr double VELUM = 1.0e-4;                   // the velum, for a nasal
+    constexpr double voicedLeak = 0.02;                // ...and the little of it a voiced closure lets through
 
     // How a phrase ends (voice -> breathy -> breath).
     constexpr double tailFo = 0.5, tailFo0 = 0.07, tailAbd = 0.085e-4, tailAir = 5, tailAirNarrow = 1, tailPsAt = 0.45, tailOver = 0.1;
@@ -520,14 +521,13 @@ std::vector<Expression> autoExpress (const std::vector<SungNote>& notes, double 
             // Accent: the phrase's peak and its start.
             const double accent = j == topI || first ? 1 : peak && n.dur >= 0.2 ? 0.6 : 0;
 
-            // The end: short ones flick up and stop, long ones fall away.
+            // The end: short ones flick up and stop; long ones just fade.
+            // (Not falling away of their own accord: a fall is a choice of
+            // the song's, not something every long last note should do.)
             auto end = Expression::End::none;
 
-            if (last && ! plain)
-                end = n.dur < 0.75 ? Expression::End::up : Expression::End::fall;
-
-            if (last && n.mora.v == '-')
-                end = Expression::End::fall;
+            if (last && ! plain && n.mora.v != '-' && n.dur < 0.75)
+                end = Expression::End::up;
 
             const double vib = n.dur >= 0.5 ? (last ? 1 : 0.7) : 0;
 
@@ -563,6 +563,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     const double dyn = n.dyn;
 
     auto R = [&ev] (double t, Param p, double v, double d)  { ev.push (rampEvent (t, p, v, d)); };
+    const int onsetFrom = ev.size;   // the moves into the note start here (see `speed`)
 
     const double gapBefore = prev != nullptr ? t0 - (prev->t + prev->dur) : 9;
     const double gapAfter = n.open ? 0 : next != nullptr ? next->t - (t0 + n.dur) : 9;
@@ -629,6 +630,20 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
 
             if (! phraseStart)
                 R (T (0.085), ps, psNote * 1.3, D (0.04));
+
+            // A voiced one keeps voicing through the closure, as a singer
+            // does: closed off, the air behind the lips or tongue soon
+            // pushes as hard as the lungs, the folds stop, and だ・ば・が
+            // came out as a gap as silent as た・ぱ・か's -- every such note
+            // cut off from the one before. A little air let out through the
+            // nose keeps it flowing, a hum under the closure (and in が, the
+            // [ŋ] Japanese sings it with between vowels). Shut as the
+            // closure opens: shut any sooner, the pressure it traps pops.
+            if (! c.voiceless && ! phraseStart)
+            {
+                R (T (0.1), velum, VELUM * voicedLeak, D (0.03));
+                R (t0, velum, 0, D (0.015));
+            }
         }
         else if (c.kind == Kind::fric)
         {
@@ -663,6 +678,14 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
             {
                 R (T (0.1), abd, 0.1e-4, 0.02);
                 R (T (0.03), abd, ADD, 0.04);
+
+                // じ: hum through the closure, as a voiced stop does, until
+                // it opens into its hiss.
+                if (! phraseStart)
+                {
+                    R (T (0.17), velum, VELUM * voicedLeak, D (0.03));
+                    R (T (0.1), velum, 0, 0.02);
+                }
             }
         }
         else if (c.kind == Kind::h)
@@ -682,7 +705,9 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         else if (c.kind == Kind::tap)
         {
             // ら: the tongue tip flicks the ridge.
-            ev.push (closeEvent (T (0.055), pl, 0.006e-4, D (0.018)));
+            // Not quite shut: a tap is too quick to stop the voice, and
+            // closed tight it dropped out between every ら and its vowel.
+            ev.push (closeEvent (T (0.055), pl, 0.03e-4, D (0.018)));
             ev.push (openEvent (T (0.022), pl, 0.02));
         }
         else if (c.kind == Kind::gl)
@@ -817,9 +842,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         }
         else
         {
-            R (t0 - 0.035, gain, g * (1 - 0.06 * bo), 0.04);
-            R (t0 + 0.1, gain, g * (1 + 0.12 * bo), n.dur * 0.5);
-            R (t0 + n.dur * 0.68, gain, g * (1 - 0.08 * bo), n.dur * 0.3);
+            R (t0 - 0.035, gain, g * (1 - 0.06 * bo), 0.04);   // and swells, below
         }
     }
 
@@ -855,6 +878,42 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
             R (t0 - 0.03, ps, psv * 1.1, 0.06);   // a push on the start, to bounce
             R (t0 + 0.07, ps, psv, 0.14);
         }
+    }
+
+    // Everything so far is the move into the note: the consonant, the
+    // tongue heading for the vowel, the pitch's scoop and settle, the push
+    // of breath and the accent on the start. `speed` makes all of it
+    // quicker (or slower) about the note's start, together, so a fast song
+    // can have crisp consonants and quick slurs. Slowed, a consonant digs
+    // no further into the note before than 60% of it.
+    if (! same (n.speed, 1.0) && n.speed > 0)
+    {
+        double k = 1.0 / n.speed;
+
+        if (k > 1 && prev != nullptr && ! phraseStart)
+        {
+            double earliest = t0;
+
+            for (int i = onsetFrom; i < ev.size; ++i)
+                earliest = std::min (earliest, ev.events[i].t);
+
+            if (t0 - earliest > 0)
+                k = std::min (k, std::max (t0 - earliest, prev->dur * 0.6) / (t0 - earliest));
+        }
+
+        for (int i = onsetFrom; i < ev.size; ++i)
+        {
+            auto& e = ev.events[i];
+            e.t = t0 + (e.t - t0) * k;
+            e.duration *= k;
+        }
+    }
+
+    // A long note swells and eases off, over its own length.
+    if (mora.v != 'Q' && mora.v != '-' && ! n.open && n.dur >= 0.5)
+    {
+        R (t0 + 0.1, gain, x.g * (1 + 0.12 * x.bounce), n.dur * 0.5);
+        R (t0 + n.dur * 0.68, gain, x.g * (1 - 0.08 * x.bounce), n.dur * 0.3);
     }
 
     // Vibrato, from part way through a held note.
@@ -968,7 +1027,7 @@ std::vector<Event> planScore (const std::vector<SungNote>& notes, double start, 
     return out;
 }
 
-std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength)
+std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed)
 {
     std::vector<SungNote> sung;
     std::vector<size_t> source;
@@ -986,6 +1045,7 @@ std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, do
             s.dur = n.length / count;
             s.midi = n.midi;
             s.mora = moras[i];
+            s.speed = speed;
             sung.push_back (s);
             source.push_back (k);
         }

@@ -78,11 +78,11 @@ public:
                              vibratoValue, vibratoRateValue, driftValue,           // singing
                              brightnessValue, bodyValue, ringValue, airValue,      // mic and room
                              reverbValue, volumeValue,
-                             strengthValue;                                        // expression
+                             strengthValue, speedValue;                            // expression, how quickly it moves
 
     te::AutomatableParameter::Ptr tractLength, fold, resonance, breath, press, registerMix, throat, twang,
                                   nasal, clarity, vowelPreset, vibrato, vibratoRate, drift,
-                                  brightness, body, ring, air, reverb, volume, strength;
+                                  brightness, body, ring, air, reverb, volume, strength, speed;
 
     // What a live key sings (not automatable: text).
     juce::CachedValue<juce::String> liveLyric;
@@ -164,7 +164,7 @@ private:
     std::map<juce::String, Part> parts;
     int nextId = 0;
     juce::uint32 generation = 0;
-    double plannedCenter = 0.0, plannedStrength = 1.0;
+    double plannedCenter = 0.0, plannedStrength = 1.0, plannedSpeed = 1.0;
     std::vector<std::pair<std::shared_ptr<const Plan>, double>> retired;
 
     //==========================================================================

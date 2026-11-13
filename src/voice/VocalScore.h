@@ -56,6 +56,7 @@ struct SungNote
     Mora mora;
     double dyn = 1;
     bool open = false;
+    double speed = 1;    // how quickly it moves into the note: 2 takes half the time
     bool hasExpression = false;
     Expression x;
 };
@@ -116,6 +117,7 @@ struct PartNote
 // A part's notes in singing order -> each note's events, at absolute times
 // on the part's clock. Velocity scales the note's dynamics (100 = as planned).
 // A note whose lyric reads as nothing has no events.
-std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength);
+// `speed` is SungNote::speed for every note.
+std::vector<std::vector<Event>> planPart (const std::vector<PartNote>& notes, double center, double strength, double speed = 1);
 
 } // namespace carve::voice::vocal

@@ -78,6 +78,7 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     reverbValue.referTo (state, "reverb", um, 0.16f);
     volumeValue.referTo (state, "volume", um, 0.8f);
     strengthValue.referTo (state, "strength", um, 1.0f);
+    speedValue.referTo (state, "speed", um, 1.0f);
     liveLyric.referTo (state, "liveLyric", um, {});
 
     auto times = [] (float v) { return juce::String::charToString (0x00d7) + juce::String (v, 2); };
@@ -117,6 +118,9 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
                                                        : juce::String (juce::Decibels::gainToDecibels (v / 0.8f), 1) + " dB"; },
                        [] (const juce::String& s) { return 0.8f * juce::Decibels::decibelsToGain (s.getFloatValue()); });
     strength = addParam ("strength", TRANS ("Expression"), { 0.0f, 2.0f }, times, plain);
+    // How quickly it moves into each note -- consonants, slurs, scoops: up
+    // for a fast song. Skewed so that 1 is in the middle of the knob.
+    speed = addParam ("speed", TRANS ("Speed"), { 0.5f, 2.0f, 0.0f, 0.6309f }, times, plain);   // log 0.5 / log (0.5 / 1.5)
 
     tractLength->attachToCurrentValue (tractLengthValue);
     fold->attachToCurrentValue (foldValue);
@@ -139,10 +143,12 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     reverb->attachToCurrentValue (reverbValue);
     volume->attachToCurrentValue (volumeValue);
     strength->attachToCurrentValue (strengthValue);
+    speed->attachToCurrentValue (speedValue);
 
     setLiveLyric (liveLyric.get());
     plannedCenter = currentCenter();
     plannedStrength = strength->getCurrentValue();
+    plannedSpeed = speed->getCurrentValue();
 
     // The breath and the expression are planned with the folds' size and the
     // expression knob as they were when a note was prepared; this notices
@@ -165,7 +171,7 @@ void VocalModelPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v
                                       registerValue, throatValue, twangValue, nasalValue, clarityValue);
     te::copyPropertiesToCachedValues (v, vowelPresetValue, vibratoValue, vibratoRateValue, driftValue,
                                       brightnessValue, bodyValue, ringValue, airValue, reverbValue, volumeValue);
-    te::copyPropertiesToCachedValues (v, strengthValue, liveLyric);
+    te::copyPropertiesToCachedValues (v, strengthValue, speedValue, liveLyric);
 
     for (auto parameter : getAutomatableParameters())
         parameter->updateFromAttachedValue();
@@ -258,8 +264,9 @@ std::vector<VocalModelPlugin::Prepared> VocalModelPlugin::preparePart (const juc
 
     plannedCenter = currentCenter();
     plannedStrength = strength->getCurrentValue();
+    plannedSpeed = speed->getCurrentValue();
 
-    const auto planned = vocal::planPart (notes, plannedCenter, plannedStrength);
+    const auto planned = vocal::planPart (notes, plannedCenter, plannedStrength, plannedSpeed);
     auto& part = parts[partKey];
     const auto previousIds = part.ids;
     part.notes = notes;
@@ -357,10 +364,11 @@ void VocalModelPlugin::replanAll()
 {
     plannedCenter = currentCenter();
     plannedStrength = strength->getCurrentValue();
+    plannedSpeed = speed->getCurrentValue();
 
     for (auto& [key, part] : parts)
     {
-        const auto planned = vocal::planPart (part.notes, plannedCenter, plannedStrength);
+        const auto planned = vocal::planPart (part.notes, plannedCenter, plannedStrength, plannedSpeed);
 
         for (size_t i = 0; i < part.ids.size() && i < planned.size(); ++i)
         {
@@ -386,7 +394,8 @@ void VocalModelPlugin::replanAll()
 void VocalModelPlugin::timerCallback()
 {
     if (std::abs (currentCenter() - plannedCenter) > 1.0e-6
-         || std::abs (strength->getCurrentValue() - plannedStrength) > 1.0e-6)
+         || std::abs (strength->getCurrentValue() - plannedStrength) > 1.0e-6
+         || std::abs (speed->getCurrentValue() - plannedSpeed) > 1.0e-6)
         replanAll();
 
     if (liveLyric.get() != parsedLiveLyric)
@@ -519,6 +528,7 @@ void VocalModelPlugin::liveNoteOn (int note)
     n.midi = note;
     n.mora = mora;
     n.open = true;
+    n.speed = speed->getCurrentValue();
 
     scratchEvents.size = 0;
     vocal::planNote (n, joined ? &previous : nullptr, nullptr, liveState, s.getCenter(), scratchEvents);

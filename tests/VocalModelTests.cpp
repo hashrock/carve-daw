@@ -378,6 +378,37 @@ TEST_CASE ("silence stops a song part way through", "[voice]")
     CHECK (dB (power (out, 1.0, 1.5)) < -50.0);
 }
 
+TEST_CASE ("the voice carries through a voiced consonant into the next note", "[voice]")
+{
+    // あ then the consonant, as above: how quiet the stretch between the two
+    // vowels gets. A voiced stop, じ and ら used to fall as silent as a
+    // voiceless stop's closure -- every note of a line like だんだん cut off
+    // from the next.
+    auto quietest = [] (const std::string& kana)
+    {
+        const auto sung = sing ("\xe3\x81\x82:A4:1 " + kana + ":A4:1");
+        const auto vowel = power (sung.out, start + 0.4, start + 0.7);
+        const double t = start + 1;
+        double low = 1.0e30;
+
+        for (double s = t - 0.2; s < t - 0.005; s += 0.005)
+            low = std::min (low, power (sung.out, s, s + 0.01));
+
+        return dB (low / vowel);
+    };
+
+    for (const auto* kana : { "\xe3\x81\x8c", "\xe3\x81\xa0", "\xe3\x81\xb0",     // が だ ば
+                              "\xe3\x81\x98", "\xe3\x82\x89" })                    // じ ら
+    {
+        const auto low = quietest (kana);
+        INFO (kana << ": " << low << " dB at its quietest");
+        CHECK (low > -25.0);
+    }
+
+    // ...while a voiceless one still stops it.
+    CHECK (quietest ("\xe3\x81\x8b") < -25.0);   // か
+}
+
 TEST_CASE ("a part is planned a note at a time, unreadable lyrics silent", "[voice]")
 {
     std::vector<PartNote> part (3);
@@ -400,4 +431,49 @@ TEST_CASE ("a part is planned a note at a time, unreadable lyrics silent", "[voi
 
     CHECK (earliest < 1.0 - 0.4);
     CHECK (earliest > 1.0 - 0.8);
+}
+
+TEST_CASE ("speed quickens the move into a note and leaves the rest of it alone", "[voice]")
+{
+    // あ, then さ: the second note's consonant digs into the first.
+    std::vector<PartNote> part (2);
+    part[0] = { 1.0, 1.0, 69, 100, "\xe3\x81\x82" };
+    part[1] = { 2.0, 1.5, 72, 100, "\xe3\x81\x95" };
+
+    const auto center = centerFor (0.75);
+    const auto normal = planPart (part, center, 1.0);
+    const auto fast = planPart (part, center, 1.0, 2.0);
+    const auto slow = planPart (part, center, 1.0, 0.5);
+
+    REQUIRE (planPart (part, center, 1.0, 1.0).size() == normal.size());
+
+    auto earliest = [] (const std::vector<Event>& events)
+    {
+        double t = 1.0e9;
+
+        for (const auto& e : events)
+            t = std::min (t, e.t);
+
+        return t;
+    };
+
+    auto latest = [] (const std::vector<Event>& events)
+    {
+        double t = -1.0e9;
+
+        for (const auto& e : events)
+            t = std::max (t, e.t + e.duration);
+
+        return t;
+    };
+
+    const double lead = 2.0 - earliest (normal[1]);
+    CHECK (lead > 0.1);
+    CHECK (2.0 - earliest (fast[1]) == lead / 2);    // twice as quick
+    CHECK (2.0 - earliest (slow[1]) > lead * 1.5);   // slower, still within the note before
+    CHECK (2.0 - earliest (slow[1]) <= 0.6 + 1.0e-9);
+
+    // The swell, the vibrato and the end of the phrase are the note's own.
+    CHECK (latest (fast[1]) == latest (normal[1]));
+    CHECK (fast[1].size() == normal[1].size());
 }

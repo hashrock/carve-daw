@@ -67,6 +67,7 @@ public:
         {
             auto& s = page.add (std::make_unique<KnobSection> ("Singing"));
             s.addKnob (knob (singer.strength, "Expression", S::large));
+            s.addKnob (knob (singer.speed, "Speed", S::medium));
             s.addKnob (knob (singer.vibrato, "Vibrato", S::medium));
             s.addKnob (knob (singer.vibratoRate, "Vib Rate", S::small));
             s.addKnob (knob (singer.drift, "Drift", S::small));
