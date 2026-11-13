@@ -13,6 +13,7 @@
 #include "plugins/SoundFontPlugin.h"
 #include "plugins/BreakPlugin.h"
 #include "plugins/UtauPlugin.h"
+#include "plugins/VocalModelPlugin.h"
 #include "plugins/LimiterPlugin.h"
 #include "plugins/BusCompressorPlugin.h"
 #include "plugins/ReferencePlayerPlugin.h"
@@ -207,6 +208,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::SoundFontPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::BreakPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::UtauPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::VocalModelPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::NoteMonitorPlugin>();
 
     return engine;

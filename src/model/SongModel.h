@@ -547,6 +547,12 @@ public:
     static constexpr const char* acousticDrumsType = "acoustic-drums";
     static constexpr const char* electricBassType = "electric-bass";
 
+    // A singer computed rather than recorded (a physical model of the lungs,
+    // vocal folds and tract), sung from the lyrics on its notes as the
+    // voicebank Singer is. Nothing on disk: its knobs are its plugin's own tree, kept
+    // the way the instruments above keep theirs.
+    static constexpr const char* vocalModelType = "vocal-model";
+
     // An SF2 player. Its sound is a file on disk, the way a sampler's is, so
     // the file is kept the way a sampler sound's is -- one SOUND node, with
     // the relative-path, missing-media and relink handling that comes with
@@ -566,8 +572,9 @@ public:
     bool isGabberKick() const { return getType() == gabberKickType; }
     bool isAcousticDrums() const { return getType() == acousticDrumsType; }
     bool isElectricBass() const  { return getType() == electricBassType; }
+    bool isVocalModel() const    { return getType() == vocalModelType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
-                                                 || isAcousticDrums() || isElectricBass(); }
+                                                 || isAcousticDrums() || isElectricBass() || isVocalModel(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType || isReference(); }
     bool isReference() const  { return getType() == referenceType; }
@@ -576,6 +583,11 @@ public:
     void setReferenceLevelMatched (bool matched, juce::UndoManager* um)  { state.setProperty (ids::matchLevel, matched, um); }
     bool isSoundFont() const  { return getType() == soundFontType; }
     bool isUtau() const       { return getType() == utauType; }
+
+    // Whether its notes are sung, lyrics and all: the voicebank Singer and
+    // the modelled one. What is particular to a voicebank (which lyrics it has
+    // recordings for) is isUtau()'s alone.
+    bool singsLyrics() const  { return isUtau() || isVocalModel(); }
 
     // A breakbeat slicer: one loop (an Amen, a Think) cut into slices, slice
     // i on note breakFirstNote + i. The loop is the generator's one SOUND,

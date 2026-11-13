@@ -10,6 +10,7 @@
 #include "plugins/SoundFontPlugin.h"
 #include "plugins/BreakPlugin.h"
 #include "plugins/UtauPlugin.h"
+#include "plugins/VocalModelPlugin.h"
 
 namespace te = tracktion;
 
@@ -44,6 +45,7 @@ inline te::Plugin* findInstrumentPlugin (te::AudioTrack& track)
                   || dynamic_cast<plugins::ElectricBassPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::SoundFontPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::UtauPlugin*> (plugin) != nullptr
+                  || dynamic_cast<plugins::VocalModelPlugin*> (plugin) != nullptr
                   || dynamic_cast<plugins::BreakPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::SamplerPlugin*> (plugin) != nullptr
                   || dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr))

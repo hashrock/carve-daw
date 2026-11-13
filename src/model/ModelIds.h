@@ -30,7 +30,7 @@
 // ├─ GENERATORS
 // │  └─ GENERATOR {id, name, type, volumeDb, pan, mute, solo, groupId}
 // │     │                          type: "internal-synth" | "drum-synth" | "gabber-kick" | "plugin" | "sampler"
-// │     │                                | "drum-sampler" | "soundfont" | "utau" | "break" | "audio"
+// │     │                                | "drum-sampler" | "soundfont" | "utau" | "vocal-model" | "break" | "audio"
 // │     │                                  mixer properties are optional; see
 // │     │                                  Generator for their defaults
 // │     ├─ PLUGIN {desc, state}             desc: PluginDescription XML, state: base64 blob
@@ -88,7 +88,7 @@
 // │           │        too; Song::fromXml drops it.
 // │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig, buzz, buzzRamp,
 // │                    tune, rollDyn, tech}   times in beats
-// │                    lyric: what a singing ("utau") generator sings on
+// │                    lyric: what a singing ("utau", "vocal-model") generator sings on
 // │                    the note -- a kana, or a voicebank alias. Optional;
 // │                    absent is the generator's default (see Note::getDefaultLyric)
 // │                    play: how a "break" generator plays the slice --

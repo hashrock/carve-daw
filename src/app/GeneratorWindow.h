@@ -18,6 +18,7 @@
 #include "SoundFontEditor.h"
 #include "BreakEditor.h"
 #include "UtauEditor.h"
+#include "VocalModelEditor.h"
 #include "IconButton.h"
 #include "PianoRollWindow.h"
 #include "PresetManager.h"
@@ -240,6 +241,9 @@ public:
 
         if (utau != nullptr)
             return juce::Point<int> (utau->getWidth(), utau->getHeight());
+
+        if (vocalModel != nullptr)
+            return juce::Point<int> (vocalModel->getWidth(), vocalModel->getHeight());
 
         if (breakEditor != nullptr)
             return juce::Point<int> (breakEditor->getWidth(), breakEditor->getHeight());
@@ -592,6 +596,13 @@ public:
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
+            else if (auto vocal = dynamic_cast<plugins::VocalModelPlugin*> (instrument))
+            {
+                vocalModel = std::make_unique<VocalModelEditor> (*vocal);
+                viewport.setViewedComponent (vocalModel.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
             else if (auto external = dynamic_cast<te::ExternalPlugin*> (instrument))
             {
                 if (auto instance = external->getAudioPluginInstance())
@@ -768,7 +779,7 @@ public:
         }
 
         if (slate != nullptr || drumSynth != nullptr || gabberKick != nullptr || soundFont != nullptr || utau != nullptr
-             || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr)
+             || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr || vocalModel != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         // ...except this one, which fills the window it is given.
@@ -845,6 +856,7 @@ private:
         soundFont.reset();
         breakEditor.reset();
         utau.reset();
+        vocalModel.reset();
         shownInstrument = nullptr;
         shownKind = Kind::none;
     }
@@ -907,6 +919,7 @@ private:
     std::unique_ptr<ElectricBassEditor> electricBass;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
+    std::unique_ptr<VocalModelEditor> vocalModel;
     std::unique_ptr<BreakEditor> breakEditor;
     std::unique_ptr<PresetBar> presetBar;
     std::unique_ptr<juce::AudioProcessorEditor> externalEditor;
@@ -1029,7 +1042,7 @@ public:
         content.header.patterns.setFromGenerator (generator, selectedPatternId);
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
-        rollContent.setShowsLyrics (generator && generator->isUtau());
+        rollContent.setShowsLyrics (generator && generator->singsLyrics());
         rollContent.setShowsPlayModes (generator && generator->isBreak());
         rollContent.setShowsTechniques (generator && generator->isElectricBass());
         rollContent.setLyricCheck (lyricCheckFor (generator));
@@ -1041,6 +1054,13 @@ public:
     // changes.
     PianoRollComponent::LyricCheck lyricCheckFor (const std::optional<model::Generator>& generator)
     {
+        // The modelled singer sings whatever reads as kana or romaji.
+        if (generator && generator->isVocalModel())
+            return [] (const juce::String& lyric, const juce::String&, int)
+            {
+                return ! voice::vocal::parseLyrics (lyric.trim().toStdString()).empty();
+            };
+
         if (! generator || ! generator->isUtau())
             return {};
 

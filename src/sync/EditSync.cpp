@@ -87,6 +87,7 @@ namespace
                      || dynamic_cast<const plugins::ElectricBassPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::VocalModelPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::BreakPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::ExternalPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const te::SamplerPlugin*> (&plugin) != nullptr);
@@ -217,6 +218,7 @@ namespace
                  : generator.isGabberKick() ? dynamic_cast<plugins::GabberKickPlugin*> (existing) != nullptr
                  : generator.isAcousticDrums() ? dynamic_cast<plugins::AcousticDrumsPlugin*> (existing) != nullptr
                  : generator.isElectricBass() ? dynamic_cast<plugins::ElectricBassPlugin*> (existing) != nullptr
+                 : generator.isVocalModel() ? dynamic_cast<plugins::VocalModelPlugin*> (existing) != nullptr
                                             : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
             return;
 
@@ -226,6 +228,7 @@ namespace
                                : generator.isGabberKick() ? plugins::GabberKickPlugin::xmlTypeName
                                : generator.isAcousticDrums() ? plugins::AcousticDrumsPlugin::xmlTypeName
                                : generator.isElectricBass() ? plugins::ElectricBassPlugin::xmlTypeName
+                               : generator.isVocalModel() ? plugins::VocalModelPlugin::xmlTypeName
                                                           : te::FourOscPlugin::xmlTypeName;
 
         te::Plugin::Ptr plugin;
@@ -1655,6 +1658,85 @@ namespace
         return wanted;
     }
 
+    // The modelled singer's clips, likewise triggers in place of notes, but a
+    // part at a time: how a note is sung depends on its whole phrase, so the
+    // singer plans each repeat of a clip's notes together (see
+    // VocalModelPlugin). The part is keyed by the clip and the repeat, so the
+    // same notes in the same place keep their ids, and an edit to them changes
+    // what the ids sing rather than the clip.
+    std::vector<WantedTrigger> wantedVocalTriggersFor (plugins::VocalModelPlugin& singer, const model::Pattern& pattern,
+                                                       double patternLength, double clipLength, int transpose,
+                                                       double clipStartBeat, const te::TempoSequence& tempo,
+                                                       const juce::String& clipKey)
+    {
+        std::vector<WantedTrigger> wanted;
+        const auto notes = model::singing::inSingingOrder (pattern.getNotes());
+
+        auto secondsAt = [&] (double clipBeat)
+        {
+            return tempo.toTime (te::BeatPosition::fromBeats (clipStartBeat + clipBeat)).inSeconds();
+        };
+
+        const auto clipStartSec = secondsAt (0.0);
+        constexpr int maxRepeats = 512;
+
+        for (int repeat = 0; repeat < maxRepeats; ++repeat)
+        {
+            const auto offset = repeat * patternLength;
+
+            if (offset >= clipLength - 1.0e-9)
+                break;
+
+            std::vector<voice::vocal::PartNote> part;
+
+            for (const auto& note : notes)
+            {
+                const auto start = offset + note.getStart();
+
+                if (start >= clipLength - 1.0e-9)
+                    continue;
+
+                voice::vocal::PartNote placed;
+                placed.start = secondsAt (start);
+                placed.length = secondsAt (std::min (start + note.getLength(), clipLength)) - placed.start;
+                placed.midi = model::Note::clampPitch (note.getPitch() + transpose);
+                placed.velocity = note.getVelocity();
+                placed.lyric = note.getLyric().toStdString();
+                part.push_back (placed);
+            }
+
+            const auto prepared = singer.preparePart (clipKey + "#" + juce::String (repeat), part);
+
+            for (size_t i = 0; i < part.size() && i < prepared.size(); ++i)
+            {
+                if (prepared[i].id < 0)
+                    continue;
+
+                // Where its first movement is, in the clip's beats; a lead-in
+                // that would start before the clip does starts with the clip
+                // instead, that far into it.
+                const auto soundStartSec = part[i].start - prepared[i].leadSec;
+                double triggerBeat = 0.0, skipSec = 0.0;
+
+                if (soundStartSec < clipStartSec)
+                    skipSec = clipStartSec - soundStartSec;
+                else
+                    triggerBeat = tempo.toBeats (te::TimePosition::fromSeconds (soundStartSec)).inBeats() - clipStartBeat;
+
+                const auto message = plugins::VocalModelPlugin::createTrigger (prepared[i].id, skipSec);
+                wanted.push_back ({ juce::jmax (0.0, triggerBeat),
+                                    juce::MemoryBlock (message.getSysExData(), (size_t) message.getSysExDataSize()) });
+            }
+        }
+
+        std::stable_sort (wanted.begin(), wanted.end(), [] (const WantedTrigger& a, const WantedTrigger& b)
+        {
+            return a.startBeats < b.startBeats;
+        });
+
+        return wanted;
+    }
+
     // A break slicer's clips: its notes, with every roll (Note::getRetrigger)
     // written out as the notes it plays, louder or softer along a crescendo -- so a roll lands on the song's
     // beats at any tempo, exactly as drawn ones would -- and a trigger in
@@ -2021,6 +2103,11 @@ namespace
         if (singer != nullptr)
             singer->beginPreparing();
 
+        auto* vocalModel = generator.isVocalModel() ? dynamic_cast<plugins::VocalModelPlugin*> (findInstrument (track)) : nullptr;
+
+        if (vocalModel != nullptr)
+            vocalModel->beginPreparing();
+
         auto contentFor = [&] (Desired& want, const model::Pattern& pattern, double patternLength,
                                double clipLength, int transpose, double clipStartBeat)
         {
@@ -2029,6 +2116,12 @@ namespace
                 if (singer != nullptr)
                     want.triggers = wantedTriggersFor (*singer, pattern, patternLength, clipLength, transpose,
                                                        clipStartBeat, edit.tempoSequence);
+            }
+            else if (generator.isVocalModel())
+            {
+                if (vocalModel != nullptr)
+                    want.triggers = wantedVocalTriggersFor (*vocalModel, pattern, patternLength, clipLength, transpose,
+                                                            clipStartBeat, edit.tempoSequence, want.id);
             }
             else if (generator.isBreak())
             {
@@ -2152,6 +2245,9 @@ namespace
 
         if (singer != nullptr)
             singer->endPreparing();
+
+        if (vocalModel != nullptr)
+            vocalModel->endPreparing();
     }
 
     // Rebuilds the Edit's tempo sequence from the model. Everything downstream
@@ -2531,12 +2627,13 @@ void EditSync::applyTempoOnly()
     {
         const auto& generator = generators[(size_t) i];
 
-        // A singer's notes are synthesised to their length in seconds, which
-        // a tempo change moves: only a full sync prepares them again.
+        // A singer's notes are synthesised (or planned, for the modelled
+        // one) to their length in seconds, which a tempo change moves: only a
+        // full sync prepares them again.
         // A break's triggers carry note lengths in seconds, and a repitched
         // one plays at a rate the tempo sets: only the full sync rewrites
         // either.
-        if (generator.isUtau() || generator.isBreak())
+        if (generator.singsLyrics() || generator.isBreak())
         {
             triggerAsyncUpdate();
             return;

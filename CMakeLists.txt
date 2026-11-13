@@ -209,8 +209,20 @@ set(CARVE_CORE_SOURCES
     src/voice/Voicebank.cpp
     src/voice/VoiceSynth.h
     src/voice/VoiceSynth.cpp
+    src/voice/VocalModel.h
+    src/voice/VocalModel.cpp
+    src/voice/VocalScore.h
+    src/voice/VocalScore.cpp
+    src/plugins/VocalModelPlugin.h
+    src/plugins/VocalModelPlugin.cpp
     src/plugins/NoteMonitorPlugin.h
     src/plugins/NoteMonitorPlugin.cpp)
+
+# The modelled singer follows the web-voice prototype's JavaScript to rounding
+# (see src/voice/VocalModel.cpp), which needs each multiply and add rounded on
+# its own: no fused multiply-adds, which clang emits by default on arm64.
+set_source_files_properties(src/voice/VocalModel.cpp src/voice/VocalScore.cpp
+    PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffp-contract=off>")
 
 # Shift_JIS, for UTAU voicebanks written by Windows UTAU (src/voice). glibc
 # has iconv built in; macOS keeps it in a library of its own.
@@ -346,6 +358,7 @@ target_sources(carve PRIVATE
     src/app/SlateEditor.cpp
     src/app/SoundFontEditor.h
     src/app/UtauEditor.h
+    src/app/VocalModelEditor.h
     src/app/RecentMediaList.h
     src/app/GeneratorController.h
     src/app/GeneratorController.cpp
@@ -535,11 +548,14 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         src/voice/Voicebank.cpp
         src/plugins/BreakAnalysis.cpp
         src/plugins/GabberKickDsp.cpp
+        src/voice/VocalModel.cpp
+        src/voice/VocalScore.cpp
         src/sync/VorbisComments.cpp
         tests/BreakSliceProperties.cpp
         tests/GabberKickTests.cpp
         tests/CaptureProperties.cpp
         tests/VoicebankTests.cpp
+        tests/VocalModelTests.cpp
         tests/VorbisCommentTests.cpp
         tests/NoteGestureProperties.cpp
         tests/SongStateProperties.cpp
