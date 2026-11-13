@@ -11,6 +11,7 @@
 #include "SelectionModifiers.h"
 #include "TimeSigSupport.h"
 #include "model/SongModel.h"
+#include "NoteLanes.h"
 
 namespace carve::app
 {
@@ -277,18 +278,27 @@ public:
 
     // One transaction per lane drag, the same rule the roll's own gestures
     // follow, so a whole sweep undoes in one step. It also snapshots the
-    // selection's velocities, which is what offsetSelectionVelocity measures
-    // from.
-    void beginVelocityGesture();
-    void setNoteVelocity (const model::Note& note, int velocity);
+    // selection's values of the lane's kind, which is what
+    // offsetSelectionLaneValue measures from.
+    void beginLaneGesture (lanes::Kind);
+    void setNoteLaneValue (const model::Note& note, int value);
 
     // A lane drag that began on one of several selected notes moves them all
     // by the same amount: a chord that was voiced quieter on top should stay
     // voiced that way when the whole thing is brought down. Measured from the
-    // velocities at the start of the gesture and clamped note by note, so a
+    // values at the start of the gesture and clamped note by note, so a
     // note pinned at the floor does not drag the rest with it and comes back
     // up with them when the pointer returns.
-    void offsetSelectionVelocity (int delta);
+    void offsetSelectionLaneValue (int delta);
+
+    // The controller lanes: a stroke of the pen from one (beat, value) to
+    // another replaces the curve under it with a line between the two, and
+    // the eraser takes the points it passes over. Both inside the gesture
+    // beginLaneGesture opened.
+    std::vector<model::Pattern::ControllerPoint> getControllerPoints (model::Pattern::Controller) const;
+    void drawControllerStroke (model::Pattern::Controller, double fromBeat, float fromValue,
+                               double toBeat, float toValue);
+    void eraseControllerStroke (model::Pattern::Controller, double fromBeat, double toBeat);
 
     //==============================================================================
     // Quantise. Note starts are pulled towards the nearest grid unit by
@@ -568,9 +578,10 @@ private:
 
     // Velocity gesture: what the selection was at the press, for the same
     // reason. Parallel to selectedNotes as it stood then; a selection that
-    // changes under the gesture ends it (see offsetSelectionVelocity).
+    // changes under the gesture ends it (see offsetSelectionLaneValue).
     std::vector<juce::ValueTree> velocityOriginNotes;
     std::vector<int> velocityOrigins;
+    lanes::Kind laneGestureKind = lanes::Kind::velocity;
 
     // Cmd went down on a note that was already selected. Which gesture that is
     // depends on what happens next: a drag copies the selection and moves the
@@ -630,17 +641,26 @@ private:
     int scrollOffset = 0;
 };
 
-// Velocity lane drawn under the roll: one bar per note, standing where the
-// note does and as tall as its velocity.
+// The lane drawn under the roll. By default the notes' velocities, one bar
+// per note, standing where the note does and as tall as its velocity; its
+// gutter (the strip over the roll's keyboard, labelled with what it shows)
+// opens a menu of what else it can show for this generator -- another value
+// per note (a break's tune, roll and buzz, a bass's slide out), drawn and
+// edited the same way, or a controller curve (the pitch wheel, the mod
+// wheel) drawn as a line across the pattern.
 //
 // Like the ruler it is a sibling of the roll's Viewport rather than a strip
 // inside the roll, so it stays put while the roll scrolls through the
 // pitches, and it lines up with the grid by drawing in the roll's own
 // coordinates shifted by the viewport's horizontal scroll offset.
 //
-// Unlike the ruler it is an editor: dragging in it writes velocities. A drag
-// begun on the bar of one of several selected notes moves all of them by the
-// same amount; any other drag sets whatever it sweeps to the pointer's height.
+// Bars: dragging writes values. A drag begun on the bar of one of several
+// selected notes moves all of them by the same amount; any other drag sets
+// whatever it sweeps to the pointer's height.
+//
+// Curves: dragging draws the curve where the pointer goes, replacing what it
+// had there; a right-drag (or an alt-drag) rubs it out.
+//
 // Only the geometry is worked out here -- which notes are fair game, and the
 // model writes themselves, belong to the roll.
 class PianoRollVelocityLane : public juce::Component
@@ -653,8 +673,18 @@ public:
     // x coordinate of the roll that sits at this component's left edge
     void setScrollOffset (int offsetX);
 
+    // What the menu offers (lanes::kindsFor the generator). Showing a kind
+    // that is no longer offered falls back to velocity.
+    void setKinds (std::vector<lanes::Kind>);
+    lanes::Kind getKind() const  { return kind; }
+    void setKind (lanes::Kind);
+
+    // Fired when the menu changes what is shown, so it can be remembered.
+    std::function<void (lanes::Kind)> onKindChanged;
+
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
@@ -672,13 +702,26 @@ private:
     float barsTop() const     { return topMargin; }
     float barsBottom() const  { return (float) getHeight() - baselineHeight; }
 
+    // Where beat 0 is; left of it is the gutter, over the roll's keyboard.
+    float originX() const;
+    bool isInGutter (juce::Point<float>) const;
+    void showKindMenu();
+
     // Horizontal reach of a note's bar. Hit-testing uses this alone and
     // ignores the pointer's height: a bar for a quiet note is only a few
     // pixels tall, and having to hit it would make the lane unusable exactly
     // where it is most wanted.
     juce::Range<float> barSpan (const model::Note&) const;
     juce::Rectangle<float> barBounds (const model::Note&) const;
-    int velocityAtY (float y) const;
+
+    // The lane's height as a per-note step (lanes::minOf..maxOf), and as a
+    // controller value, and back.
+    float yForProportion (float proportion) const;
+    float proportionAtY (float y) const;
+    int valueAtY (float y) const;
+    float controllerValueAtY (float y) const;
+    float yForControllerValue (float value) const;
+
     bool isOverEditableBar (juce::Point<float>) const;
     bool isOverSelectedBar (juce::Point<float>) const;
 
@@ -688,20 +731,35 @@ private:
     // is where the bar is dragged *to* rather than *by*.
     bool startsGroupDrag (juce::Point<float>) const;
 
-    // Applies the pointer's velocity to every editable note the drag swept,
+    // Applies the pointer's value to every editable note the drag swept,
     // interpolated across the sweep so a diagonal drag draws a ramp rather
     // than flattening everything it passed to the last value.
     void applySweep (juce::Point<float> from, juce::Point<float> to);
 
+    // The same for a curve: the pen's line from one position to the next.
+    void applyStroke (juce::Point<float> from, juce::Point<float> to);
+
+    void paintBars (juce::Graphics&, float origin);
+    void paintCurve (juce::Graphics&, float origin);
+
     PianoRollComponent& roll;
     int scrollOffset = 0;
+    std::vector<lanes::Kind> kinds { lanes::Kind::velocity };
+    lanes::Kind kind = lanes::Kind::velocity;
+
     bool dragging = false;
+    bool erasing = false;
     juce::Point<float> lastDragPosition;
 
-    // Group move: the velocity the pointer stood at when it pressed, which
-    // the selection's change is measured from on every drag event.
+    // What the pointer is over or doing, for the gutter's readout.
+    std::optional<juce::String> readout;
+    void setReadout (std::optional<juce::String>);
+    void updateReadout (juce::Point<float>);
+
+    // Group move: the value the pointer stood at when it pressed, which the
+    // selection's change is measured from on every drag event.
     bool groupDragging = false;
-    int groupDragOriginVelocity = 0;
+    int groupDragOriginValue = 0;
 };
 
 } // namespace carve::app

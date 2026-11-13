@@ -1403,49 +1403,93 @@ bool PianoRollComponent::isVelocityEditable (const model::Note& note) const
     return selectedNotes.empty() || isSelected (note.state);
 }
 
-void PianoRollComponent::beginVelocityGesture()
+void PianoRollComponent::beginLaneGesture (lanes::Kind kind)
 {
     undoManager.beginNewTransaction();
 
+    laneGestureKind = kind;
     velocityOriginNotes = selectedNotes;
     velocityOrigins.clear();
 
-    for (const auto& state : velocityOriginNotes)
-        velocityOrigins.push_back (model::Note (state).getVelocity());
+    if (lanes::isPerNote (kind))
+        for (const auto& state : velocityOriginNotes)
+            velocityOrigins.push_back (lanes::valueOf (kind, model::Note (state)));
 }
 
-void PianoRollComponent::offsetSelectionVelocity (int delta)
+void PianoRollComponent::offsetSelectionLaneValue (int delta)
 {
     // The selection this gesture began on is the one it moves. Anything that
     // changed it under the drag -- an undo, a pattern reload -- ends the
     // gesture rather than having it write to notes the user never aimed at.
-    if (! pattern || velocityOriginNotes.empty() || velocityOriginNotes != selectedNotes)
+    if (! pattern || ! lanes::isPerNote (laneGestureKind)
+         || velocityOriginNotes.empty() || velocityOriginNotes != selectedNotes)
         return;
 
     // Every write calls back into patternChanged(), so work from our own copy.
+    // setValue writes only what changed: every property change triggers a
+    // full EditSync resync, and a drag produces a lot of events.
     const auto notes = velocityOriginNotes;
 
     for (size_t i = 0; i < notes.size(); ++i)
-    {
-        const auto velocity = model::Note::clampVelocity (velocityOrigins[i] + delta);
-        model::Note note (notes[i]);
-
-        // Only write when the result actually changed: every property change
-        // triggers a full EditSync resync, and a drag produces a lot of events.
-        if (velocity != note.getVelocity())
-            note.setVelocity (velocity, &undoManager);
-    }
+        lanes::setValue (laneGestureKind, model::Note (notes[i]), velocityOrigins[i] + delta, &undoManager);
 }
 
-void PianoRollComponent::setNoteVelocity (const model::Note& note, int velocity)
+void PianoRollComponent::setNoteLaneValue (const model::Note& note, int value)
 {
-    // The floor is 1, not 0: velocity 0 is a note-off in MIDI, so a bar
-    // dragged all the way down has to mean "as quiet as it goes" rather than
-    // "silently gone".
-    velocity = model::Note::clampVelocity (velocity);
+    // Clamped to the kind's range by setValue. For velocity the floor is 1,
+    // not 0: velocity 0 is a note-off in MIDI, so a bar dragged all the way
+    // down has to mean "as quiet as it goes" rather than "silently gone".
+    if (lanes::isPerNote (laneGestureKind))
+        lanes::setValue (laneGestureKind, model::Note (note.state), value, &undoManager);
+}
 
-    if (velocity != note.getVelocity())
-        model::Note (note.state).setVelocity (velocity, &undoManager);
+std::vector<model::Pattern::ControllerPoint> PianoRollComponent::getControllerPoints (model::Pattern::Controller controller) const
+{
+    return pattern ? pattern->getControllerPoints (controller) : std::vector<model::Pattern::ControllerPoint>();
+}
+
+void PianoRollComponent::drawControllerStroke (model::Pattern::Controller controller, double fromBeat, float fromValue,
+                                               double toBeat, float toValue)
+{
+    if (! pattern)
+        return;
+
+    if (fromBeat > toBeat)
+    {
+        std::swap (fromBeat, toBeat);
+        std::swap (fromValue, toValue);
+    }
+
+    const auto length = pattern->getLengthBeats();
+    fromBeat = juce::jlimit (0.0, length, fromBeat);
+    toBeat = juce::jlimit (0.0, length, toBeat);
+
+    // A point every 1/32 of a beat along the stroke: the curve is drawn by
+    // hand, and points much closer than the sync's own steps add nothing.
+    constexpr double spacing = 1.0 / 32.0;
+    std::vector<model::Pattern::ControllerPoint> points;
+
+    auto valueAt = [&] (double beat)
+    {
+        const auto span = toBeat - fromBeat;
+        return span > 0.0 ? fromValue + (toValue - fromValue) * (float) ((beat - fromBeat) / span) : toValue;
+    };
+
+    points.push_back ({ fromBeat, valueAt (fromBeat) });
+
+    for (auto beat = std::floor (fromBeat / spacing + 1.0) * spacing; beat < toBeat - 1.0e-9; beat += spacing)
+        points.push_back ({ beat, valueAt (beat) });
+
+    if (toBeat > fromBeat)
+        points.push_back ({ toBeat, toValue });
+
+    pattern->replaceControllerPoints (controller, fromBeat, toBeat, points, &undoManager);
+}
+
+void PianoRollComponent::eraseControllerStroke (model::Pattern::Controller controller, double fromBeat, double toBeat)
+{
+    if (pattern)
+        pattern->removeControllerPoints (controller, fromBeat, toBeat, &undoManager);
 }
 
 //==============================================================================
@@ -2407,6 +2451,74 @@ void PianoRollVelocityLane::setScrollOffset (int offsetX)
     }
 }
 
+void PianoRollVelocityLane::setKinds (std::vector<lanes::Kind> newKinds)
+{
+    if (newKinds.empty())
+        newKinds = { lanes::Kind::velocity };
+
+    kinds = std::move (newKinds);
+
+    if (std::find (kinds.begin(), kinds.end(), kind) == kinds.end())
+        kind = lanes::Kind::velocity;
+
+    repaint();
+}
+
+void PianoRollVelocityLane::setKind (lanes::Kind newKind)
+{
+    if (std::find (kinds.begin(), kinds.end(), newKind) == kinds.end())
+        newKind = lanes::Kind::velocity;
+
+    if (newKind != kind)
+    {
+        kind = newKind;
+        readout.reset();
+        repaint();
+    }
+}
+
+float PianoRollVelocityLane::originX() const
+{
+    return roll.beatToX (0.0) - (float) scrollOffset;
+}
+
+bool PianoRollVelocityLane::isInGutter (juce::Point<float> position) const
+{
+    return position.x < originX();
+}
+
+void PianoRollVelocityLane::showKindMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Lane");
+
+    for (size_t i = 0; i < kinds.size(); ++i)
+    {
+        // Controller curves after the note values, set apart.
+        if (i > 0 && ! lanes::isPerNote (kinds[i]) && lanes::isPerNote (kinds[i - 1]))
+            menu.addSeparator();
+
+        menu.addItem ((int) i + 1, lanes::nameOf (kinds[i]), true, kinds[i] == kind);
+    }
+
+    juce::Component::SafePointer<PianoRollVelocityLane> safe (this);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                                                  .withTargetScreenArea (localAreaToGlobal (
+                                                      getLocalBounds().withWidth (juce::jmax (1, (int) originX())))),
+                        [safe] (int result)
+    {
+        if (safe == nullptr || result <= 0 || result > (int) safe->kinds.size())
+            return;
+
+        const auto chosen = safe->kinds[(size_t) result - 1];
+        safe->setKind (chosen);
+
+        if (safe->onKindChanged)
+            safe->onKindChanged (chosen);
+    });
+}
+
 juce::Range<float> PianoRollVelocityLane::barSpan (const model::Note& note) const
 {
     const auto x = roll.beatToX (note.getStart()) - (float) scrollOffset;
@@ -2420,25 +2532,63 @@ juce::Range<float> PianoRollVelocityLane::barSpan (const model::Note& note) cons
     return { x, x + width };
 }
 
+float PianoRollVelocityLane::yForProportion (float proportion) const
+{
+    return barsBottom() - (barsBottom() - barsTop()) * juce::jlimit (0.0f, 1.0f, proportion);
+}
+
+float PianoRollVelocityLane::proportionAtY (float y) const
+{
+    return juce::jlimit (0.0f, 1.0f, (barsBottom() - y) / juce::jmax (1.0f, barsBottom() - barsTop()));
+}
+
 juce::Rectangle<float> PianoRollVelocityLane::barBounds (const model::Note& note) const
 {
     const auto span = barSpan (note);
-    const auto bottom = barsBottom();
+    const auto lo = lanes::minOf (kind), hi = lanes::maxOf (kind);
+    const auto value = lanes::valueOf (kind, note);
+    const auto top = yForProportion ((float) (value - lo) / (float) juce::jmax (1, hi - lo));
 
-    // A minimum of two pixels so that the quietest note is still something to
+    if (lanes::isBipolar (kind))
+    {
+        // Up or down from the centre line, which is where zero sits.
+        const auto zero = yForProportion ((float) (0 - lo) / (float) juce::jmax (1, hi - lo));
+        auto bar = juce::Rectangle<float>::leftTopRightBottom (span.getStart(), juce::jmin (top, zero),
+                                                              span.getEnd(), juce::jmax (top, zero));
+        return bar.getHeight() < 2.0f ? bar.withSizeKeepingCentre (bar.getWidth(), 2.0f) : bar;
+    }
+
+    // A minimum of two pixels so that the lowest value is still something to
     // look at rather than a gap in the row of bars.
-    const auto height = juce::jmax (2.0f, (bottom - barsTop()) * (float) note.getVelocity()
-                                              / (float) model::Note::loudestVelocity);
-
+    const auto bottom = barsBottom();
+    const auto height = juce::jmax (2.0f, bottom - top);
     return { span.getStart(), bottom - height, span.getLength(), height };
 }
 
-int PianoRollVelocityLane::velocityAtY (float y) const
+int PianoRollVelocityLane::valueAtY (float y) const
 {
-    const auto bottom = barsBottom();
-    const auto proportion = (bottom - y) / juce::jmax (1.0f, bottom - barsTop());
+    const auto lo = lanes::minOf (kind), hi = lanes::maxOf (kind);
+    return juce::jlimit (lo, hi, lo + juce::roundToInt (proportionAtY (y) * (float) (hi - lo)));
+}
 
-    return model::Note::clampVelocity (juce::roundToInt (proportion * (float) model::Note::loudestVelocity));
+float PianoRollVelocityLane::controllerValueAtY (float y) const
+{
+    const auto controller = lanes::controllerOf (kind);
+    const auto lo = model::Pattern::minValue (controller);
+    auto value = lo + proportionAtY (y) * (1.0f - lo);
+
+    // The pitch wheel's rest is a line to snap to: a bend drawn back to
+    // "nearly zero" would leave the note a few cents out.
+    if (controller == model::Pattern::Controller::pitchBend && std::abs (value) < 0.04f)
+        value = 0.0f;
+
+    return model::Pattern::clampValue (controller, value);
+}
+
+float PianoRollVelocityLane::yForControllerValue (float value) const
+{
+    const auto lo = model::Pattern::minValue (lanes::controllerOf (kind));
+    return yForProportion ((value - lo) / (1.0f - lo));
 }
 
 bool PianoRollVelocityLane::isOverEditableBar (juce::Point<float> position) const
@@ -2461,37 +2611,84 @@ bool PianoRollVelocityLane::isOverSelectedBar (juce::Point<float> position) cons
 
 bool PianoRollVelocityLane::startsGroupDrag (juce::Point<float> position) const
 {
-    return roll.getNumSelectedNotes() > 1 && isOverSelectedBar (position);
+    return lanes::isPerNote (kind) && roll.getNumSelectedNotes() > 1 && isOverSelectedBar (position);
+}
+
+void PianoRollVelocityLane::setReadout (std::optional<juce::String> text)
+{
+    if (text != readout)
+    {
+        readout = std::move (text);
+        repaint (0, 0, juce::jmax (1, (int) std::ceil (originX())), getHeight());
+    }
+}
+
+void PianoRollVelocityLane::updateReadout (juce::Point<float> position)
+{
+    if (isInGutter (position))
+    {
+        setReadout (std::nullopt);
+        return;
+    }
+
+    if (! lanes::isPerNote (kind))
+    {
+        // The value under the pen while drawing; the curve's own value at the
+        // pointer's beat while just looking.
+        if (dragging && ! erasing)
+            setReadout (lanes::describe (kind, controllerValueAtY (position.y)));
+        else
+            setReadout (lanes::describe (kind, juce::jlimit (-1.0f, 1.0f,
+                [&]
+                {
+                    const auto points = roll.getControllerPoints (lanes::controllerOf (kind));
+                    const auto beat = roll.xToBeat (position.x + (float) scrollOffset);
+
+                    if (points.empty() || beat < points.front().beat)
+                        return model::Pattern::restingValue (lanes::controllerOf (kind));
+
+                    for (size_t i = 1; i < points.size(); ++i)
+                        if (beat < points[i].beat)
+                        {
+                            const auto& a = points[i - 1];
+                            const auto& b = points[i];
+                            const auto span = b.beat - a.beat;
+                            return a.value + (b.value - a.value) * (span > 0.0 ? (float) ((beat - a.beat) / span) : 1.0f);
+                        }
+
+                    return points.back().value;
+                }())));
+        return;
+    }
+
+    // The bar under the pointer's value, or while dragging the value the
+    // pointer is setting.
+    if (dragging && ! groupDragging)
+    {
+        setReadout (lanes::describe (kind, valueAtY (position.y)));
+        return;
+    }
+
+    for (const auto& note : roll.getNotes())
+        if (barSpan (note).contains (position.x))
+        {
+            setReadout (lanes::describe (kind, lanes::valueOf (kind, note)));
+            return;
+        }
+
+    setReadout (std::nullopt);
 }
 
 void PianoRollVelocityLane::paint (juce::Graphics& g)
 {
     const auto width = (float) getWidth();
     const auto height = (float) getHeight();
-    const auto bottom = barsBottom();
+    const auto origin = originX();
 
     g.fillAll (juce::Colour (0xff1f1f24));
 
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine (0, 0.0f, width);
-
-    // Everything left of beat 0 sits over the roll's keyboard column, which
-    // scrolls away with the content -- the same arrangement the ruler above
-    // the roll uses, so the two edges move together.
-    const auto originX = roll.beatToX (0.0) - (float) scrollOffset;
-
-    if (originX > 0.0f)
-    {
-        const auto gutter = juce::jmin (originX, width);
-
-        g.setColour (juce::Colour (0xff232327));
-        g.fillRect (0.0f, 1.0f, gutter, height - 1.0f);
-
-        g.setColour (juce::Colour (0xff707078));
-        g.setFont (uiFont (fonts::small));
-        g.drawText ("Vel", juce::Rectangle<float> (2.0f, 0.0f, gutter - 6.0f, height),
-                    juce::Justification::centredRight, false);
-    }
 
     // Bar lines only: the lane is read against the grid above it rather than
     // on its own, and beat lines at this height would be more noise than help.
@@ -2504,24 +2701,69 @@ void PianoRollVelocityLane::paint (juce::Graphics& g)
     {
         const auto x = roll.beatToX ((double) bar * beatsPerBar) - (float) scrollOffset;
 
-        if (x >= originX && x <= width)
+        if (x >= origin && x <= width)
             g.drawVerticalLine ((int) x, 1.0f, height);
     }
 
     g.setColour (juce::Colour (0xff3a3a40));
-    g.fillRect (0.0f, bottom, width, baselineHeight);
+    g.fillRect (0.0f, barsBottom(), width, baselineHeight);
+
+    // The centre line of a lane that goes both ways.
+    if (lanes::isBipolar (kind))
+    {
+        const auto zero = lanes::isPerNote (kind)
+                            ? yForProportion ((float) -lanes::minOf (kind)
+                                              / (float) juce::jmax (1, lanes::maxOf (kind) - lanes::minOf (kind)))
+                            : yForControllerValue (0.0f);
+        g.setColour (juce::Colour (0xff34343b));
+        g.drawHorizontalLine ((int) zero, juce::jmax (0.0f, origin), width);
+    }
+
+    if (lanes::isPerNote (kind))
+        paintBars (g, origin);
+    else
+        paintCurve (g, origin);
+
+    // Everything left of beat 0 sits over the roll's keyboard column, which
+    // scrolls away with the content -- the same arrangement the ruler above
+    // the roll uses, so the two edges move together. It says what the lane
+    // shows (a click there picks another), and the value under the pointer.
+    if (origin > 0.0f)
+    {
+        const auto gutter = juce::jmin (origin, width);
+
+        g.setColour (juce::Colour (0xff232327));
+        g.fillRect (0.0f, 1.0f, gutter, height - 1.0f);
+
+        const auto text = juce::Rectangle<float> (2.0f, 0.0f, gutter - 6.0f, height);
+        g.setFont (uiFont (fonts::small));
+        g.setColour (juce::Colour (kinds.size() > 1 ? 0xffa0a0a8 : 0xff707078));
+        g.drawText (juce::String (lanes::shortNameOf (kind)) + (kinds.size() > 1 ? juce::String::fromUTF8 (" \xe2\x96\xbe") : juce::String()),
+                    text.withTrimmedBottom (readout ? height / 2.0f : 0.0f), juce::Justification::centredRight, false);
+
+        if (readout)
+        {
+            g.setColour (juce::Colour (0xffe0a24f));
+            g.drawText (*readout, text.withTrimmedTop (height / 2.0f), juce::Justification::centredRight, false);
+        }
+    }
+}
+
+void PianoRollVelocityLane::paintBars (juce::Graphics& g, float origin)
+{
+    const auto width = (float) getWidth();
 
     for (const auto& note : roll.getNotes())
     {
         const auto bounds = barBounds (note);
 
-        if (bounds.getRight() < originX || bounds.getX() > width)
+        if (bounds.getRight() < origin || bounds.getX() > width)
             continue;
 
         // Dimmed when a selection rules the note out, because then a drag in
         // here will not touch it -- the lane says what it will do before it
         // does it.
-        // Full strength whatever the velocity: the bar's height already says
+        // Full strength whatever the value: the bar's height already says
         // the value here, and a washed-out bar would only be harder to grab.
         auto colour = noteColour;
 
@@ -2535,35 +2777,107 @@ void PianoRollVelocityLane::paint (juce::Graphics& g)
         g.fillRect (bounds);
 
         // A brighter cap, so a row of bars can be read as a shape rather than
-        // as a block of colour.
+        // as a block of colour -- on the end away from zero.
+        const auto lo = lanes::minOf (kind);
+        const bool below = lanes::isBipolar (kind) && lanes::valueOf (kind, note) < 0 && lo < 0;
         g.setColour (colour.brighter (0.5f));
-        g.fillRect (bounds.withHeight (1.5f));
+        g.fillRect (below ? bounds.withTop (bounds.getBottom() - 1.5f) : bounds.withHeight (1.5f));
     }
+}
+
+void PianoRollVelocityLane::paintCurve (juce::Graphics& g, float origin)
+{
+    const auto controller = lanes::controllerOf (kind);
+    const auto points = roll.getControllerPoints (controller);
+    const auto width = (float) getWidth();
+    const auto rest = yForControllerValue (model::Pattern::restingValue (controller));
+    const auto endX = juce::jmin (width, roll.beatToX (roll.getLengthBeats()) - (float) scrollOffset);
+
+    if (points.empty() || endX <= origin)
+        return;
+
+    auto xOf = [this] (double beat) { return roll.beatToX (beat) - (float) scrollOffset; };
+
+    // The curve as drawn: a line through the points, held flat after the
+    // last; nothing before the first, where the wheel is at rest.
+    juce::Path line;
+    line.startNewSubPath (xOf (points.front().beat), yForControllerValue (points.front().value));
+
+    for (size_t i = 1; i < points.size(); ++i)
+        line.lineTo (xOf (points[i].beat), yForControllerValue (points[i].value));
+
+    line.lineTo (endX, yForControllerValue (points.back().value));
+
+    juce::Path area (line);
+    area.lineTo (endX, rest);
+    area.lineTo (xOf (points.front().beat), rest);
+    area.closeSubPath();
+
+    g.saveState();
+    g.reduceClipRegion (juce::Rectangle<int> ((int) juce::jmax (0.0f, origin), 0, getWidth(), getHeight()));
+
+    g.setColour (noteColour.withAlpha (0.25f));
+    g.fillPath (area);
+
+    g.setColour (noteColour.brighter (0.3f));
+    g.strokePath (line, juce::PathStrokeType (1.5f));
+
+    g.restoreState();
 }
 
 void PianoRollVelocityLane::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (isOverEditableBar (e.position) ? juce::MouseCursor::UpDownResizeCursor
-                                                   : juce::MouseCursor::NormalCursor);
+    if (isInGutter (e.position))
+        setMouseCursor (kinds.size() > 1 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    else if (! lanes::isPerNote (kind))
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+    else
+        setMouseCursor (isOverEditableBar (e.position) ? juce::MouseCursor::UpDownResizeCursor
+                                                       : juce::MouseCursor::NormalCursor);
+
+    updateReadout (e.position);
+}
+
+void PianoRollVelocityLane::mouseExit (const juce::MouseEvent&)
+{
+    setReadout (std::nullopt);
 }
 
 void PianoRollVelocityLane::mouseDown (const juce::MouseEvent& e)
 {
+    if (isInGutter (e.position))
+    {
+        if (kinds.size() > 1)
+            showKindMenu();
+
+        return;
+    }
+
     // The gesture starts anywhere in the lane rather than only on a bar: a
     // sweep across a phrase is usually begun just before the first note of it,
     // and an empty transaction costs nothing.
-    roll.beginVelocityGesture();
+    roll.beginLaneGesture (kind);
     dragging = true;
     lastDragPosition = e.position;
+
+    if (! lanes::isPerNote (kind))
+    {
+        erasing = e.mods.isPopupMenu() || e.mods.isAltDown();
+        applyStroke (e.position, e.position);
+        updateReadout (e.position);
+        return;
+    }
 
     // A press on the selection's own bars moves the selection, and moves it
     // by nothing until the pointer does: the bars must not jump to wherever
     // in the lane the press happened to land.
     groupDragging = startsGroupDrag (e.position);
-    groupDragOriginVelocity = velocityAtY (e.position.y);
+    groupDragOriginValue = valueAtY (e.position.y);
 
     if (! groupDragging)
         applySweep (e.position, e.position);
+
+    updateReadout (e.position);
 }
 
 void PianoRollVelocityLane::mouseDrag (const juce::MouseEvent& e)
@@ -2571,22 +2885,33 @@ void PianoRollVelocityLane::mouseDrag (const juce::MouseEvent& e)
     if (! dragging)
         return;
 
+    if (! lanes::isPerNote (kind))
+    {
+        applyStroke (lastDragPosition, e.position);
+        lastDragPosition = e.position;
+        updateReadout (e.position);
+        return;
+    }
+
     if (groupDragging)
     {
-        // How far the pointer has come in velocity terms, so the lane's height
-        // means the same thing whether one note or a chord is being dragged.
-        roll.offsetSelectionVelocity (velocityAtY (e.position.y) - groupDragOriginVelocity);
+        // How far the pointer has come in the lane's own steps, so the lane's
+        // height means the same thing whether one note or a chord is dragged.
+        roll.offsetSelectionLaneValue (valueAtY (e.position.y) - groupDragOriginValue);
         return;
     }
 
     applySweep (lastDragPosition, e.position);
     lastDragPosition = e.position;
+    updateReadout (e.position);
 }
 
-void PianoRollVelocityLane::mouseUp (const juce::MouseEvent&)
+void PianoRollVelocityLane::mouseUp (const juce::MouseEvent& e)
 {
     dragging = false;
     groupDragging = false;
+    erasing = false;
+    updateReadout (e.position);
 }
 
 void PianoRollVelocityLane::applySweep (juce::Point<float> from, juce::Point<float> to)
@@ -2596,7 +2921,7 @@ void PianoRollVelocityLane::applySweep (juce::Point<float> from, juce::Point<flo
 
     // Where the pointer was when it passed over a given x. Mouse events arrive
     // far apart during a fast drag, and giving every note the segment swept
-    // the same velocity would flatten the ramp the user just drew.
+    // the same value would flatten the ramp the user just drew.
     const auto yAt = [from, to] (float x)
     {
         if (std::abs (to.x - from.x) < 1.0f)
@@ -2619,8 +2944,26 @@ void PianoRollVelocityLane::applySweep (juce::Point<float> from, juce::Point<flo
         if (span.getEnd() < left || span.getStart() > right)
             continue;
 
-        roll.setNoteVelocity (note, velocityAtY (yAt (span.getStart())));
+        roll.setNoteLaneValue (note, valueAtY (yAt (span.getStart())));
     }
+}
+
+void PianoRollVelocityLane::applyStroke (juce::Point<float> from, juce::Point<float> to)
+{
+    const auto controller = lanes::controllerOf (kind);
+    const auto fromBeat = roll.xToBeat (juce::jmax (from.x, originX()) + (float) scrollOffset);
+    const auto toBeat = roll.xToBeat (juce::jmax (to.x, originX()) + (float) scrollOffset);
+
+    if (erasing)
+    {
+        // A press alone rubs out a little either side of it, so a single
+        // click on a point takes it.
+        const auto reach = 3.0 / juce::jmax (1.0, roll.getPixelsPerBeat());
+        roll.eraseControllerStroke (controller, juce::jmin (fromBeat, toBeat) - reach, juce::jmax (fromBeat, toBeat) + reach);
+        return;
+    }
+
+    roll.drawControllerStroke (controller, fromBeat, controllerValueAtY (from.y), toBeat, controllerValueAtY (to.y));
 }
 
 } // namespace carve::app

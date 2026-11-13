@@ -558,8 +558,10 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         src/sync/VorbisComments.cpp
         tests/BreakSliceProperties.cpp
         tests/GabberKickTests.cpp
+        tests/GeneratorEditTests.cpp
         tests/PianoTests.cpp
         tests/CaptureProperties.cpp
+        tests/ControllerCurveTests.cpp
         tests/VoicebankTests.cpp
         tests/VocalModelTests.cpp
         tests/VorbisCommentTests.cpp

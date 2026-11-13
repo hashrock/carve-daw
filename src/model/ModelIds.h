@@ -86,6 +86,12 @@
 // │           │        order the pattern picker lists them. Songs written
 // │           │        before patterns were named carry a `slot` property
 // │           │        too; Song::fromXml drops it.
+// │           ├─ CTRL {kind, beat, value}   a controller curve's points, kept in
+// │           │        beat order per kind. kind: "bend" (value -1..1, the
+// │           │        pitch wheel) | "mod" (0..1, the mod wheel, CC 1).
+// │           │        Nothing before a kind's first point (the wheel at
+// │           │        rest), a straight line between points, the last
+// │           │        value held after the last. Absent = no curve.
 // │           └─ NOTE {start, length, pitch, velocity, lyric, play, retrig, buzz, buzzRamp,
 // │                    tune, rollDyn, tech}   times in beats
 // │                    lyric: what a singing ("utau", "vocal-model") generator sings on
@@ -141,6 +147,7 @@ CARVE_DECLARE_ID (GENERATOR)
 CARVE_DECLARE_ID (PATTERNS)
 CARVE_DECLARE_ID (PATTERN)
 CARVE_DECLARE_ID (NOTE)
+CARVE_DECLARE_ID (CTRL)
 CARVE_DECLARE_ID (PLUGIN)
 CARVE_DECLARE_ID (INSTRUMENT)
 CARVE_DECLARE_ID (SOUNDS)

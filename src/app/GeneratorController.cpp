@@ -30,41 +30,89 @@ double GeneratorController::newPatternLengthBeats() const
     return song.getTimeSigAt (0.0).getBeatsPerBar();
 }
 
-void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
+namespace
 {
-    juce::PopupMenu menu;
-    menu.addItem (1, "Slate (internal synth)");
-    menu.addItem (6, "Analog Drums (internal drum synth)");
-    menu.addItem (10, "Gabber Kick (kick designer)");
-    menu.addItem (11, "Acoustic Drums (recorded kit)");
-    menu.addItem (12, "Electric Bass (recorded bass)");
-    menu.addItem (14, "Piano (modelled acoustic piano)");
-    menu.addItem (3, "Sampler");
-    menu.addItem (4, "Drum Kit (16 pads)");
-    menu.addItem (7, "SF2 Player (.sf2)");
-    menu.addItem (8, "Singer (voicebank)");
-    menu.addItem (15, "Vocal Model (modelled Japanese singer)");
-    menu.addItem (9, "Break Slicer (drum loop)");
-    menu.addItem (5, "Audio track");
-    menu.addItem (13, "Reference track");
+// The kinds of generator the menus offer, in menu order: what each is called
+// there, its type, the name a new one is given ("Piano 3"), and whether it
+// is made empty and so opens on its Inst tab to be filled. The add menu
+// offers all of them; Replace Instrument the ones that play patterns.
+struct GeneratorChoice
+{
+    int menuId;
+    const char* label;
+    const char* type;
+    const char* stem;
+    bool opensSetup;
+};
 
+constexpr GeneratorChoice generatorChoices[]
+{
+    { 1,  "Slate (internal synth)",                 model::Generator::synthType,         "Slate",       false },
+    { 6,  "Analog Drums (internal drum synth)",     model::Generator::drumSynthType,     "Drums",       false },
+    { 10, "Gabber Kick (kick designer)",            model::Generator::gabberKickType,    "Gabber Kick", true },
+    { 11, "Acoustic Drums (recorded kit)",          model::Generator::acousticDrumsType, "Drums",       false },
+    { 12, "Electric Bass (recorded bass)",          model::Generator::electricBassType,  "Bass",        false },
+    { 14, "Piano (modelled acoustic piano)",        model::Generator::pianoType,         "Piano",       false },
+    { 3,  "Sampler",                                model::Generator::samplerType,       "Sampler",     true },
+    { 4,  "Drum Kit (16 pads)",                     model::Generator::drumKitType,       "Drum Kit",    false },
+    { 7,  "SF2 Player (.sf2)",                      model::Generator::soundFontType,     "SF2",         true },
+    { 8,  "Singer (voicebank)",                     model::Generator::utauType,          "Singer",      true },
+    { 15, "Vocal Model (modelled Japanese singer)", model::Generator::vocalModelType,    "Vocal",       false },
+    { 9,  "Break Slicer (drum loop)",               model::Generator::breakType,         "Break",       true },
+    { 5,  "Audio track",                            model::Generator::audioType,         "Audio",       false },
+    { 13, "Reference track",                        model::Generator::referenceType,     "Reference",   false },
+};
+
+const GeneratorChoice* findChoice (int menuId)
+{
+    for (const auto& choice : generatorChoices)
+        if (choice.menuId == menuId)
+            return &choice;
+
+    return nullptr;
+}
+
+bool playsPatterns (const GeneratorChoice& choice)
+{
+    return juce::String (choice.type) != model::Generator::audioType
+            && juce::String (choice.type) != model::Generator::referenceType;
+}
+
+// The instrument plugins the menus offer: none in a build that hosts none
+// (the App Store one), even if a settings file from another build lists some.
+juce::Array<juce::PluginDescription> instrumentPlugins (te::Engine& engine)
+{
     juce::Array<juce::PluginDescription> instruments;
 
-    // A build that hosts no plugins (the App Store one) offers none, and has
-    // no scanner to send anyone to. The list is not merely empty there: a
-    // settings file from another build could still be carrying one.
    #if CARVE_PLUGIN_HOSTING
     for (const auto& type : engine.getPluginManager().knownPluginList.getTypes())
         if (type.isInstrument)
             instruments.add (type);
+   #else
+    juce::ignoreUnused (engine);
    #endif
+
+    return instruments;
+}
+
+constexpr int firstPluginItem = 100;
+} // namespace
+
+void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
+{
+    juce::PopupMenu menu;
+
+    for (const auto& choice : generatorChoices)
+        menu.addItem (choice.menuId, choice.label);
+
+    const auto instruments = instrumentPlugins (engine);
 
     if (! instruments.isEmpty())
     {
         menu.addSeparator();
         menu.addSectionHeader ("Plugins");
         for (int i = 0; i < instruments.size(); ++i)
-            menu.addItem (100 + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")");
+            menu.addItem (firstPluginItem + i, instruments[i].name + "  (" + instruments[i].pluginFormatName + ")");
     }
 
    #if CARVE_PLUGIN_HOSTING
@@ -75,97 +123,29 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
                         [this, instruments] (int result)
     {
-        if (result == 1)
-            addGenerator ("Slate " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::synthType, nullptr);
-        else if (result == 2)
+        if (result == 2)
         {
             if (onManagePlugins)
                 onManagePlugins();
         }
-        else if (result == 3)
+        else if (const auto* choice = findChoice (result))
         {
-            // Made empty, and its Inst tab opened: the sample is chosen there,
-            // from a chooser or the history, without anything waiting on it.
-            addGenerator ("Sampler " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::samplerType, nullptr);
+            // The ones made empty (a sampler, a font player, a singer, a
+            // slicer, the kick) open on their Inst tab to be filled, from a
+            // chooser or the history, without anything waiting on it. The
+            // rest play as they are made; their editors are there to shape
+            // them, and a singer's piano roll to give it words. An audio or
+            // reference row has no instrument at all: its clips are the
+            // files dropped on it.
+            addGenerator (juce::String (choice->stem) + " " + juce::String (song.getNumGenerators() + 1),
+                          choice->type, nullptr);
 
-            if (onOpenInstrumentForSetup)
+            if (choice->opensSetup && onOpenInstrumentForSetup)
                 onOpenInstrumentForSetup();
         }
-        else if (result == 4)
+        else if (result >= firstPluginItem && result < firstPluginItem + instruments.size())
         {
-            // The other way round from a sampler: the kit is created empty and
-            // filled a pad at a time, so there is nothing to name it after.
-            addGenerator ("Drum Kit " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::drumKitType, nullptr);
-        }
-        else if (result == 6)
-        {
-            addGenerator ("Drums " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::drumSynthType, nullptr);
-        }
-        else if (result == 10)
-        {
-            addGenerator ("Gabber Kick " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::gabberKickType, nullptr);
-
-            if (onOpenInstrumentForSetup)
-                onOpenInstrumentForSetup();
-        }
-        else if (result == 11 || result == 12)
-        {
-            // Ready to play as they are; the editor is there to shape them.
-            const bool drums = result == 11;
-            addGenerator ((drums ? "Drums " : "Bass ") + juce::String (song.getNumGenerators() + 1),
-                          drums ? model::Generator::acousticDrumsType : model::Generator::electricBassType, nullptr);
-        }
-        else if (result == 14)
-        {
-            addGenerator ("Piano " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::pianoType, nullptr);
-        }
-        else if (result == 8 || result == 7)
-        {
-            // As a sampler is: empty, with its Inst tab open to fill it from.
-            const bool singer = result == 8;
-            addGenerator ((singer ? "Singer " : "SF2 ") + juce::String (song.getNumGenerators() + 1),
-                          singer ? model::Generator::utauType : model::Generator::soundFontType, nullptr);
-
-            if (onOpenInstrumentForSetup)
-                onOpenInstrumentForSetup();
-        }
-        else if (result == 15)
-        {
-            // Sings as it is made (its default character); the editor is
-            // there to shape the voice, the piano roll to give it words.
-            addGenerator ("Vocal " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::vocalModelType, nullptr);
-        }
-        else if (result == 9)
-        {
-            addGenerator ("Break " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::breakType, nullptr);
-
-            if (onOpenInstrumentForSetup)
-                onOpenInstrumentForSetup();
-        }
-        else if (result == 5)
-        {
-            // No instrument at all: its clips are the audio files placed on it.
-            addGenerator ("Audio " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::audioType, nullptr);
-        }
-        else if (result == 13)
-        {
-            // A record to compare with: drop it on the row, solo the row to
-            // hear it in place of the mix.
-            addGenerator ("Reference " + juce::String (song.getNumGenerators() + 1),
-                          model::Generator::referenceType, nullptr);
-        }
-        else if (result >= 100 && result < 100 + instruments.size())
-        {
-            const auto& description = instruments.getReference (result - 100);
+            const auto& description = instruments.getReference (result - firstPluginItem);
             addGenerator (description.name, "plugin", &description);
         }
     });
@@ -1163,18 +1143,145 @@ void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
     juce::PopupMenu menu;
     menu.addSectionHeader (generator->getName());
     menu.addItem (1, "Rename...");
+    menu.addItem (3, "Duplicate");
+
+    // Every instrument the add menu offers, the one it has now ticked: the
+    // patterns, clips, effects and mixer stay, and only what plays the
+    // notes changes. An audio row plays files, not notes, so it has none.
+    juce::Array<juce::PluginDescription> instruments;
+
+    if (generator->canReplaceInstrument())
+    {
+        juce::PopupMenu replaceMenu;
+        const auto currentType = generator->getType();
+
+        for (const auto& choice : generatorChoices)
+            if (playsPatterns (choice))
+                replaceMenu.addItem (choice.menuId, choice.label, true, currentType == choice.type);
+
+        instruments = instrumentPlugins (engine);
+
+        if (! instruments.isEmpty())
+        {
+            const auto current = generator->getPluginDescription();
+            replaceMenu.addSeparator();
+            replaceMenu.addSectionHeader ("Plugins");
+
+            for (int i = 0; i < instruments.size(); ++i)
+                replaceMenu.addItem (firstPluginItem + i,
+                                     instruments[i].name + "  (" + instruments[i].pluginFormatName + ")", true,
+                                     currentType == "plugin" && current
+                                         && current->createIdentifierString() == instruments[i].createIdentifierString());
+        }
+
+        menu.addSubMenu ("Replace Instrument", replaceMenu);
+    }
+
+    menu.addSeparator();
     menu.addItem (2, "Delete");
 
     // Looked up again inside: the menu is asynchronous, and the song may have
     // been replaced by then.
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
-                        [this, generatorId] (int result)
+                        [this, generatorId, instruments] (int result)
     {
         if (result == 1)
             renameGenerator (generatorId);
         else if (result == 2)
             deleteGenerator (generatorId);
+        else if (result == 3)
+            duplicateGenerator (generatorId);
+        else if (const auto* choice = findChoice (result); choice != nullptr && playsPatterns (*choice))
+            replaceInstrument (generatorId, choice->type, choice->stem, nullptr, choice->opensSetup);
+        else if (result >= firstPluginItem && result < firstPluginItem + instruments.size())
+        {
+            const auto& description = instruments.getReference (result - firstPluginItem);
+            replaceInstrument (generatorId, "plugin", description.name, &description, false);
+        }
     });
+}
+
+void GeneratorController::duplicateGenerator (const juce::String& generatorId)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator)
+        return;
+
+    // The knobs turned since the last save are only in the live plugins; the
+    // copy is made from the song, so they go into it first.
+    if (onCaptureLivePluginState)
+        onCaptureLivePluginState();
+
+    undoManager.beginNewTransaction();
+    auto copy = song.duplicateGenerator (*generator, &undoManager);
+
+    // The copy is selected, on the pattern its source was showing.
+    selectedGeneratorId = copy.getId();
+    selectedPatternId = {};
+
+    if (auto shown = lastPatternByGenerator.find (generatorId); shown != lastPatternByGenerator.end())
+        for (int i = 0; i < generator->getNumPatterns() && i < copy.getNumPatterns(); ++i)
+            if (generator->getPattern (i).getId() == shown->second)
+                selectedPatternId = copy.getPattern (i).getId();
+
+    refresh();
+    fireSelectionChanged();
+}
+
+void GeneratorController::replaceInstrument (const juce::String& generatorId, const juce::String& type,
+                                             const juce::String& stem, const juce::PluginDescription* description,
+                                             bool opensSetup)
+{
+    auto generator = song.findGenerator (generatorId);
+
+    if (! generator || ! generator->canReplaceInstrument())
+        return;
+
+    // A name the app gave it ("Slate 3", or a plugin's own name) goes with
+    // the instrument it named: "Piano 3". One the user gave it stays.
+    const auto oldStem = [&]() -> juce::String
+    {
+        if (generator->getType() == "plugin")
+            if (auto current = generator->getPluginDescription())
+                return current->name;
+
+        for (const auto& choice : generatorChoices)
+            if (generator->getType() == choice.type)
+                return choice.stem;
+
+        return {};
+    }();
+
+    const auto name = generator->getName();
+    juce::String newName;
+
+    if (oldStem.isNotEmpty() && name.startsWith (oldStem))
+    {
+        const auto rest = name.substring (oldStem.length());
+
+        if (rest.isEmpty() || (rest.startsWithChar (' ') && rest.substring (1).containsOnly ("0123456789")
+                                && rest.length() > 1))
+            newName = stem + rest;
+    }
+
+    // The old instrument's knobs into the song first, so an undo brings it
+    // back as it was rather than as it was last saved.
+    if (onCaptureLivePluginState)
+        onCaptureLivePluginState();
+
+    undoManager.beginNewTransaction();
+    generator->replaceInstrument (type, description, &undoManager);
+
+    if (newName.isNotEmpty() && newName != name)
+        generator->setName (newName, &undoManager);
+
+    selectedGeneratorId = generatorId;
+    refresh();
+    fireSelectionChanged();
+
+    if (opensSetup && onOpenInstrumentForSetup)
+        onOpenInstrumentForSetup();
 }
 
 void GeneratorController::renameGenerator (const juce::String& generatorId)

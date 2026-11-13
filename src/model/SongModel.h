@@ -240,6 +240,42 @@ public:
     // instrument that sounds it, so a pattern crosses generators unchanged.
     void copyNotesFrom (const Pattern& source, juce::UndoManager* um);
 
+    //==============================================================================
+    // Controller curves: the pitch wheel and the mod wheel, drawn over the
+    // pattern. Each is a list of points in beat order; before the first the
+    // wheel is at rest (restingValue), between two it moves in a straight
+    // line, and after the last it stays. An instrument that does not read
+    // the wheel ignores its curve.
+    enum class Controller { pitchBend, modWheel };
+
+    struct ControllerPoint
+    {
+        double beat;
+        float value;   // pitch bend -1..1, mod wheel 0..1
+    };
+
+    static float restingValue (Controller)              { return 0.0f; }
+    static float minValue (Controller c)                { return c == Controller::pitchBend ? -1.0f : 0.0f; }
+    static float clampValue (Controller c, float value) { return juce::jlimit (minValue (c), 1.0f, value); }
+
+    std::vector<ControllerPoint> getControllerPoints (Controller) const;
+    bool hasControllerPoints (Controller) const;
+
+    // The curve's value at a beat, by the rules above.
+    float getControllerValue (Controller, double beat) const;
+
+    // What a stroke of the pen does: the points from `from` to `to` (in
+    // either order, clamped to the pattern) replace whatever the curve had
+    // between those beats.
+    void replaceControllerPoints (Controller, double from, double to,
+                                  const std::vector<ControllerPoint>& points, juce::UndoManager*);
+
+    // The points between two beats, gone. Both ends included.
+    void removeControllerPoints (Controller, double from, double to, juce::UndoManager*);
+
+    // Replaces this pattern's curves with copies of another's.
+    void copyControllersFrom (const Pattern& source, juce::UndoManager*);
+
     juce::ValueTree state;
 };
 
@@ -595,6 +631,19 @@ public:
     // recordings for) is isUtau()'s alone.
     bool singsLyrics() const  { return isUtau() || isVocalModel(); }
 
+    // Whether its instrument reads a wheel, so a pattern's curve for it
+    // (Pattern::Controller) means something. The pitch wheel: the built-in
+    // synth, the SF2 player and a hosted plugin. The mod wheel: a hosted
+    // plugin only -- the synth has no route from it in its editor, and the
+    // SF2 player's engine ignores it. Everything else is sent neither.
+    bool readsController (Pattern::Controller controller) const
+    {
+        if (getType() == "plugin")
+            return true;
+
+        return controller == Pattern::Controller::pitchBend && (getType() == synthType || isSoundFont());
+    }
+
     // A breakbeat slicer: one loop (an Amen, a Think) cut into slices, slice
     // i on note breakFirstNote + i. The loop is the generator's one SOUND,
     // the way a SoundFont's file is; where it is cut is SLICES, in the model,
@@ -724,6 +773,22 @@ public:
     void setSoundFontPreset (int bank, int program, juce::UndoManager*);
 
     void setName (const juce::String& n, juce::UndoManager* um)  { state.setProperty (ids::name, n, um); }
+
+    // Plays the generator's notes on another instrument: `type` is one of
+    // the types above (not audio -- the notes have to go somewhere), or
+    // "plugin" with the plugin's description. What the notes are and where
+    // they go stays: the name, the patterns and their clips, the effects,
+    // sends, mixer and group, the modulators and the automation on anything
+    // but the instrument. Everything about the old instrument goes -- its
+    // plugin and its settings, its samples, font, voicebank or loop, its
+    // voice and its cuts -- and so do the lanes and assignments on its
+    // parameters, which the new one does not have. The new instrument starts
+    // as a new generator of its type would.
+    void replaceInstrument (const juce::String& type, const juce::PluginDescription*, juce::UndoManager*);
+
+    // Whether replaceInstrument can be used on this generator: one that
+    // plays patterns, which is all of them but the audio rows.
+    bool canReplaceInstrument() const  { return ! isAudio(); }
 
     // Mixer state, applied to the generator's track by EditSync. Stored as
     // optional properties so older songs (and the demo) load with the defaults
@@ -1410,6 +1475,16 @@ public:
     // nothing: its clips on the playlist, and any effect sidechained to it.
     // One transaction's worth, so undo brings the lot back.
     void removeGenerator (const Generator&, juce::UndoManager*);
+
+    // A copy of the generator straight after it: its instrument and
+    // everything it plays through, its patterns, and its clips on the
+    // playlist, laid on the copy's row where the source's lie. Everything
+    // that names something inside the generator (a pattern, an effect, a
+    // modulator) is given a fresh id and the references to it follow, so
+    // the copy shares nothing with the source but what it points outside
+    // itself at -- the returns it sends to, its group, a sidechain key.
+    // Named "<name> copy", or "copy 2" and on if that is taken.
+    Generator duplicateGenerator (const Generator&, juce::UndoManager*);
 
     Playlist getPlaylist() const;
 

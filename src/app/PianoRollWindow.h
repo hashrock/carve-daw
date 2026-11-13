@@ -854,6 +854,14 @@ public:
         // fires this for a signature change too, for the same reason.
         pianoRoll.onViewChanged = [this] { updateStrips(); ruler.repaint(); velocityLane.repaint(); updateNoteBar(); };
 
+        // What the lane shows is remembered, as the grid is: a hand bending
+        // notes in one pattern is likely to want the bend lane in the next.
+        velocityLane.onKindChanged = [this] (lanes::Kind kind)
+        {
+            settings->setValue (laneKey, (int) kind);
+            updateShortcutBar();
+        };
+
         ruler.onSeek = [this] (double beat)
         {
             if (onSeekPatternBeat)
@@ -1006,6 +1014,15 @@ public:
     void setLyricCheck (PianoRollComponent::LyricCheck check)
     {
         pianoRoll.setLyricCheck (std::move (check));
+    }
+
+    // What the lane under the roll can show for this generator (see
+    // lanes::kindsFor). It goes back to whatever was last picked from its
+    // menu, where that is on offer.
+    void setLaneKinds (std::vector<lanes::Kind> kinds)
+    {
+        velocityLane.setKinds (std::move (kinds));
+        velocityLane.setKind ((lanes::Kind) settings->getIntValue (laneKey, (int) lanes::Kind::velocity));
     }
 
     // The technique bar and the notes' technique marks, for an electric bass.
@@ -1215,6 +1232,7 @@ public:
 private:
     static constexpr int toolbarHeight = toolStrip::height;
     static constexpr const char* snapKey = "snap";
+    static constexpr const char* laneKey = "lane";
     static constexpr const char* rowZoomKey = "rowZoom";
 
     // Its own file rather than a second handle on the mixer's or the browser's:
@@ -1441,7 +1459,10 @@ private:
 
         // The lane edits the selection when there is one and whatever it
         // sweeps when there is not, so it is worth saying which is happening.
-        entries.push_back ({ "drag lane", hasSelection ? "velocity of selection" : "velocity" });
+        entries.push_back ({ "drag lane", juce::String (hasSelection ? "edit selection's " : "edit ") + juce::String (lanes::nameOf (velocityLane.getKind())).toLowerCase() });
+
+        if (! lanes::isPerNote (velocityLane.getKind()))
+            entries.push_back ({ "right-drag lane", "erase" });
 
         if (hasSelection)
         {

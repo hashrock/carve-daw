@@ -96,8 +96,13 @@ public:
     // hung off screenArea -- the playlist's "+ Generator" button.
     void showAddGeneratorMenu (juce::Rectangle<int> screenArea);
 
-    // A generator's own menu -- rename, delete -- hung off screenArea, which
-    // is its row label on the playlist.
+    // Copies what the live plugins hold into the song (EditSync's capture).
+    // A duplicate is made from the song, and a knob turned since the last
+    // save is only in the plugin until this runs.
+    std::function<void()> onCaptureLivePluginState;
+
+    // A generator's own menu -- rename, duplicate, replace its instrument,
+    // delete -- hung off screenArea, which is its row label on the playlist.
     void showGeneratorMenu (const juce::String& generatorId, juce::Rectangle<int> screenArea);
 
     // The plain sampler's "one sample across the whole keyboard" chooser, for
@@ -242,6 +247,16 @@ private:
     void renamePattern (const juce::String& generatorId, const juce::String& patternId);
     void renameGenerator (const juce::String& generatorId);
     void deleteGenerator (const juce::String& generatorId);
+
+    // Song::duplicateGenerator, with the copy selected.
+    void duplicateGenerator (const juce::String& generatorId);
+
+    // Generator::replaceInstrument as one undo step. `stem` is what a new
+    // generator of the type is named after, which an app-given name
+    // follows; opensSetup takes it to its Inst tab, for a kind that is made
+    // empty and filled there.
+    void replaceInstrument (const juce::String& generatorId, const juce::String& type, const juce::String& stem,
+                            const juce::PluginDescription*, bool opensSetup);
     void deletePattern (const juce::String& generatorId, const juce::String& patternId);
     void exportPatternToMidi (const juce::String& generatorId, const juce::String& patternId);
     void importMidiIntoPattern (const juce::String& generatorId, const juce::String& patternId);

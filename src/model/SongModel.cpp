@@ -171,6 +171,139 @@ void Pattern::copyNotesFrom (const Pattern& source, juce::UndoManager* um)
 
 
 //==============================================================================
+// Controller curves
+
+namespace
+{
+    const char* controllerKey (Pattern::Controller controller)
+    {
+        return controller == Pattern::Controller::pitchBend ? "bend" : "mod";
+    }
+
+    bool isPointOf (const juce::ValueTree& child, Pattern::Controller controller)
+    {
+        return child.hasType (ids::CTRL) && child[ids::kind].toString() == controllerKey (controller);
+    }
+}
+
+std::vector<Pattern::ControllerPoint> Pattern::getControllerPoints (Controller controller) const
+{
+    std::vector<ControllerPoint> points;
+
+    for (const auto& child : state)
+        if (isPointOf (child, controller))
+            points.push_back ({ (double) child[ids::beat], clampValue (controller, (float) child[ids::value]) });
+
+    // Kept in order on every write, and sorted here anyway: a hand-edited
+    // file is not bound by that.
+    std::stable_sort (points.begin(), points.end(),
+                      [] (const ControllerPoint& a, const ControllerPoint& b) { return a.beat < b.beat; });
+    return points;
+}
+
+bool Pattern::hasControllerPoints (Controller controller) const
+{
+    for (const auto& child : state)
+        if (isPointOf (child, controller))
+            return true;
+
+    return false;
+}
+
+float Pattern::getControllerValue (Controller controller, double beat) const
+{
+    const auto points = getControllerPoints (controller);
+
+    if (points.empty() || beat < points.front().beat)
+        return restingValue (controller);
+
+    for (size_t i = 1; i < points.size(); ++i)
+    {
+        const auto& a = points[i - 1];
+        const auto& b = points[i];
+
+        if (beat < b.beat)
+        {
+            const auto span = b.beat - a.beat;
+            const auto t = span > 0.0 ? (float) ((beat - a.beat) / span) : 1.0f;
+            return a.value + (b.value - a.value) * t;
+        }
+    }
+
+    return points.back().value;
+}
+
+void Pattern::removeControllerPoints (Controller controller, double from, double to, juce::UndoManager* um)
+{
+    if (from > to)
+        std::swap (from, to);
+
+    for (int i = state.getNumChildren(); --i >= 0;)
+    {
+        const auto child = state.getChild (i);
+
+        if (isPointOf (child, controller))
+            if (const double beat = child[ids::beat]; beat >= from && beat <= to)
+                state.removeChild (i, um);
+    }
+}
+
+void Pattern::replaceControllerPoints (Controller controller, double from, double to,
+                                       const std::vector<ControllerPoint>& points, juce::UndoManager* um)
+{
+    if (from > to)
+        std::swap (from, to);
+
+    const auto length = getLengthBeats();
+    from = juce::jlimit (0.0, length, from);
+    to = juce::jlimit (0.0, length, to);
+
+    removeControllerPoints (controller, from, to, um);
+
+    for (const auto& point : points)
+    {
+        if (point.beat < from || point.beat > to)
+            continue;
+
+        juce::ValueTree node (ids::CTRL);
+        node.setProperty (ids::kind, controllerKey (controller), nullptr);
+        node.setProperty (ids::beat, point.beat, nullptr);
+        node.setProperty (ids::value, clampValue (controller, point.value), nullptr);
+
+        // In beat order among the curve's points, after the notes' position
+        // in the list does not matter: readers pick CTRL children by type.
+        int index = state.getNumChildren();
+
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            const auto child = state.getChild (i);
+
+            if (isPointOf (child, controller) && (double) child[ids::beat] > point.beat)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        state.addChild (node, index, um);
+    }
+}
+
+void Pattern::copyControllersFrom (const Pattern& source, juce::UndoManager* um)
+{
+    if (source.state == state)
+        return;
+
+    for (int i = state.getNumChildren(); --i >= 0;)
+        if (state.getChild (i).hasType (ids::CTRL))
+            state.removeChild (i, um);
+
+    for (const auto& child : source.state)
+        if (child.hasType (ids::CTRL))
+            state.appendChild (child.createCopy(), um);
+}
+
+//==============================================================================
 // Note extras
 
 namespace
@@ -1125,6 +1258,7 @@ Pattern Generator::duplicatePattern (const Pattern& source, juce::UndoManager* u
     auto copy = insertPattern (index, makeUniquePatternName (patternStemForCopy (source.getName())),
                                source.getLengthBeats(), um);
     copy.copyNotesFrom (source, um);
+    copy.copyControllersFrom (source, um);
     return copy;
 }
 
@@ -1147,6 +1281,34 @@ Pattern Generator::insertPattern (int index, const juce::String& name, double le
 void Generator::removePattern (const Pattern& pattern, juce::UndoManager* um)
 {
     state.getChildWithName (ids::PATTERNS).removeChild (pattern.state, um);
+}
+
+void Generator::replaceInstrument (const juce::String& type, const juce::PluginDescription* description,
+                                   juce::UndoManager* um)
+{
+    jassert (canReplaceInstrument() && type != audioType && type != referenceType);
+
+    for (const auto& node : { ids::PLUGIN, ids::INSTRUMENT, ids::SOUNDS, ids::SLICES })
+        if (auto child = state.getChildWithName (node); child.isValid())
+            state.removeChild (child, um);
+
+    for (const auto& property : { ids::voiceGender, ids::voiceBreath, ids::voiceBrightness, ids::voiceModulation,
+                                  ids::breakBars, ids::breakRepitch })
+        state.removeProperty (property, um);
+
+    for (const auto& lane : getAutomationLanes())
+        if (lane.getTarget() == AutomationLane::instrumentTarget)
+            removeAutomationLane (lane, um);
+
+    for (auto modifier : getModifiers())
+        for (auto& assign : modifier.getAssigns())
+            if (assign.getTarget() == AutomationLane::instrumentTarget)
+                modifier.removeAssign (assign, um);
+
+    state.setProperty (ids::type, type, um);
+
+    if (description != nullptr)
+        setPlugin (*description, um);
 }
 
 void Generator::setPlugin (const juce::PluginDescription& description, juce::UndoManager* um)
@@ -1642,6 +1804,102 @@ void Song::removeGenerator (const Generator& generator, juce::UndoManager* um)
         clearSidechains (ret.getEffects());
 
     state.getChildWithName (ids::GENERATORS).removeChild (generator.state, um);
+}
+
+Generator Song::duplicateGenerator (const Generator& source, juce::UndoManager* um)
+{
+    const auto sourceId = source.getId();
+    auto copy = source.state.createCopy();
+    copy.setProperty (ids::id, newId(), nullptr);
+
+    // The name: "Bass copy", and on from "Bass copy 2" if that is taken.
+    {
+        const auto generators = getGenerators();
+        auto taken = [&generators] (const juce::String& name)
+        {
+            return std::any_of (generators.begin(), generators.end(),
+                                [&name] (const Generator& g) { return g.getName() == name; });
+        };
+
+        const auto stem = source.getName() + " copy";
+        auto name = stem;
+
+        for (int number = 2; taken (name); ++number)
+            name = stem + " " + juce::String (number);
+
+        copy.setProperty (ids::name, name, nullptr);
+    }
+
+    // Fresh ids for everything inside, remembering old -> new so the
+    // references among them can follow.
+    std::map<juce::String, juce::String> renamed;
+
+    std::function<void (juce::ValueTree)> renew = [&] (juce::ValueTree node)
+    {
+        if (node.hasType (ids::PATTERN) || node.hasType (ids::EFFECT)
+             || node.hasType (ids::MODIFIER) || node.hasType (ids::SOUND))
+        {
+            if (const auto old = node[ids::id].toString(); old.isNotEmpty())
+            {
+                const auto fresh = newId();
+                renamed[old] = fresh;
+                node.setProperty (ids::id, fresh, nullptr);
+            }
+        }
+
+        for (auto child : node)
+            renew (child);
+    };
+
+    renew (copy);
+
+    // What points at those: an automation lane or a modulator's assignment
+    // on one of the effects, and a compressor keyed from the generator itself.
+    std::function<void (juce::ValueTree)> repoint = [&] (juce::ValueTree node)
+    {
+        if (node.hasType (ids::AUTOCURVE) || node.hasType (ids::ASSIGN))
+            if (auto found = renamed.find (node[ids::target].toString()); found != renamed.end())
+                node.setProperty (ids::target, found->second, nullptr);
+
+        if (node.hasType (ids::EFFECT) && node[ids::sidechainSource].toString() == sourceId)
+            node.setProperty (ids::sidechainSource, copy[ids::id], nullptr);
+
+        for (auto child : node)
+            repoint (child);
+    };
+
+    repoint (copy);
+
+    auto generators = state.getChildWithName (ids::GENERATORS);
+    generators.addChild (copy, generators.indexOf (source.state) + 1, um);
+    Generator duplicate (copy);
+
+    // The playlist, copied onto the new row: the same placements, playing
+    // the copies of the patterns they played.
+    auto playlist = getPlaylist();
+
+    for (const auto& clip : playlist.getClips())
+    {
+        if (clip.getGeneratorId() != sourceId)
+            continue;
+
+        if (auto found = renamed.find (clip.getPatternId()); found != renamed.end())
+            if (auto pattern = duplicate.findPattern (found->second))
+                playlist.addClip (duplicate, *pattern, clip.getStart(), ClipPlacement::of (clip), um);
+    }
+
+    for (const auto& clip : playlist.getAudioClips())
+    {
+        if (clip.getGeneratorId() != sourceId)
+            continue;
+
+        auto placed = clip.state.createCopy();
+        placed.setProperty (ids::id, newId(), nullptr);
+        placed.setProperty (ids::generatorId, duplicate.getId(), nullptr);
+        playlist.state.appendChild (placed, um);
+    }
+
+    return duplicate;
 }
 
 Playlist Song::getPlaylist() const

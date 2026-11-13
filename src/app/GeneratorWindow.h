@@ -1064,6 +1064,7 @@ public:
         rollContent.setShowsLyrics (generator && generator->singsLyrics());
         rollContent.setShowsPlayModes (generator && generator->isBreak());
         rollContent.setShowsTechniques (generator && generator->isElectricBass());
+        rollContent.setLaneKinds (generator ? lanes::kindsFor (*generator) : std::vector<lanes::Kind> { lanes::Kind::velocity });
         rollContent.setLyricCheck (lyricCheckFor (generator));
     }
 

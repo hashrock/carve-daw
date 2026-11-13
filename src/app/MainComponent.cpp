@@ -81,6 +81,18 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     generatorController->onManagePlugins = [this] { openPluginManager(); };
 
+    // Before a generator is copied: the copy is made from the song, and the
+    // knobs turned since the last save are only in the live plugins. Not an
+    // edit of its own -- the copy that follows is.
+    generatorController->onCaptureLivePluginState = [this]
+    {
+        if (editSync != nullptr)
+        {
+            const juce::ScopedValueSetter<bool> notAnEdit (capturingPluginState, true);
+            editSync->captureLivePluginState();
+        }
+    };
+
     // A sampler, SoundFont player or singer made empty: straight to the tab
     // that fills it, rather than a file chooser holding everything up.
     generatorController->onOpenInstrumentForSetup = [this]

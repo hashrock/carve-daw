@@ -39,6 +39,7 @@
 #include "model/SongModel.h"
 #include "sync/EditSync.h"
 #include "sync/EffectChains.h"
+#include "sync/EngineIds.h"
 
 namespace
 {
@@ -516,6 +517,169 @@ TEST_CASE ("What the plugins hold comes back into the song", "[sync][capture]")
 
         RC_ASSERT (found == mark);
     }));
+}
+
+//==============================================================================
+// A generator's instrument is a live plugin whose knobs reach the song only
+// when it is captured (on save). So the track that carries it has to stay
+// that generator's however the others around it come and go: handed to the
+// generator after it, it plays that one's notes with this one's sound, and
+// the next save writes this one's knobs into the other.
+namespace
+{
+const juce::Identifier ownerMark ("carveTestOwner");
+
+juce::Array<te::AudioTrack*> generatorTracks (te::Edit& edit)
+{
+    juce::Array<te::AudioTrack*> tracks;
+
+    for (auto track : te::getAudioTracks (edit))
+        if (! sync::isBusTrack (*track))
+            tracks.add (track);
+
+    return tracks;
+}
+
+// Marks every live instrument with the generator it belongs to, the way a
+// knob move leaves a mark only the live plugin knows about.
+void markInstruments (const Song& song, te::Edit& edit)
+{
+    const auto generators = song.getGenerators();
+    const auto tracks = generatorTracks (edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        if (auto instrument = sync::findInstrumentPlugin (*tracks[i]))
+            if (! instrument->state.hasProperty (ownerMark))
+                instrument->state.setProperty (ownerMark, generators[(size_t) i].getId(), nullptr);
+}
+
+// Which generators' tracks are carrying some other generator's instrument.
+std::vector<juce::String> strayInstruments (const Song& song, te::Edit& edit)
+{
+    std::vector<juce::String> stray;
+    const auto generators = song.getGenerators();
+    const auto tracks = generatorTracks (edit);
+
+    for (int i = 0; i < (int) generators.size() && i < tracks.size(); ++i)
+        if (auto instrument = sync::findInstrumentPlugin (*tracks[i]))
+            if (const auto owner = instrument->state[ownerMark].toString();
+                owner.isNotEmpty() && owner != generators[(size_t) i].getId())
+                stray.push_back (generators[(size_t) i].getName() + " plays " + owner + "'s instrument");
+
+    return stray;
+}
+} // namespace
+
+TEST_CASE ("A generator keeps its live instrument while others come and go", "[sync][tracks]")
+{
+    REQUIRE (rc::check ("no track is handed to another generator", [] {
+        auto song = Song::create ("Tracks");
+        juce::UndoManager um (1000 * 1000 * 1000, 1);
+        auto edit = te::Edit::createSingleTrackEdit (testEngine());
+
+        const auto count = *rc::gen::inRange (2, 6);
+
+        for (int i = 0; i < count; ++i)
+            song.addGenerator ("G" + juce::String (i), Generator::synthType, &um);
+
+        sync::syncSongToEdit (song, *edit);
+        markInstruments (song, *edit);
+
+        // Removals and duplicates anywhere in the list, then all of it undone.
+        const auto edits = *rc::gen::container<std::vector<std::pair<bool, int>>> (
+            rc::gen::pair (rc::gen::arbitrary<bool>(), rc::gen::inRange (0, 100)));
+
+        for (const auto& [remove, at] : edits)
+        {
+            const auto generators = song.getGenerators();
+
+            if (generators.empty())
+                break;
+
+            const auto& target = generators[(size_t) (at % (int) generators.size())];
+            um.beginNewTransaction();
+
+            if (remove)
+                song.removeGenerator (target, &um);
+            else
+                song.duplicateGenerator (target, &um);
+
+            sync::syncSongToEdit (song, *edit);
+            markInstruments (song, *edit);
+
+            const auto stray = strayInstruments (song, *edit);
+            RC_ASSERT (stray.empty());
+            RC_ASSERT (sync::findSyncProblems (song, *edit).empty());
+        }
+
+        while (um.undo())
+        {
+            sync::syncSongToEdit (song, *edit);
+
+            const auto stray = strayInstruments (song, *edit);
+            RC_ASSERT (stray.empty());
+            RC_ASSERT (sync::findSyncProblems (song, *edit).empty());
+        }
+    }));
+}
+
+//==============================================================================
+// A pattern's pitch-wheel curve reaches its clips as controller events, back
+// at rest by the end, and only on an instrument that reads the wheel.
+TEST_CASE ("A drawn bend is played as the pitch wheel", "[sync][controllers]")
+{
+    auto song = Song::create ("Bend");
+    juce::UndoManager um;
+    auto synth = song.addGenerator ("Lead", Generator::synthType, &um);
+    auto kit = song.addGenerator ("Kit", Generator::drumKitType, &um);
+
+    for (auto generator : { synth, kit })
+    {
+        auto pattern = generator.createPattern (&um, 4.0);
+        pattern.addNote (0.0, 4.0, 60, 100, &um);
+        pattern.replaceControllerPoints (Pattern::Controller::pitchBend, 1.0, 2.0,
+                                         { { 1.0, 0.0f }, { 2.0, 1.0f } }, &um);
+        song.getPlaylist().addClip (generator, pattern, 0.0, &um);
+    }
+
+    auto edit = te::Edit::createSingleTrackEdit (testEngine());
+    sync::syncSongToEdit (song, *edit);
+
+    const auto tracks = generatorTracks (*edit);
+    REQUIRE (tracks.size() == 2);
+
+    auto controllersOn = [] (te::AudioTrack& track)
+    {
+        std::vector<std::pair<double, int>> events;
+
+        for (auto clip : track.getClips())
+            if (auto midi = dynamic_cast<te::MidiClip*> (clip))
+                for (auto* event : midi->getSequence().getControllerEvents())
+                    if (event->getType() == te::MidiControllerEvent::pitchWheelType)
+                        events.emplace_back (event->getBeatPosition().inBeats(), event->getControllerValue());
+
+        std::sort (events.begin(), events.end());
+        return events;
+    };
+
+    const auto bend = controllersOn (*tracks[0]);
+    REQUIRE (bend.size() > 10);   // a glide, not a jump
+    CHECK (bend.front().second == 8192);
+    CHECK (std::any_of (bend.begin(), bend.end(), [] (const auto& e) { return e.second == 16383; }));
+    CHECK (bend.back().second == 8192);
+    CHECK (bend.back().first < 4.0);
+
+    for (size_t i = 1; i < bend.size(); ++i)
+        CHECK (bend[i].second != bend[i - 1].second);   // no event that changes nothing
+
+    CHECK (controllersOn (*tracks[1]).empty());
+
+    // A second sync finds the clip as it should be and leaves it alone.
+    auto* clip = dynamic_cast<te::MidiClip*> (tracks[0]->getClips()[0]);
+    REQUIRE (clip != nullptr);
+    const auto* first = clip->getSequence().getControllerEvents()[0];
+    sync::syncSongToEdit (song, *edit);
+    CHECK (clip->getSequence().getControllerEvents()[0] == first);
 }
 
 //==============================================================================

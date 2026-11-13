@@ -1,5 +1,6 @@
 #include "EditSync.h"
 
+#include <map>
 #include <tuple>
 #include <utility>
 
@@ -1536,6 +1537,129 @@ namespace
         return wanted;
     }
 
+    // A pattern's controller curves as the clip's MIDI controller events:
+    // tracktion's own type numbers, 14-bit values (the pitch wheel's 8192 is
+    // its rest). A straight line between two points becomes steps of
+    // controllerStepBeats, fine enough that a bend glides rather than
+    // climbs stairs; repeats of the pattern repeat the curve, and the clip's
+    // end puts the wheel back at rest so nothing after it is left bent.
+    struct WantedController
+    {
+        int type;
+        double beat;
+        int value;
+    };
+
+    constexpr double controllerStepBeats = 1.0 / 64.0;
+
+    int controllerType (model::Pattern::Controller controller)
+    {
+        return controller == model::Pattern::Controller::pitchBend ? te::MidiControllerEvent::pitchWheelType : 1;
+    }
+
+    int controllerValue (model::Pattern::Controller controller, float value)
+    {
+        if (controller == model::Pattern::Controller::pitchBend)
+            return juce::jlimit (0, 16383, 8192 + juce::roundToInt (value * 8191.0f));
+
+        return juce::jlimit (0, 16383, juce::roundToInt (value * 16383.0f));
+    }
+
+    std::vector<WantedController> wantedControllersFor (const model::Generator& generator, const model::Pattern& pattern,
+                                                        double patternLength, double clipLength)
+    {
+        std::vector<WantedController> wanted;
+        constexpr int maxRepeats = 512;
+
+        for (auto controller : { model::Pattern::Controller::pitchBend, model::Pattern::Controller::modWheel })
+        {
+            if (! generator.readsController (controller))
+                continue;
+
+            const auto points = pattern.getControllerPoints (controller);
+
+            if (points.empty())
+                continue;
+
+            const auto type = controllerType (controller);
+            const auto rest = controllerValue (controller, model::Pattern::restingValue (controller));
+            int last = -1;
+
+            auto add = [&] (double beat, float value)
+            {
+                const auto v = controllerValue (controller, value);
+
+                if (v != last && beat < clipLength - 1.0e-9)
+                {
+                    wanted.push_back ({ type, beat, v });
+                    last = v;
+                }
+            };
+
+            for (int repeat = 0; repeat < maxRepeats; ++repeat)
+            {
+                const auto offset = repeat * patternLength;
+
+                if (offset >= clipLength - 1.0e-9)
+                    break;
+
+                // Each repeat starts from where the curve starts, the wheel
+                // at rest unless a point says otherwise at beat zero.
+                add (offset, pattern.getControllerValue (controller, 0.0));
+
+                for (size_t i = 0; i < points.size(); ++i)
+                {
+                    const auto& point = points[i];
+
+                    if (point.beat >= patternLength)
+                        break;
+
+                    if (i > 0)
+                    {
+                        const auto& before = points[i - 1];
+
+                        for (auto beat = before.beat + controllerStepBeats; beat < point.beat - 1.0e-9;
+                             beat += controllerStepBeats)
+                            add (offset + beat, pattern.getControllerValue (controller, beat));
+                    }
+
+                    add (offset + point.beat, point.value);
+                }
+            }
+
+            // Back at rest just before the clip ends, inside it so it is played.
+            if (last != rest)
+                wanted.push_back ({ type, std::max (0.0, clipLength - controllerStepBeats / 4.0), rest });
+        }
+
+        return wanted;
+    }
+
+    bool controllersMatch (const te::MidiClip& clip, const std::vector<WantedController>& wanted)
+    {
+        const auto& live = clip.getSequence().getControllerEvents();
+
+        if ((size_t) live.size() != wanted.size())
+            return false;
+
+        std::vector<bool> used (wanted.size(), false);
+
+        for (const auto* event : live)
+        {
+            bool found = false;
+
+            for (size_t i = 0; i < wanted.size() && ! found; ++i)
+                if (! used[i] && wanted[i].type == event->getType() && wanted[i].value == event->getControllerValue()
+                     && std::abs (wanted[i].beat - event->getBeatPosition().inBeats()) < 1.0e-6)
+                    used[i] = found = true;
+
+            if (! found)
+                return false;
+        }
+
+        return true;
+    }
+
     // A singer's clips carry no notes: a sung note starts before its beat and
     // depends on its neighbours, so each one is prepared by the singer and
     // played by a trigger placed where its sound begins (see UtauPlugin).
@@ -2094,6 +2218,7 @@ namespace
             te::TimeRange time;
             std::vector<WantedNote> notes;
             std::vector<WantedTrigger> triggers;
+            std::vector<WantedController> controllers;
         };
 
         std::vector<Desired> desired;
@@ -2140,6 +2265,8 @@ namespace
             {
                 want.notes = wantedNotesFor (pattern, patternLength, clipLength, transpose);
             }
+
+            want.controllers = wantedControllersFor (generator, pattern, patternLength, clipLength);
         };
 
         // Pattern mode: this generator's auditioned pattern from beat zero,
@@ -2158,7 +2285,7 @@ namespace
                         const te::BeatRange beats (te::BeatPosition(), te::BeatPosition::fromBeats (auditionLoopBeats));
                         Desired want { "audition:" + generator.getId() + ":" + pattern->getId(),
                                        pattern->getName(),
-                                       edit.tempoSequence.toTime (beats), {}, {} };
+                                       edit.tempoSequence.toTime (beats), {}, {}, {} };
                         contentFor (want, *pattern, length, auditionLoopBeats, 0, 0.0);
                         desired.push_back (std::move (want));
                     }
@@ -2189,7 +2316,7 @@ namespace
             const te::BeatRange beats (te::BeatPosition::fromBeats (startBeat),
                                        te::BeatPosition::fromBeats (startBeat + clipLength));
 
-            Desired want { placement.getId(), pattern->getName(), edit.tempoSequence.toTime (beats), {}, {} };
+            Desired want { placement.getId(), pattern->getName(), edit.tempoSequence.toTime (beats), {}, {}, {} };
             contentFor (want, *pattern, patternLength, clipLength, placement.getTranspose(), startBeat);
             desired.push_back (std::move (want));
         }
@@ -2228,7 +2355,8 @@ namespace
             if (! positionsMatch (midiClip->getPosition(), { want.time, te::TimeDuration() }))
                 midiClip->setPosition ({ want.time, te::TimeDuration() });
 
-            if (! sequenceMatches (*midiClip, want.notes) || ! triggersMatch (*midiClip, want.triggers))
+            if (! sequenceMatches (*midiClip, want.notes) || ! triggersMatch (*midiClip, want.triggers)
+                 || ! controllersMatch (*midiClip, want.controllers))
             {
                 auto& sequence = midiClip->getSequence();
                 sequence.clear (nullptr);
@@ -2238,6 +2366,10 @@ namespace
                                       te::BeatPosition::fromBeats (note.startBeats),
                                       te::BeatDuration::fromBeats (note.lengthBeats),
                                       note.velocity, 0, nullptr);
+
+                for (const auto& controller : want.controllers)
+                    sequence.addControllerEvent (te::BeatPosition::fromBeats (controller.beat),
+                                                 controller.type, controller.value, nullptr);
 
                 for (const auto& trigger : want.triggers)
                     sequence.addSysExEvent (juce::MidiMessage::createSysExMessage (trigger.data.getData(),
@@ -2369,12 +2501,63 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
             return result;
         };
 
-        for (auto current = generatorTracks(); current.size() > (int) generators.size();
-             current = generatorTracks())
-            edit.deleteTrack (current.getLast());
+        // Each generator's track, found by its stamp. A track with no stamp
+        // (an Edit's own first track) is taken by whichever generator has
+        // none yet; one stamped with a generator that is gone goes.
+        {
+            std::map<juce::String, te::AudioTrack*> byGenerator;
+            juce::Array<te::AudioTrack*> unstamped;
 
-        while (generatorTracks().size() < (int) generators.size())
-            edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr);
+            for (auto track : generatorTracks())
+            {
+                const auto id = sync::getGeneratorTrackId (*track);
+
+                if (id.isEmpty())
+                    unstamped.add (track);
+                else if (song.findGenerator (id) && byGenerator.count (id) == 0)
+                    byGenerator[id] = track;
+                else
+                    edit.deleteTrack (track);
+            }
+
+            juce::Array<te::AudioTrack*> wanted;
+
+            for (const auto& generator : generators)
+            {
+                te::AudioTrack* track = nullptr;
+
+                if (auto found = byGenerator.find (generator.getId()); found != byGenerator.end())
+                    track = found->second;
+                else if (! unstamped.isEmpty())
+                    track = unstamped.removeAndReturn (0);
+                else
+                    track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr).get();
+
+                if (track == nullptr)
+                    continue;
+
+                track->state.setProperty (sync::generatorIdProperty, generator.getId(), nullptr);
+                wanted.add (track);
+            }
+
+            for (auto track : unstamped)
+                edit.deleteTrack (track);
+
+            // In generator order, ahead of everything else. Steady state
+            // moves nothing.
+            for (int i = 0; i < wanted.size(); ++i)
+            {
+                const auto audio = te::getAudioTracks (edit);
+
+                if (audio[i] == wanted[i])
+                    continue;
+
+                if (i == 0)
+                    edit.moveTrack (wanted[i], te::TrackInsertPoint (*audio[0], true));
+                else
+                    edit.moveTrack (wanted[i], te::TrackInsertPoint (*wanted[i - 1], false));
+            }
+        }
 
         for (const auto& group : groups)
         {

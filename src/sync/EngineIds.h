@@ -89,6 +89,18 @@ inline juce::String getGroupTrackId (const te::Track& track)
 
 inline bool isGroupTrack (const te::Track& track)  { return getGroupTrackId (track).isNotEmpty(); }
 
+// Stamped onto a generator's track: which generator it is. The instrument on
+// it is live, and its knobs reach the song only when they are captured, so a
+// track must stay with its generator when one before it is removed or a copy
+// is put in ahead of it -- matched by position, the track would be handed on
+// to the next generator, sound and all.
+inline const juce::Identifier generatorIdProperty ("carveGeneratorId");
+
+inline juce::String getGeneratorTrackId (const te::Track& track)
+{
+    return track.state.getProperty (generatorIdProperty).toString();
+}
+
 // A track that belongs to a bus rather than to a generator -- a group or a
 // return. Everything that walks generator tracks by position skips these, and
 // everything that renders one track's worth of audio has to keep them.

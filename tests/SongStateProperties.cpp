@@ -112,6 +112,8 @@ enum Op
     setSendGain,
     removeGenerator,
     removeSend,
+    duplicateGenerator,
+    replaceInstrument,
     numOps
 };
 
@@ -390,6 +392,27 @@ void apply (Song& song, juce::UndoManager& um, const Step& step)
 
             if (auto clip = pick (playlist.getClips(), a))
                 playlist.removeClip (*clip, &um);
+            return;
+        }
+
+        case duplicateGenerator:
+        {
+            // A copy of any of them -- an audio row's clips are copied too.
+            if (song.getNumGenerators() >= maxGenerators)
+                return;
+
+            if (auto generator = pick (song.getGenerators(), a))
+                song.duplicateGenerator (*generator, &um);
+            return;
+        }
+
+        case replaceInstrument:
+        {
+            static const char* types[] { Generator::synthType, Generator::samplerType,
+                                         Generator::drumKitType, Generator::pianoType };
+
+            if (auto generator = pickPatternGenerator (song, a))
+                generator->replaceInstrument (types[b % 4], nullptr, &um);
             return;
         }
 
@@ -779,6 +802,24 @@ void checkChangeList (const Changes& changes)
 
 void checkInvariants (const Song& song)
 {
+    // Ids are unique across the whole song, not just within their owner: a
+    // copied generator renews every id inside it, and a clip, an automation
+    // lane or the sync that finds one by id must never find two.
+    {
+        std::vector<juce::String> generatorIds, patternIds, effectIds;
+
+        for (const auto& generator : song.getGenerators())
+        {
+            requireUnique (generatorIds, generator.getId());
+
+            for (const auto& pattern : generator.getPatterns())
+                requireUnique (patternIds, pattern.getId());
+
+            for (const auto& effect : generator.getEffects())
+                requireUnique (effectIds, effect.getId());
+        }
+    }
+
     for (const auto& generator : song.getGenerators())
     {
         // Every pattern name in this generator is distinct. Nothing in the
