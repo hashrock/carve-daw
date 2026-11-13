@@ -22,10 +22,11 @@ namespace
     // Places along the tract, glottis 0 to lips 1.
     constexpr double placePos[numPlaces] = { 1.0, 0.915, 0.875, 0.83, 0.755, 0.64, 0.585 };
 
-    // Turbulence noise per place: [strength, high-pass Hz, low-pass Hz (0 = none)].
+    // Turbulence noise per place: [strength, high-pass Hz, low-pass Hz (0 = none)],
+    // as tuned by ear in the prototype's phoneme lab.
     constexpr double noiseOf[numPlaces][3] = {
-        { 0.6, 1200, 6000 }, { 3.2, 4500, 11000 }, { 0.8, 3000, 7000 }, { 1.5, 2300, 9000 },
-        { 0.7, 1200, 4500 }, { 1.2, 700, 4500 }, { 0.5, 700, 5000 }
+        { 4.7, 1200, 6000 }, { 2.85, 5150, 11000 }, { 2.9, 3650, 8300 }, { 6.5, 3100, 8900 },
+        { 4.4, 1200, 4500 }, { 6.75, 3600, 1000 }, { 0.5, 700, 5000 }
     };
 
     // The nasal cavity's cross-section [cm^2], velum to nostrils.
@@ -81,6 +82,29 @@ namespace
         return out;
     }
 
+    // The pharynx's length against the mouth's (remapPharynx): a shape laid out
+    // again along the tract, the larynx's 5 sections as they are, the pharynx
+    // (to the velum) shortened or lengthened by r and the mouth taking up the
+    // rest. r = 1 is the male proportion the shapes were made in; a woman's
+    // pharynx is relatively shorter (0.75-0.85), a child's shorter still.
+    void remapPharynx (std::array<double, N>& s, double r)
+    {
+        if (! (r > 0) || std::abs (r - 1) < 1e-4)
+            return;
+
+        constexpr int L0 = 5, J = noseStart, M = N - 1;
+        const double ph = (J - L0) * r, P = L0 + (M - L0) * ph / (ph + (M - J));
+        const auto src = s;
+
+        for (int i = 0; i < N; i++)
+        {
+            const double u = i <= L0 ? i : i <= P ? L0 + (i - L0) / (P - L0) * (J - L0) : J + (i - P) / (M - P) * (M - J);
+            const int k = std::min (M - 1, (int) std::floor (u));
+            const double t = u - k;
+            s[(size_t) i] = src[(size_t) k] + (src[(size_t) k + 1] - src[(size_t) k]) * t;
+        }
+    }
+
     std::array<double, N> toLogArea (const std::array<double, N>& d)
     {
         std::array<double, N> out {};
@@ -103,14 +127,16 @@ namespace
 
     // The presets' tables, as tools/fit-vowels.mjs wrote them into voice-core.js.
     const VowelPreset presets[numVowelPresets] = {
-        { "original", "Original", 0.5, { 1, 3, 4, 2, 1 }, {{
-            {{ { 760, { 0.330, 0.813, 0.199, 1.611, 3.151, 2.549 } } }},
-            {{ { 365, { 0.802, 1.028, 0.221, 2.738, 1.804, 1.257 } }, { 462, { 0.779, 1.347, 0.210, 2.431, 1.792, 1.880 } },
-               { 563, { 0.737, 1.585, 0.202, 2.053, 2.176, 2.176 } } }},
-            {{ { 273, { 0.728, 0.670, 0.190, 2.990, 2.790, 0.700 } }, { 373, { 0.692, 0.971, 0.164, 2.650, 2.967, 0.923 } },
-               { 474, { 0.644, 1.134, 0.150, 2.222, 3.147, 1.208 } }, { 572, { 0.595, 1.180, 0.148, 1.814, 3.219, 1.456 } } }},
-            {{ { 556, { 0.638, 1.502, 0.199, 2.310, 2.912, 1.887 } }, { 589, { 0.627, 1.598, 0.199, 2.194, 2.912, 1.977 } } }},
-            {{ { 587, { 0.378, 0.679, 0.202, 2.181, 3.012, 1.316 } } }},
+        { "original", "Original", 0.5, { 1, 5, 4, 1, 3 }, {{
+            {{ { 678, { 0.490, 0.670, 0.199, 1.565, 3.151, 2.569 } } }},
+            {{ { 241, { 0.810, 0.670, 0.360, 2.764, 3.400, 0.880 } }, { 342, { 0.790, 0.996, 0.360, 2.642, 3.275, 1.539 } },
+               { 441, { 0.754, 1.285, 0.360, 2.485, 3.134, 2.422 } }, { 540, { 0.706, 1.462, 0.352, 2.161, 3.180, 3.067 } },
+               { 586, { 0.666, 1.574, 0.351, 2.227, 3.400, 3.400 } } }},
+            {{ { 283, { 0.710, 3.385, 0.100, 3.000, 1.000, 0.700 } }, { 384, { 0.773, 3.400, 0.164, 2.810, 1.097, 1.078 } },
+               { 479, { 0.783, 3.400, 0.246, 2.342, 1.008, 1.268 } }, { 580, { 0.790, 3.400, 0.268, 1.752, 1.000, 1.336 } } }},
+            {{ { 613, { 0.615, 3.205, 0.335, 2.410, 2.640, 2.715 } } }},
+            {{ { 417, { 0.495, 0.670, 0.220, 3.000, 2.675, 1.920 } }, { 518, { 0.462, 0.854, 0.230, 2.914, 2.752, 2.081 } },
+               { 589, { 0.446, 0.874, 0.248, 2.686, 2.918, 2.325 } } }},
         }} },
         { "standard", "Standard", 0.5, { 1, 4, 4, 2, 2 }, {{
             {{ { 780, { 0.314, 0.670, 0.210, 1.557, 3.117, 2.736 } } }},
@@ -124,14 +150,18 @@ namespace
     };
 
     const Character characters[numCharacters] = {
-        //   key        name        tract  fold  breath bright throat nasal press clarity body ring vib  vibRate drift reg   twang reson air
-        { "default",  "Default",    11,   0.75, 4.4,  0.5,  0.64,  0.81, -0.2,  0.84,  0,  0,  1,   5.8,  1,   0.67, 0.38, 1.22, 0 },
-        { "standard", "Standard",   12,   0.72, 1.5,  0.5,  1,     0,     0,    1,     0,  0,  1,   5.8,  1,   0,    0,    1,    0 },
-        { "genki",    "Genki",      11.6, 0.7,  1,    0.8,  0.9,   0.1,   0.5,  1.15, -1,  4,  0.8, 5.8,  1,   0,    0.3,  1.2,  2 },
-        { "sweet",    "Sweet",      12,   0.74, 3.5,  0.35, 1,     0.5,  -0.15, 0.9,   2,  0,  1.2, 5.8,  1,   0.3,  0,    1,    0 },
-        { "anime",    "Anime",      11.4, 0.69, 1.2,  0.7,  0.8,   0.5,   0.4,  1.05, -2,  3,  1,   5.8,  1,   0.1,  0.5,  1.2,  2 },
-        { "mature",   "Mature",     13.2, 0.78, 2.2,  0.3,  1.15,  0,    -0.2,  1,     3,  1,  1.3, 5.8,  1,   0,    0,    1,    0 },
-        { "bell",     "Bell",       11.2, 0.66, 0.4,  1,    0.85,  0.1,   0.2,  1.1,  -2,  2,  0.7, 6.3,  0.5, 0.45, 0.55, 1.8,  6 },
+        //   key        name        tract pharynx jitter shimmer fold breath bright throat nasal press clarity body ring vib vibRate drift reg  twang reson air
+        // Default: childlike -- a short tract with a high larynx (the pharynx shorter still against the
+        // mouth), small light folds closing firmly, sharp resonance, little vibrato (tuned by ear).
+        { "default",  "Default",    10.8, 0.69, 0,   0,   0.7,  2.6,  0.5,  0.5,   0.57, 0.82, 0.91,  0,  0,  0.5, 5.8,  1,   0.74, 0.21, 2.14, 0 },
+        // Woman: the default's source on a grown-up body.
+        { "woman",    "Woman",      13.5, 0.75, 0.8, 2.5, 0.75, 2.6,  0.5,  0.64,  0.81, 0.82, 0.84,  0,  0,  1,   5.8,  1,   0.67, 0.38, 1.22, 0 },
+        { "standard", "Standard",   12,   0.75, 0.8, 2.5, 0.72, 1.5,  0.5,  1,     0,     0,    1,     0,  0,  1,   5.8,  1,   0,    0,    1,    0 },
+        { "genki",    "Genki",      11.6, 0.75, 0.8, 2.5, 0.7,  1,    0.8,  0.9,   0.1,   0.5,  1.15, -1,  4,  0.8, 5.8,  1,   0,    0.3,  1.2,  2 },
+        { "sweet",    "Sweet",      12,   0.75, 0.8, 2.5, 0.74, 3.5,  0.35, 1,     0.5,  -0.15, 0.9,   2,  0,  1.2, 5.8,  1,   0.3,  0,    1,    0 },
+        { "anime",    "Anime",      11.4, 0.75, 0.8, 2.5, 0.69, 1.2,  0.7,  0.8,   0.5,   0.4,  1.05, -2,  3,  1,   5.8,  1,   0.1,  0.5,  1.2,  2 },
+        { "mature",   "Mature",     13.2, 0.75, 0.8, 2.5, 0.78, 2.2,  0.3,  1.15,  0,    -0.2,  1,     3,  1,  1.3, 5.8,  1,   0,    0,    1,    0 },
+        { "bell",     "Bell",       11.2, 0.75, 0.8, 2.5, 0.66, 0.4,  1,    0.85,  0.1,   0.2,  1.1,  -2,  2,  0.7, 6.3,  0.5, 0.45, 0.55, 1.8,  6 },
     };
 }
 
@@ -148,6 +178,9 @@ const Character& getCharacter (int index)
 Options Character::toOptions (Options base) const
 {
     base.tractLength = tractLength / 100;
+    base.pharynx = pharynx;
+    base.jitter = jitter;
+    base.shimmer = shimmer;
     base.fold = fold;
     base.breath = breath;
     base.brightness = brightness;
@@ -281,7 +314,8 @@ double Tract::step (double inWave, double rnd)
         jZ2 *= jMulZ2;
         const double below = std::min (1.0, (0.3e-4 - jAm) / 0.1e-4), jetShare = below <= 0 ? 0 : below * below * (3 - 2 * below);
         jRamp = std::min (1.0, jRamp + jRampStep);
-        jq = RHO / (2 * jAm * jAm) * jetShare * jRamp;
+        jW = std::min (1.0, std::max (0.0, jW + jWStep));
+        jq = RHO / (2 * jAm * jAm) * jetShare * jRamp * jW;
         jInvA = 1 / jAm;
 
         // A jet at the narrowing loses the dynamic pressure (rho/2)(U/A)^2:
@@ -503,6 +537,8 @@ void Synth::setBody (double len, double s)
     tract.radScale = o.resonance;
     tract.setRate (rate);
     aspA = 1 - std::exp (-TAU * 3500 / rate);
+    bHpA = 1 - std::exp (-TAU * 1500 / rate);
+    bLpA = 1 - std::exp (-TAU * 5000 / rate);
 
     m1b = 0.125e-3 * s * s * s; m2 = 0.025e-3 * s * s * s;
     k1 = 80 * s; k2 = 8 * s; kcb = 25 * s; r1 = 0.02 * s * s; r2 = 0.02 * s * s;
@@ -552,6 +588,13 @@ void Synth::setOption (Key key, double value)
         case Key::nasal:        o.nasal = value; break;
         case Key::press:        o.press = value; break;
         case Key::twang:        o.twang = value; break;
+        case Key::pharynx:
+            o.pharynx = value;
+            if (hasLastVowel)
+                setVowel ((Vowel) lastVowel, 0.08, lastVowelMidi);
+            break;
+        case Key::jitter:       o.jitter = value; break;
+        case Key::shimmer:      o.shimmer = value; break;
     }
 }
 
@@ -628,6 +671,8 @@ void Synth::setVowel (Vowel v, double d, double midi)
         for (int i = 0; i < N; i++)
             out[(size_t) i] = std::min (hi, std::max (lo, x[(size_t) i] + (out[(size_t) i] - x[(size_t) i]) * cl));
     }
+
+    remapPharynx (out, o.pharynx);
 }
 
 void Synth::constrict (Place place, double area, double d)
@@ -778,18 +823,25 @@ void Synth::control (bool init)
 
     // Nasality: the velum a little open during vowels only, and only once
     // the voice is going (opened before, a low い or う cannot start).
-    nasV += ((anyC || voiced == 0 ? 0 : o.nasal * 0.25e-4) - nasV) * (init ? 1 : voiced != 0 && ! anyC ? 0.002 : 0.15);
+    const double vn = vowel < 5 ? o.vowelNasal[(size_t) vowel] : 1.0;
+    nasV += ((anyC || voiced == 0 ? 0 : o.nasal * vn * 0.25e-4) - nasV) * (init ? 1 : voiced != 0 && ! anyC ? 0.002 : 0.15);
     tract.setAreas (A.data(), std::max (cur[velum], nasV), init ? 0 : CTL);
 
     if (init)
         return;
 
-    // The narrowest point: the jet's resistance, and turbulence from its flow.
-    int im = 4;
-    double am = A[4];
+    // The narrowest point a consonant makes: the jet's resistance, and
+    // turbulence from its flow. Only a consonant's narrowing makes a jet,
+    // fading out as it opens (its area grows, the consonant lets go). Taking
+    // the narrowest point anywhere -- a vowel's pharynx narrowed by the throat
+    // knob, say -- moved the jet from the consonant into the pharynx part way
+    // through a stop's release, and the pressure drop moving at once clicked
+    // ("pichya" in ka, ke, ko, ta, te, to).
+    int im = -1;
+    double am = 1;
 
     for (int i = 5; i < N; i++)
-        if (A[(size_t) i] < am)
+        if (cw[(size_t) i] > 0 && (im < 0 || A[(size_t) i] < am))
         {
             am = A[(size_t) i];
             im = i;
@@ -797,8 +849,11 @@ void Synth::control (bool init)
 
     double amp = 0;
 
-    if (am < 0.3e-4)
+    if (im >= 0 && am < 0.3e-4)
     {
+        double fc = std::min (1.0, cw[(size_t) im] / 0.5);
+        fc = fc * fc * (3 - 2 * fc);
+
         const int jc = im < N - 1 ? im + 1 : im;
 
         if (jc == noseStart && tract.tn > 0)
@@ -823,12 +878,15 @@ void Synth::control (bool init)
                 tract.jZ1 = z1;
                 tract.jZ2 = z2;
                 tract.jMulA = tract.jMulZ1 = tract.jMulZ2 = 1;
+                tract.jW = fc;
+                tract.jWStep = 0;
             }
             else
             {
                 tract.jMulA = std::pow (am / tract.jAm, 1.0 / CTL);
                 tract.jMulZ1 = std::pow (z1 / tract.jZ1, 1.0 / CTL);
                 tract.jMulZ2 = std::pow (z2 / tract.jZ2, 1.0 / CTL);
+                tract.jWStep = (fc - tract.jW) / CTL;
             }
         }
 
@@ -935,6 +993,13 @@ void Synth::control (bool init)
     const double cents = cur[vib] * o.vibrato * std::sin (vibPh) + o.drift * (10 * wander + flutter * 40 * drift);
     const double ft = fTarget = 440 * std::pow (2.0, (cur[pitch] + cents / 100 - 69) / 12);
 
+    // Jitter and shimmer: the folds' tension and the breath's pressure
+    // disturbed a little each period (re-drawn as each period is measured),
+    // smoothed as far as the folds can follow. The pitch is corrected towards
+    // the undisturbed target ft.
+    jitS += (jitT - jitS) * std::min (1.0, tick / 0.0006);
+    shimS += (shimT - shimS) * std::min (1.0, tick / 0.0006);
+
     // Register: towards head voice the folds vibrate thinner and lighter, as
     // one piece. Low notes are kept in chest voice, as a singer does.
     const double rk = std::min (1.0, std::max (0.0, (cur[pitch] - 60) / 7)),
@@ -943,7 +1008,7 @@ void Synth::control (bool init)
     kc = kcb * (1 + 1.5 * r);
     d1 = d1b * (1 - 0.5 * r);
 
-    const double q = Q = ft / fBase * corr;
+    const double q = Q = ft * (1 + jitS) / fBase * corr;
 
     // Tensing: mass ~ Q^-qa, stiffness ~ Q^(2-qa), damping ~ Q^(1-qa)
     const double qm = std::pow (q, qa), qk = q * q / qm, qr = q / qm;
@@ -984,9 +1049,13 @@ void Synth::process (float* out, int n)
 
             // Press: + closes the folds firmly (narrows the membranous gap,
             // abd, and the posterior chink too) and pushes harder; - the reverse.
-            const double pr = o.press, ab = cur[abd], psv = cur[ps] * (1 + 0.18 * pr),
-                         a0 = (ab < 0.1e-4 ? ab - pr * (pr > 0 ? 0.035e-4 : 0.05e-4) : ab) * aScale;
+            // Breathiness opens the posterior chink, between the cartilages, and
+            // the membranous folds close up as much to keep closing each period:
+            // breathy, and the harmonics still in line. (Without, the whole
+            // glottis stops closing and the voice goes towards a sine.)
+            const double pr = o.press, ab = cur[abd], psv = cur[ps] * (1 + 0.18 * pr) * (1 + shimS);
             const double chink = cur[breath] * aScale * bLim * (pr > 0 ? 1 - 0.85 * pr : 1 - 2 * pr);
+            const double a0 = ab < 0.1e-4 ? (ab - pr * (pr > 0 ? 0.035e-4 : 0.05e-4)) * aScale - bAdd * chink : ab * aScale;
 
             // ---- the glottis ----
             const double a1 = a0 + twoL * X1, a2 = a0 + twoL * X2;
@@ -1050,6 +1119,12 @@ void Synth::process (float* out, int n)
                     voiced = 1;
                     lastCycAge = 0;
 
+                    // This period's jitter and shimmer. The folds follow about half
+                    // of it, so it is doubled (tripled) to measure near the knob's %.
+                    auto g = [this] { const double a = rand(), b = rand(), cc = rand(); return (a + b + cc) / 1.73; };
+                    jitT = 0.02 * o.jitter * g();
+                    shimT = 0.03 * o.shimmer * g();
+
                     // Corrected only while the mouth is open (or nasal): a
                     // consonant's load lowering the pitch is natural, and
                     // correcting for it would make the pitch jump on release.
@@ -1073,7 +1148,21 @@ void Synth::process (float* out, int n)
             const double aspGain = 0.012 * (0.5 + 0.5 * o.breath);
             const double wide = cur[abd] > 0.36e-4 ? 1 + wideGain * (cur[abd] - 0.36e-4) / 0.1e-4 : 1;
             const double bs = aspGain / 0.012, airv = 1 + (cur[air] - 1) / (bs * bs * bs);
-            const double pn = nz * aspGain * wide * airv * jet * std::sqrt (Af < 0.3e-4 ? Af / 0.1e-4 : 3);
+            double pn = nz * aspGain * wide * airv * jet * std::sqrt (Af < 0.3e-4 ? Af / 0.1e-4 : 3);
+
+            // The hiss through the chink (1.5-5kHz), stronger as the membranous
+            // folds open and the flow swells: in time with each period.
+            if (chink > 0)
+            {
+                const double w2 = rand();
+                bh += (w2 - bh) * bHpA;
+                bl1 += (w2 - bh - bl1) * bLpA;
+                bl2 += (bl1 - bl2) * bLpA;
+                const double om = amin > 0 ? amin : 0;
+                amPk = om > amPk ? om : amPk * 0.9997;
+                const double mod = 0.3 + 0.7 * (amPk > 1e-12 ? om / amPk : 0);
+                pn += bl2 * bNoise * jet * std::sqrt (chink / 0.01e-4) * mod * airv;
+            }
 
             // ---- the tract -> radiation (the time derivative of the volume flow) ----
             const double Uo = tract.step (Z0 * U + pn, rand());

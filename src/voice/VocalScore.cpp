@@ -203,8 +203,10 @@ namespace
     bool isAsciiLetter (char32_t c)  { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 
     //==========================================================================
-    // Consonants: where, what kind, voiceless or not, and the area a
-    // fricative narrows to.
+    // Consonants: where, what kind, voiceless or not, the area it narrows to
+    // (a fricative's; は's glottal opening; what a ら's flick leaves open) and
+    // how long it takes against its kind's (lead). The areas and leads marked
+    // were tuned by ear in the prototype's phoneme lab.
 
     enum class Kind : std::uint8_t { stop, fric, aff, h, nas, tap, gl };
 
@@ -216,31 +218,32 @@ namespace
         bool voiceless = false;
         double area = 0;
         Vowel glide = va;
+        double lead = 1;
     };
 
     ConsInfo consInfo (Cons c)
     {
         switch (c)
         {
-            case Cons::k:  return { true, vel, Kind::stop, true, 0, va };
+            case Cons::k:  return { true, vel, Kind::stop, true, 0, va, 1.25 };
             case Cons::g:  return { true, vel, Kind::stop, false, 0, va };
-            case Cons::t:  return { true, alv, Kind::stop, true, 0, va };
+            case Cons::t:  return { true, alv, Kind::stop, true, 0, va, 1.1 };
             case Cons::d:  return { true, alv, Kind::stop, false, 0, va };
             case Cons::p:  return { true, lab, Kind::stop, true, 0, va };
             case Cons::b:  return { true, lab, Kind::stop, false, 0, va };
-            case Cons::s:  return { true, den, Kind::fric, true, 0.10e-4, va };
+            case Cons::s:  return { true, den, Kind::fric, true, 0.12e-4, va, 0.7 };
             case Cons::z:  return { true, den, Kind::fric, false, 0.12e-4, va };
-            case Cons::sh: return { true, apl, Kind::fric, true, 0.11e-4, va };
-            case Cons::hy: return { true, pal, Kind::fric, true, 0.22e-4, va };
+            case Cons::sh: return { true, apl, Kind::fric, true, 0.295e-4, va, 0.95 };
+            case Cons::hy: return { true, pal, Kind::fric, true, 0.22e-4, va, 0.65 };
             case Cons::f:  return { true, lab, Kind::fric, true, 0.16e-4, va };
-            case Cons::h:  return { true, -1, Kind::h, false, 0, va };
-            case Cons::ch: return { true, apl, Kind::aff, true, 0.11e-4, va };
-            case Cons::ts: return { true, den, Kind::aff, true, 0.10e-4, va };
+            case Cons::h:  return { true, -1, Kind::h, false, 0.795e-4, va };
+            case Cons::ch: return { true, apl, Kind::aff, true, 0.08e-4, va, 0.5 };
+            case Cons::ts: return { true, den, Kind::aff, true, 0.095e-4, va, 0.5 };
             case Cons::j:  return { true, apl, Kind::aff, false, 0.13e-4, va };
-            case Cons::m:  return { true, lab, Kind::nas, false, 0, va };
-            case Cons::n:  return { true, alv, Kind::nas, false, 0, va };
+            case Cons::m:  return { true, lab, Kind::nas, false, 0, va, 1.35 };
+            case Cons::n:  return { true, alv, Kind::nas, false, 0, va, 1.35 };
             case Cons::ny: return { true, apl, Kind::nas, false, 0, va };
-            case Cons::r:  return { true, alv, Kind::tap, false, 0, va };
+            case Cons::r:  return { true, alv, Kind::tap, false, 0, va, 1.45 };
             case Cons::y:  return { true, -1, Kind::gl, false, 0, vi };
             case Cons::w:  return { true, -1, Kind::gl, false, 0, vu };
             case Cons::none: break;
@@ -446,7 +449,7 @@ double pressureFor (int midi, char vowel, double center, double dyn)
 double leadTime (const Mora& mora)
 {
     const auto c = consInfo (mora.c);
-    return c.exists ? leadOf (c.kind) : 0.03;
+    return c.exists ? leadOf (c.kind) * c.lead : 0.03;
 }
 
 //==============================================================================
@@ -580,13 +583,15 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
     // After a short note the consonant shrinks (half of the vowel before is
     // kept). The sibilants dig deep into the note before instead, to keep
     // their hiss: a quarter longer after a long one, all but 75ms of a short one.
-    double lead = c.exists ? leadOf (c.kind) : 0.03;
+    const double lk = c.exists ? c.lead : 1;
+    double lead = c.exists ? leadOf (c.kind) * lk : 0.03;
     const bool sib = c.exists && (c.kind == Kind::fric || c.kind == Kind::aff);
-    const double sc = c.exists && ! phraseStart
+    const double sc0 = c.exists && ! phraseStart
                           ? (sib ? (prev->dur >= 0.5 ? 1.25 : std::min (1.0, std::max (0.55, std::min (prev->dur * 0.85, prev->dur - 0.075) / lead)))
                                  : std::min (1.0, std::max (0.55, prev->dur * 0.6 / lead)))
                           : 1;
-    lead *= sc;
+    lead *= sc0;
+    const double sc = sc0 * lk;   // the times within the consonant shrink from its kind's lead
     auto T = [t0, sc] (double dt)  { return t0 - dt * sc; };
     auto D = [sc] (double d)       { return d * sc; };
 
@@ -691,7 +696,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         else if (c.kind == Kind::h)
         {
             // は: the mouth keeps the vowel's shape, the glottis opens, breath only.
-            R (T (0.12), abd, 0.42e-4, D (0.045));
+            R (T (0.12), abd, c.area, D (0.045));
             R (T (0.028), abd, ADD, 0.05);
         }
         else if (c.kind == Kind::nas)
@@ -704,10 +709,9 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         }
         else if (c.kind == Kind::tap)
         {
-            // ら: the tongue tip flicks the ridge.
-            // Not quite shut: a tap is too quick to stop the voice, and
-            // closed tight it dropped out between every ら and its vowel.
-            ev.push (closeEvent (T (0.055), pl, 0.03e-4, D (0.018)));
+            // ら: the tongue tip flicks the ridge, shut (tuned by ear; the
+            // voice carrying through it is checked by the song tests).
+            ev.push (closeEvent (T (0.055), pl, c.area, D (0.018)));
             ev.push (openEvent (T (0.022), pl, 0.02));
         }
         else if (c.kind == Kind::gl)
@@ -781,7 +785,7 @@ void planNote (const SungNote& n, const SungNote* prev, const SungNote* next,
         }
         else if (nc.exists && nc.kind == Kind::h)
         {
-            R (t0 - 0.045, abd, 0.42e-4, 0.045);
+            R (t0 - 0.045, abd, nc.area, 0.045);
             st.abdOpen = true;
         }
         else

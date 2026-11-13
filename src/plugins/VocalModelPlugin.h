@@ -72,7 +72,8 @@ public:
     // The knobs, grouped as on the prototype's "voice design" panel.
     juce::CachedValue<float> tractLengthValue, foldValue, resonanceValue,          // body
                              breathValue, pressValue, registerValue,               // folds and breath
-                             throatValue, twangValue,                              // throat
+                             jitterValue, shimmerValue,
+                             throatValue, pharynxValue, twangValue,                // throat
                              nasalValue,                                           // nose
                              clarityValue, vowelPresetValue,                       // mouth
                              vibratoValue, vibratoRateValue, driftValue,           // singing
@@ -80,7 +81,8 @@ public:
                              reverbValue, volumeValue,
                              strengthValue, speedValue;                            // expression, how quickly it moves
 
-    te::AutomatableParameter::Ptr tractLength, fold, resonance, breath, press, registerMix, throat, twang,
+    te::AutomatableParameter::Ptr tractLength, fold, resonance, breath, press, registerMix, jitter, shimmer,
+                                  throat, pharynx, twang,
                                   nasal, clarity, vowelPreset, vibrato, vibratoRate, drift,
                                   brightness, body, ring, air, reverb, volume, strength, speed;
 
@@ -174,7 +176,7 @@ private:
 
     struct Applied
     {
-        std::array<double, 18> values {};
+        std::array<double, 21> values {};
         int vowelPreset = 0;
     };
 

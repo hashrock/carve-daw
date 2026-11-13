@@ -36,13 +36,15 @@ namespace
         vocal::Synth::Key::throat, vocal::Synth::Key::twang, vocal::Synth::Key::nasal,
         vocal::Synth::Key::clarity, vocal::Synth::Key::vibrato, vocal::Synth::Key::vibratoRate,
         vocal::Synth::Key::drift, vocal::Synth::Key::brightness, vocal::Synth::Key::body,
-        vocal::Synth::Key::ring, vocal::Synth::Key::air, vocal::Synth::Key::volume
+        vocal::Synth::Key::ring, vocal::Synth::Key::air, vocal::Synth::Key::volume,
+        vocal::Synth::Key::pharynx, vocal::Synth::Key::jitter, vocal::Synth::Key::shimmer
     };
 
-    std::array<double, 18> optionValues (const vocal::Options& o)
+    std::array<double, 21> optionValues (const vocal::Options& o)
     {
         return { o.tractLength, o.fold, o.resonance, o.breath, o.press, o.registerMix, o.throat, o.twang, o.nasal,
-                 o.clarity, o.vibrato, o.vibratoRate, o.drift, o.brightness, o.body, o.ring, o.air, o.volume };
+                 o.clarity, o.vibrato, o.vibratoRate, o.drift, o.brightness, o.body, o.ring, o.air, o.volume,
+                 o.pharynx, o.jitter, o.shimmer };
     }
 }
 
@@ -63,7 +65,10 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     breathValue.referTo (state, "breath", um, (float) c.breath);
     pressValue.referTo (state, "press", um, (float) c.press);
     registerValue.referTo (state, "register", um, (float) c.registerMix);
+    jitterValue.referTo (state, "jitter", um, (float) c.jitter);
+    shimmerValue.referTo (state, "shimmer", um, (float) c.shimmer);
     throatValue.referTo (state, "throat", um, (float) c.throat);
+    pharynxValue.referTo (state, "pharynx", um, (float) c.pharynx);
     twangValue.referTo (state, "twang", um, (float) c.twang);
     nasalValue.referTo (state, "nasal", um, (float) c.nasal);
     clarityValue.referTo (state, "clarity", um, (float) c.clarity);
@@ -88,7 +93,7 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     auto decibels = [] (float v) { return (v > 0.0f ? "+" : "") + juce::String (v, 1) + " dB"; };
     auto signedValue = [] (float v) { return (v > 0.0f ? "+" : "") + juce::String (v, 2); };
 
-    tractLength = addParam ("tractLength", TRANS ("Tract Length"), { 10.5f, 14.0f },
+    tractLength = addParam ("tractLength", TRANS ("Tract Length"), { 10.5f, 15.0f },
                             [] (float v) { return juce::String (v, 1) + " cm"; }, plain);
     fold = addParam ("fold", TRANS ("Fold Size"), { 0.6f, 0.85f }, times, plain);
     resonance = addParam ("resonance", TRANS ("Resonance"), { 0.5f, 2.5f }, times, plain);
@@ -97,7 +102,12 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     press = addParam ("press", TRANS ("Press"), { -1.0f, 1.0f }, signedValue, plain);
     registerMix = addParam ("register", TRANS ("Register"), { 0.0f, 1.0f },
                             [] (float v) { return juce::String (juce::roundToInt (v * 100.0f)) + "% head"; }, percentValue);
+    jitter = addParam ("jitter", TRANS ("Jitter"), { 0.0f, 3.0f }, [] (float v) { return juce::String (v, 2) + "%"; }, plain);
+    shimmer = addParam ("shimmer", TRANS ("Shimmer"), { 0.0f, 8.0f }, [] (float v) { return juce::String (v, 1) + "%"; }, plain);
     throat = addParam ("throat", TRANS ("Throat Width"), { 0.5f, 2.0f }, times, plain);
+    // The pharynx's length against the mouth's: a woman's is shorter than a
+    // man's (0.75-0.85), a child's shorter still.
+    pharynx = addParam ("pharynx", TRANS ("Throat Length"), { 0.55f, 1.1f }, times, plain);
     twang = addParam ("twang", TRANS ("Twang"), { 0.0f, 1.0f }, percent, percentValue);
     nasal = addParam ("nasal", TRANS ("Nasality"), { 0.0f, 1.0f }, percent, percentValue);
     clarity = addParam ("clarity", TRANS ("Vowel Clarity"), { 0.6f, 1.3f }, times, plain);
@@ -128,7 +138,10 @@ VocalModelPlugin::VocalModelPlugin (te::PluginCreationInfo info)
     breath->attachToCurrentValue (breathValue);
     press->attachToCurrentValue (pressValue);
     registerMix->attachToCurrentValue (registerValue);
+    jitter->attachToCurrentValue (jitterValue);
+    shimmer->attachToCurrentValue (shimmerValue);
     throat->attachToCurrentValue (throatValue);
+    pharynx->attachToCurrentValue (pharynxValue);
     twang->attachToCurrentValue (twangValue);
     nasal->attachToCurrentValue (nasalValue);
     clarity->attachToCurrentValue (clarityValue);
@@ -172,6 +185,7 @@ void VocalModelPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v
     te::copyPropertiesToCachedValues (v, vowelPresetValue, vibratoValue, vibratoRateValue, driftValue,
                                       brightnessValue, bodyValue, ringValue, airValue, reverbValue, volumeValue);
     te::copyPropertiesToCachedValues (v, strengthValue, speedValue, liveLyric);
+    te::copyPropertiesToCachedValues (v, pharynxValue, jitterValue, shimmerValue);
 
     for (auto parameter : getAutomatableParameters())
         parameter->updateFromAttachedValue();
@@ -204,7 +218,10 @@ void VocalModelPlugin::applyCharacter (int index)
     setTo (*breath, c.breath);
     setTo (*press, c.press);
     setTo (*registerMix, c.registerMix);
+    setTo (*jitter, c.jitter);
+    setTo (*shimmer, c.shimmer);
     setTo (*throat, c.throat);
+    setTo (*pharynx, c.pharynx);
     setTo (*twang, c.twang);
     setTo (*nasal, c.nasal);
     setTo (*clarity, c.clarity);
@@ -227,7 +244,8 @@ int VocalModelPlugin::findCurrentCharacter() const
             { breath.get(), c.breath }, { press.get(), c.press }, { registerMix.get(), c.registerMix },
             { throat.get(), c.throat }, { twang.get(), c.twang }, { nasal.get(), c.nasal }, { clarity.get(), c.clarity },
             { vibrato.get(), c.vibrato }, { vibratoRate.get(), c.vibratoRate }, { drift.get(), c.drift },
-            { brightness.get(), c.brightness }, { body.get(), c.body }, { ring.get(), c.ring }, { air.get(), c.air }
+            { brightness.get(), c.brightness }, { body.get(), c.body }, { ring.get(), c.ring }, { air.get(), c.air },
+            { pharynx.get(), c.pharynx }, { jitter.get(), c.jitter }, { shimmer.get(), c.shimmer }
         };
 
         if (std::all_of (std::begin (pairs), std::end (pairs), [] (const auto& p)
@@ -577,6 +595,9 @@ vocal::Options VocalModelPlugin::readOptions() const
     o.press = press->getCurrentValue();
     o.registerMix = registerMix->getCurrentValue();
     o.throat = throat->getCurrentValue();
+    o.pharynx = pharynx->getCurrentValue();
+    o.jitter = jitter->getCurrentValue();
+    o.shimmer = shimmer->getCurrentValue();
     o.twang = twang->getCurrentValue();
     o.nasal = nasal->getCurrentValue();
     o.clarity = clarity->getCurrentValue();

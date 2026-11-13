@@ -67,7 +67,7 @@ struct VowelVariant
     ShapeParams p;
 };
 
-constexpr int maxVariants = 4;
+constexpr int maxVariants = 5;
 
 struct VowelPreset
 {
@@ -109,6 +109,12 @@ struct Options
     double registerMix = 0.0;     // "register" in the prototype
     double twang = 0.0;
     double resonance = 1.0;
+    double pharynx = 1.0;         // the pharynx's length against the mouth's (1 = the male proportion the shapes were made in)
+    double jitter = 0.0;          // [%] the difference between neighbouring periods
+    double shimmer = 0.0;         // [%] the difference between neighbouring periods' sizes
+    // Nasality per vowel (a i u e o), a factor on `nasal` (tuned by ear in the
+    // prototype's phoneme lab: a and i ring clearer without the nose).
+    std::array<double, 5> vowelNasal { 0, 0, 1.75, 1.85, 0.2 };
 };
 
 // A voice character: a set of knob positions (CHARACTERS). tractLength is in
@@ -117,14 +123,14 @@ struct Character
 {
     const char* key;
     const char* name;
-    double tractLength, fold, breath, brightness, throat, nasal, press, clarity,
+    double tractLength, pharynx, jitter, shimmer, fold, breath, brightness, throat, nasal, press, clarity,
            body, ring, vibrato, vibratoRate, drift, registerMix, twang, resonance, air;
 
     Options toOptions (Options base = {}) const;
 };
 
-constexpr int numCharacters = 7;
-const Character& getCharacter (int index);        // 0 = default ... 6 = bell
+constexpr int numCharacters = 8;
+const Character& getCharacter (int index);        // 0 = default (childlike), 1 = woman ... 7 = bell
 constexpr int defaultCharacter = 0;
 
 // What the singer tells the body to do, at a time: ramp an articulator, move
@@ -170,6 +176,7 @@ public:
     double jRamp = 1, jRampStep = 1;
     double fricAmp = 0;
     int fricPos = N - 1;
+    double jW = 0, jWStep = 0;   // how much of a consonant the jet's narrowing is (0..1), moved a step at a time
     double nzA = 0.1, nz1 = 0, nz2 = 0, nzB = 1, nz3 = 0, nz4 = 0;
     double rate = 1;
     double wallLoss = 1, radScale = 1;
@@ -180,7 +187,8 @@ class Synth
 {
 public:
     enum class Key { tractLength, fold, breath, vibrato, vibratoRate, drift, volume, brightness,
-                     throat, nasal, press, clarity, body, ring, air, registerMix, twang, resonance };
+                     throat, nasal, press, clarity, body, ring, air, registerMix, twang, resonance,
+                     pharynx, jitter, shimmer };
 
     Synth (double sampleRate, const Options& = {});
 
@@ -260,6 +268,7 @@ private:
 
     double x1 = 0, x2 = 0, v1 = 0, v2 = 0;
     double Q = 1, corr = 1, pitchFb = 0.25;
+    double jitT = 0, jitS = 0, shimT = 0, shimS = 0;   // jitter and shimmer: this period's target, smoothed
     double xm = 0, xPrev = 0, cyc = 0, fMeas = 0, fTarget = 0;
     int voiced = 0;
     double lastCycAge = 0;
@@ -270,6 +279,9 @@ private:
     std::array<double, numVowels * 2> bCap {};   // per vowel, plain and high; 0 = not learnt
     double bLast = 0, bErr = 0, bHold = 0;
     double wideGain = 1.5, fricGain = 0.075, fricRe = 0, nzHp = 0, nzLp = 0, nzLp2 = 0, aspA = 0.2;
+    // Breathiness through the posterior chink: how far the membranous folds
+    // close up for it, and the hiss through the gap.
+    double bAdd = 1.2, bNoise = 0.006, bh = 0, bl1 = 0, bl2 = 0, amPk = 0, bHpA = 0, bLpA = 0;
     double vibPh = 0, drift = 0, driftT = 0, flutter = 2.5, wander = 0, wTarget = 0, wTime = 0;
     std::uint32_t seed = 22222;
 

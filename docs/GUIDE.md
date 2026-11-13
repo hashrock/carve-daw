@@ -157,7 +157,7 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
     全部合成し直しになる
 - **物理モデルで歌わせる (Vocal Model)**
   - 「+ Generator」の **Vocal Model** で作ると、音源を読み込まずにそのまま歌える
-    (既定のキャラクターは Default)
+    (既定のキャラクターは Default = 子供っぽい声)
   - 歌詞は Singer と同じく、ピアノロールでノートをダブルクリックして打つ
     (Tab / Shift+Tab で前後のノートへ)。かな・カタカナ・ローマ字が読め、1 つの
     ノートに「さん」のように 2 文字以上打つとノートを等分して歌う。拗音 (きゃ)・
@@ -176,13 +176,15 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
     押すとつなげて歌い、離すと消える。先が分からないので、子音のぶん母音が遅れる
   - Inst タブのつまみは体の部位ごと: **Body** (Tract = 声道長、Folds = 声帯の
     大きさ = 楽な音域、Resonance = 響きの鋭さ) / **Folds & Breath** (Breath =
-    息まじり、Press = 声の芯、Register = 地声 ↔ 頭声) / **Throat** (Width = のどの
-    広さ、Twang) / **Nose** (Nasal = 鼻にかかり) / **Mouth** (Clarity = 母音の
+    息まじり。声帯の後ろのすき間から漏らし、前は閉じたままなので倍音は崩れない、
+    Press = 声の芯、Register = 地声 ↔ 頭声、Jitter・Shimmer = 周期ごとの音程・大きさの
+    小さな乱れ。0 だと機械的に聞こえる) / **Throat** (Width = のどの広さ、Length = のどの
+    長さ。女性は男性よりのどが口に比べて短く 0.75 前後、子供はさらに短い、Twang) / **Nose** (Nasal = 鼻にかかり) / **Mouth** (Clarity = 母音の
     はっきりさ。上の **Vowels** で母音の形を Original / Standard から選ぶ) /
     **Singing** (Expression = 自動の表現の強さ、0 で楽譜どおり。Speed = 子音・音程の
     移り・しゃくりなど、ノートに入る動きの速さ。速い曲では上げるとはっきりする。Vibrato・その速さ・
     Drift = 音程のゆらぎ) / **Mic & Room** (Bright・Body・Ring・Air は物理モデルの
-    外の EQ、Room は残響、Volume)。上の **Character** で Default・Standard・Genki
+    外の EQ、Room は残響、Volume)。上の **Character** で Default (子供っぽい)・Woman (大人の女声)・Standard・Genki
     (元気)・Sweet (甘い)・Anime (アニメ声)・Mature (大人っぽい)・Bell (鈴、透明感) を
     選ぶとつまみがまとめて変わる。どのつまみもオートメーションできる
     (Folds・Expression・Speed は歌い方の計画に使うので、動かすと少し後にパート全体を

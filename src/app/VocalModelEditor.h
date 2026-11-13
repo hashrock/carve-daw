@@ -47,10 +47,13 @@ public:
             s.addKnob (knob (singer.breath, "Breath", S::large));
             s.addKnob (knob (singer.press, "Press", S::medium));
             s.addKnob (knob (singer.registerMix, "Register", S::medium));
+            s.addKnob (knob (singer.jitter, "Jitter", S::small));
+            s.addKnob (knob (singer.shimmer, "Shimmer", S::small));
         }
         {
             auto& s = page.add (std::make_unique<KnobSection> ("Throat"));
             s.addKnob (knob (singer.throat, "Width", S::medium));
+            s.addKnob (knob (singer.pharynx, "Length", S::medium));
             s.addKnob (knob (singer.twang, "Twang", S::medium));
         }
         {
