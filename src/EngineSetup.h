@@ -11,6 +11,7 @@
 #include "plugins/AcousticDrumsPlugin.h"
 #include "plugins/ElectricBassPlugin.h"
 #include "plugins/PianoPlugin.h"
+#include "plugins/BassModelPlugin.h"
 #include "plugins/SoundFontPlugin.h"
 #include "plugins/BreakPlugin.h"
 #include "plugins/UtauPlugin.h"
@@ -207,6 +208,7 @@ inline std::unique_ptr<te::Engine> createEngine (std::unique_ptr<te::UIBehaviour
     engine->getPluginManager().createBuiltInType<plugins::AcousticDrumsPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::ElectricBassPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::PianoPlugin>();
+    engine->getPluginManager().createBuiltInType<plugins::BassModelPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::SoundFontPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::BreakPlugin>();
     engine->getPluginManager().createBuiltInType<plugins::UtauPlugin>();

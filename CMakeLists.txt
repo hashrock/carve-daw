@@ -201,6 +201,10 @@ set(CARVE_CORE_SOURCES
     src/plugins/PianoModel.cpp
     src/plugins/PianoPlugin.h
     src/plugins/PianoPlugin.cpp
+    src/plugins/BassModel.h
+    src/plugins/BassModel.cpp
+    src/plugins/BassModelPlugin.h
+    src/plugins/BassModelPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
     src/plugins/BreakPlugin.h
@@ -557,6 +561,7 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         src/plugins/BreakAnalysis.cpp
         src/plugins/GabberKickDsp.cpp
         src/plugins/PianoModel.cpp
+        src/plugins/BassModel.cpp
         src/voice/VocalModel.cpp
         src/voice/VocalScore.cpp
         src/sync/VorbisComments.cpp
@@ -564,6 +569,7 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         tests/GabberKickTests.cpp
         tests/GeneratorEditTests.cpp
         tests/PianoTests.cpp
+        tests/BassModelTests.cpp
         tests/CaptureProperties.cpp
         tests/ControllerCurveTests.cpp
         tests/VoicebankTests.cpp

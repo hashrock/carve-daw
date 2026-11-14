@@ -587,6 +587,10 @@ public:
     // load either, and its knobs kept the same way.
     static constexpr const char* pianoType = "piano";
 
+    // A modelled electric bass, the same way: strings, hands, pickups and amp
+    // computed, nothing to load, its knobs its plugin's own tree.
+    static constexpr const char* bassModelType = "bass-model";
+
     // A singer computed rather than recorded (a physical model of the lungs,
     // vocal folds and tract), sung from the lyrics on its notes as the
     // voicebank Singer is. Nothing on disk: its knobs are its plugin's own tree, kept
@@ -618,11 +622,12 @@ public:
     bool isAcousticDrums() const { return getType() == acousticDrumsType; }
     bool isElectricBass() const  { return getType() == electricBassType; }
     bool isPiano() const         { return getType() == pianoType; }
+    bool isBassModel() const     { return getType() == bassModelType; }
     bool isVocalModel() const    { return getType() == vocalModelType || getType() == vocalModelEnType; }
     bool isEnglishVocalModel() const  { return getType() == vocalModelEnType; }
     bool isInternalInstrument() const  { return getType() == synthType || isDrumSynth() || isGabberKick()
                                                  || isAcousticDrums() || isElectricBass() || isPiano()
-                                                 || isVocalModel(); }
+                                                 || isBassModel() || isVocalModel(); }
     bool isSampler() const  { return getType() == samplerType || isDrumKit(); }
     bool isAudio() const    { return getType() == audioType || isReference(); }
     bool isReference() const  { return getType() == referenceType; }

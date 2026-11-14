@@ -59,6 +59,7 @@ constexpr GeneratorChoice generatorChoices[]
     { 1,  "Synth & Keys", "Slate Synth",    "subtractive synth",     model::Generator::synthType,         "Slate",       false },
     { 14, "Synth & Keys", "Modelled Piano", "acoustic piano",        model::Generator::pianoType,         "Piano",       false },
     { 12, "Synth & Keys", "Electric Bass",  "resynthesized Jazz Bass", model::Generator::electricBassType,  "Bass",        false },
+    { 17, "Synth & Keys", "Modelled Bass",  "electric bass, strings computed", model::Generator::bassModelType, "Bass Model",  false },
     { 6,  "Drums",        "Drum Synth",     "analog-style kit",      model::Generator::drumSynthType,     "Drums",       false },
     { 11, "Drums",        "Acoustic Drums", "resynthesized kit",     model::Generator::acousticDrumsType, "Drums",       false },
     { 4,  "Drums",        "Drum Sampler",   "16 pads",               model::Generator::drumKitType,       "Drum Kit",    false },

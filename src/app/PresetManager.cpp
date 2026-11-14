@@ -1,6 +1,7 @@
 #include "PresetManager.h"
 #include "Fonts.h"
 
+#include "plugins/BassModelPlugin.h"
 #include "plugins/GabberKickPlugin.h"
 #include "sync/EngineIds.h"
 #include "TouchUi.h"
@@ -88,14 +89,20 @@ juce::AudioPluginInstance* PluginPresets::getExternalInstance() const
 
 bool PluginPresets::hasFactoryPresets() const
 {
-    return dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()) != nullptr;
+    return dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()) != nullptr
+            || dynamic_cast<plugins::BassModelPlugin*> (plugin.get()) != nullptr;
 }
 
 juce::StringArray PluginPresets::getPluginProgramNames() const
 {
     juce::StringArray names;
 
-    if (hasFactoryPresets())
+    if (dynamic_cast<plugins::BassModelPlugin*> (plugin.get()) != nullptr)
+    {
+        for (int i = 0; i < plugins::bassmodel::numFactoryPresets; ++i)
+            names.add (plugins::bassmodel::getFactoryPresetName (i));
+    }
+    else if (hasFactoryPresets())
     {
         for (int i = 0; i < plugins::gabber::numFactoryPresets; ++i)
             names.add (plugins::gabber::getFactoryPresetName (i));
@@ -117,6 +124,9 @@ int PluginPresets::getCurrentPluginProgram() const
     if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
         return kick->getMatchingFactoryPreset();
 
+    if (auto* bass = dynamic_cast<plugins::BassModelPlugin*> (plugin.get()))
+        return bass->getMatchingFactoryPreset();
+
     if (auto instance = getExternalInstance())
         return instance->getCurrentProgram();
 
@@ -125,6 +135,15 @@ int PluginPresets::getCurrentPluginProgram() const
 
 bool PluginPresets::selectPluginProgram (int index)
 {
+    if (auto* bass = dynamic_cast<plugins::BassModelPlugin*> (plugin.get()))
+    {
+        if (! juce::isPositiveAndBelow (index, plugins::bassmodel::numFactoryPresets))
+            return false;
+
+        bass->setFactoryPreset (index);
+        return true;
+    }
+
     if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
     {
         if (! juce::isPositiveAndBelow (index, plugins::gabber::numFactoryPresets))
