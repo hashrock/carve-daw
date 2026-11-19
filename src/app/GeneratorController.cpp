@@ -144,6 +144,8 @@ juce::Array<juce::PluginDescription> instrumentPlugins (te::Engine& engine)
 }
 
 constexpr int firstPluginItem = 100;
+constexpr int browseLibraryItem = 99;       // below the plugins, above every built-in choice
+constexpr int firstLibraryItem = 100000;   // past any plugin list
 
 // The instruments as submenus of `menu`: a submenu a group of the built-in
 // ones, then the plugins, by maker when there are several makers. The
@@ -247,6 +249,41 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
     juce::PopupMenu menu;
     const auto instruments = instrumentPlugins (engine);
     addInstrumentMenus (menu, false, instruments);
+
+    // The sound library's installed packs, each a new singer or SF2 player
+    // with it already loaded; then a way to get more.
+    std::vector<std::pair<MediaKind, juce::File>> libraryItems;
+    {
+        juce::PopupMenu library;
+
+        if (soundLibrary != nullptr)
+        {
+            for (const auto& [kind, mediaKind, header] : { std::tuple (SoundLibrary::Kind::voicebank, MediaKind::voicebank, "UTAU Singer"),
+                                                           std::tuple (SoundLibrary::Kind::soundFont, MediaKind::soundFont, "SF2 Player") })
+            {
+                const auto installed = soundLibrary->getInstalledEntries (kind);
+
+                if (installed.empty())
+                    continue;
+
+                library.addSectionHeader (header);
+
+                for (const auto& [pack, entry] : installed)
+                {
+                    library.addItem (firstLibraryItem + static_cast<int> (libraryItems.size()), pack.displayName());
+                    libraryItems.emplace_back (mediaKind, entry);
+                }
+            }
+        }
+
+        if (libraryItems.empty())
+            library.addItem (-1, "Nothing downloaded yet", false);
+
+        library.addSeparator();
+        library.addItem (browseLibraryItem, "Browse Sound Library...");
+        menu.addSubMenu ("Sound Library", library);
+    }
+
     menu.addSeparator();
 
     for (const auto& choice : generatorChoices)
@@ -259,12 +296,22 @@ void GeneratorController::showAddGeneratorMenu (juce::Rectangle<int> screenArea)
    #endif
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
-                        [this, instruments] (int result)
+                        [this, instruments, libraryItems] (int result)
     {
         if (result == 2)
         {
             if (onManagePlugins)
                 onManagePlugins();
+        }
+        else if (result == browseLibraryItem)
+        {
+            if (onOpenSoundLibrary)
+                onOpenSoundLibrary();
+        }
+        else if (result >= firstLibraryItem && result < firstLibraryItem + static_cast<int> (libraryItems.size()))
+        {
+            const auto& [kind, entry] = libraryItems[static_cast<size_t> (result - firstLibraryItem)];
+            addFromLibrary (kind, entry);
         }
         else if (const auto* choice = findChoice (result))
         {

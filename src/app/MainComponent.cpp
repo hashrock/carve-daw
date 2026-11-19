@@ -83,6 +83,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
         selectionChanged (generatorId, patternId);
     };
     generatorController->onManagePlugins = [this] { openPluginManager(); };
+    generatorController->onOpenSoundLibrary = [this] { openSoundLibrary(); };
 
     // Before a generator is copied: the copy is made from the song, and the
     // knobs turned since the last save are only in the live plugins. Not an

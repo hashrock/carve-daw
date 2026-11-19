@@ -31,6 +31,10 @@ public:
     std::function<void (const juce::String&, const juce::String&)> onSelectionChanged;
     std::function<void()> onManagePlugins;
 
+    // The Add menu's "Sound Library > Browse..." item: open the library's
+    // window, to download more.
+    std::function<void()> onOpenSoundLibrary;
+
     // A generator was just made that has nothing to play yet -- a sampler, a
     // SoundFont player, a singer -- and it is selected: its Inst tab is
     // where it gets something, so the owner should open it there. Nothing
