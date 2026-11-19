@@ -49,9 +49,9 @@ footer a:hover{text-decoration:underline}
 
 <article id="ja" lang="ja">
   <h1>プライバシーポリシー</h1>
-  <p class="updated">最終更新日: 2026年11月11日</p>
+  <p class="updated">最終更新日: 2026年11月19日</p>
 
-  <p class="lead">Carve DAW（以下「本アプリ」）は、あなたの情報を集めません。本アプリには利用状況の計測・広告・トラッキング・アカウントの仕組みがなく、インターネットにも接続しません。</p>
+  <p class="lead">Carve DAW（以下「本アプリ」）は、あなたの情報を集めません。本アプリには利用状況の計測・広告・トラッキング・アカウントの仕組みがありません。インターネットに接続するのは、あなたが「サウンドライブラリ」を開いて音源を一覧・ダウンロードするときだけです。</p>
 
   <h2>集める情報</h2>
   <p>ありません。本アプリは、あなたの個人情報や利用状況を、開発者を含むだれにも送りません。</p>
@@ -70,8 +70,11 @@ footer a:hover{text-decoration:underline}
     <dt>設定</dt>
     <dd>オーディオの出力先、MIDI 入力の選択、ウィンドウの配置、最近使った曲と素材の一覧、サンプルブラウザのフォルダー、前回開いたフォルダー、自分で保存したプリセットを、この Mac のアプリ用のフォルダーに保存します。</dd>
   </dl>
+  <h2>サウンドライブラリ</h2>
+  <p>「Sound Library」ウィンドウを開くと、本アプリは配信サーバー（carve-library.hashrock.workers.dev、Cloudflare Workers / R2 で運用）から音源の一覧を取得し、あなたがダウンロードを選んだ音源（UTAU 音源・SoundFont）とその説明書きを取得します。送るのは通常の HTTPS リクエストだけで、あなたを識別する情報や利用状況は含みません。Cloudflare はサービス運用のため、アクセス元の IP アドレスなどを一時的に記録することがあります。その扱いは Cloudflare のプライバシーポリシーに従います。ダウンロードした音源はアプリ用のフォルダーに保存し、iCloud やバックアップの対象から外します。</p>
+
   <p>本アプリはオーディオを録音しません。マイクなどのオーディオ入力を開かず、その権限も求めません。</p>
-  <p>Mac App Store 版は App Sandbox の中で動き、アプリ自身のフォルダーと、あなたがパネルやドロップで選んだファイル・フォルダーにだけ触れます。曲が参照する素材や最近使った曲を次に起動したときにも開けるよう、選んだ場所をもう一度開くための macOS のブックマークを、アプリ用のフォルダーに保存します。ネットワークを使う権限は持っていません。他社のプラグインも読み込みません。</p>
+  <p>Mac App Store 版は App Sandbox の中で動き、アプリ自身のフォルダーと、あなたがパネルやドロップで選んだファイル・フォルダーにだけ触れます。曲が参照する素材や最近使った曲を次に起動したときにも開けるよう、選んだ場所をもう一度開くための macOS のブックマークを、アプリ用のフォルダーに保存します。ネットワークについては、サウンドライブラリのための外向きの接続だけを許可しています。他社のプラグインは読み込みません。</p>
 
   <h2>プラグイン（直接配布版のみ）</h2>
   <p>GitHub で配布している版は、あなたの Mac に入っている VST3 / Audio Unit プラグインを読み込めます。読み込んだプラグインが何をするかは、そのプラグインの提供元の方針に従います。Mac App Store 版にはこの機能が入っていません。</p>
@@ -88,9 +91,9 @@ footer a:hover{text-decoration:underline}
 
 <article id="en" lang="en">
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: November 11, 2026</p>
+  <p class="updated">Last updated: November 19, 2026</p>
 
-  <p class="lead">Carve DAW (“the app”) does not collect your information. The app has no analytics, advertising, tracking or accounts, and it does not connect to the internet.</p>
+  <p class="lead">Carve DAW (“the app”) does not collect your information. The app has no analytics, advertising, tracking or accounts. It connects to the internet only when you open the Sound Library to list or download sounds.</p>
 
   <h2>Information we collect</h2>
   <p>None. The app does not send your personal information or usage data to anyone, including the developer.</p>
@@ -109,8 +112,11 @@ footer a:hover{text-decoration:underline}
     <dt>Settings</dt>
     <dd>The audio output, the MIDI inputs you enabled, window layout, recent songs and material, the sample browser’s folders, the folders you last opened, and presets you saved are stored in the app’s own folder on this Mac.</dd>
   </dl>
+  <h2>Sound Library</h2>
+  <p>When you open the Sound Library window, the app fetches the list of sounds from the library server (carve-library.hashrock.workers.dev, run on Cloudflare Workers and R2), and downloads the voicebanks and SoundFonts you choose, with their credits and terms. These are plain HTTPS requests that carry nothing that identifies you and no usage data. Cloudflare may briefly log the requesting IP address and similar details to run its service; that is governed by Cloudflare’s privacy policy. Downloaded sounds are stored in the app’s own folder and excluded from iCloud and device backups.</p>
+
   <p>The app does not record audio. It never opens a microphone or any other audio input, and it does not ask for permission to.</p>
-  <p>The Mac App Store version runs inside the App Sandbox. It can touch only its own folder and the files and folders you choose in a panel or by dropping them. So that a song’s samples and your recent songs still open the next time you launch the app, it stores macOS bookmarks to the places you chose in its own folder. It has no permission to use the network, and it does not load plug-ins from other vendors.</p>
+  <p>The Mac App Store version runs inside the App Sandbox. It can touch only its own folder and the files and folders you choose in a panel or by dropping them. So that a song’s samples and your recent songs still open the next time you launch the app, it stores macOS bookmarks to the places you chose in its own folder. Its only network permission is outgoing connections, for the Sound Library. It does not load plug-ins from other vendors.</p>
 
   <h2>Plug-ins (direct download version only)</h2>
   <p>The version distributed on GitHub can load the VST3 and Audio Unit plug-ins installed on your Mac. What a plug-in does is governed by its own vendor’s policy. The Mac App Store version does not include this feature.</p>

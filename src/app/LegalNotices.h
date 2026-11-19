@@ -167,8 +167,10 @@ class AboutContent : public juce::Component
 public:
     AboutContent (const juce::String& applicationName,
                   const juce::String& applicationVersion,
-                  std::function<void()> onShowNoticesIn)
-        : onShowNotices (std::move (onShowNoticesIn))
+                  std::function<void()> onShowNoticesIn,
+                  std::function<void()> onShowSoundCreditsIn = {})
+        : onShowNotices (std::move (onShowNoticesIn)),
+          onShowSoundCredits (std::move (onShowSoundCreditsIn))
     {
         styleNoticeLabel (title, noticeText, fonts::title, juce::Justification::centred);
         title.setText (applicationName + " " + applicationVersion, juce::dontSendNotification);
@@ -209,6 +211,19 @@ public:
         addAndMakeVisible (body);
         addAndMakeVisible (noticesButton);
 
+        // The downloaded voicebanks and SoundFonts are other people's work
+        // too; their credits and terms are in the Sound Library window.
+        soundCreditsButton.setButtonText ("Sound Library Credits...");
+        soundCreditsButton.setColour (juce::TextButton::buttonColourId, noticeButton);
+        soundCreditsButton.setColour (juce::TextButton::textColourOffId, noticeText);
+        soundCreditsButton.onClick = [this]
+        {
+            if (onShowSoundCredits)
+                onShowSoundCredits();
+        };
+        addChildComponent (soundCreditsButton);
+        soundCreditsButton.setVisible (onShowSoundCredits != nullptr);
+
         if (! image.isValid())
             logo.setVisible (false);
 
@@ -238,17 +253,29 @@ public:
         powered.setBounds (area.removeFromTop (24));
         area.removeFromTop (8);
 
-        noticesButton.setBounds (area.removeFromBottom (30).withSizeKeepingCentre (220, 28));
+        auto buttons = area.removeFromBottom (30);
+
+        if (soundCreditsButton.isVisible())
+        {
+            const auto width = juce::jmin (220, (buttons.getWidth() - 10) / 2);
+            auto both = buttons.withSizeKeepingCentre (2 * width + 10, 28);
+            noticesButton.setBounds (both.removeFromLeft (width));
+            soundCreditsButton.setBounds (both.removeFromRight (width));
+        }
+        else
+        {
+            noticesButton.setBounds (buttons.withSizeKeepingCentre (220, 28));
+        }
         area.removeFromBottom (10);
         body.setBounds (area);
     }
 
 private:
-    std::function<void()> onShowNotices;
+    std::function<void()> onShowNotices, onShowSoundCredits;
     juce::Label title, copyright, powered;
     juce::ImageComponent logo;
     juce::TextEditor body;
-    juce::TextButton noticesButton;
+    juce::TextButton noticesButton, soundCreditsButton;
 };
 
 // The notices as plain lines, drawn only where they are on screen.
@@ -354,12 +381,13 @@ public:
     AboutWindow (const juce::String& applicationName,
                  const juce::String& applicationVersion,
                  std::function<void()> onShowNotices,
-                 std::function<void()> onCloseCallback)
+                 std::function<void()> onCloseCallback,
+                 std::function<void()> onShowSoundCredits = {})
         : juce::DocumentWindow ("About " + applicationName,
                                 noticeBackground,
                                 juce::DocumentWindow::closeButton),
           onClose (std::move (onCloseCallback)),
-          content (applicationName, applicationVersion, std::move (onShowNotices))
+          content (applicationName, applicationVersion, std::move (onShowNotices), std::move (onShowSoundCredits))
     {
         setContentNonOwned (&content, true);
         useSystemTitleBar (*this);

@@ -11,6 +11,8 @@
 #include "ExportWindow.h"
 #include "MidiInputController.h"
 #include "SettingsWindow.h"
+#include "SoundLibrary.h"
+#include "SoundLibraryWindow.h"
 #include "PlaylistComponent.h"
 #include "ShortcutHelpBar.h"
 #include "PluginWindows.h"
@@ -50,7 +52,7 @@ public:
     {
         newSong, openSong, openDemoSong, save, saveAs, exportWav,
         undo, redo,
-        toggleBrowser, openMixer, openPatternEditor, pluginManager, settings
+        toggleBrowser, openMixer, openPatternEditor, pluginManager, settings, soundLibrary
     };
 
     void perform (Action);
@@ -118,6 +120,13 @@ private:
     void openDemoSong();
     void openPluginManager();
     void openSettings();
+
+public:
+    // The Sound Library window, on `packId` if one is given. Public so About
+    // can open it on its credits.
+    void openSoundLibrary (const juce::String& packId = {});
+
+private:
     void openPatternEditor();
 
     // Capture (Shift+Cmd+R): the last phrase played becomes a new pattern of
@@ -241,6 +250,11 @@ private:
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
     std::unique_ptr<SettingsWindow> settingsWindow;
+
+    // The downloadable voicebanks and SoundFonts. Made at start-up, which
+    // only reads the disk: the Inst tabs list what is installed.
+    std::unique_ptr<SoundLibrary> soundLibrary;
+    std::unique_ptr<SoundLibraryWindow> soundLibraryWindow;
 
     // Live MIDI in, and recording it into whatever is playing. Declared after
     // the Edit it plays into and before the windows that can outlive a song.

@@ -815,7 +815,27 @@ std::vector<RecentMediaList::Item> GeneratorController::getRecentMedia (MediaKin
                                                               : file.getFileName() });
     }
 
+    // Then whatever the sound library has installed and the list does not
+    // already show.
+    if (soundLibrary != nullptr && (kind == MediaKind::voicebank || kind == MediaKind::soundFont))
+    {
+        const auto libraryKind = kind == MediaKind::voicebank ? SoundLibrary::Kind::voicebank
+                                                              : SoundLibrary::Kind::soundFont;
+
+        for (const auto& [pack, entry] : soundLibrary->getInstalledEntries (libraryKind))
+            if (std::none_of (items.begin(), items.end(), [&e = entry] (const RecentMediaList::Item& i) { return i.file == e; }))
+                items.push_back ({ entry, pack.displayName() });
+    }
+
     return items;
+}
+
+void GeneratorController::addFromLibrary (MediaKind kind, const juce::File& entry)
+{
+    if (kind == MediaKind::voicebank && entry.isDirectory())
+        addUtauGenerator (entry);
+    else if (kind == MediaKind::soundFont && entry.existsAsFile())
+        addSoundFontGenerator (entry);
 }
 
 void GeneratorController::recentMediaChosen (MediaKind kind, const juce::File& file)

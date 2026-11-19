@@ -283,6 +283,8 @@ function(carve_configure_target target)
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
     target_link_libraries(${target} PRIVATE
         tracktion::tracktion_engine
+        # SHA-256, to check the sound library's downloads (src/app/SoundLibrary).
+        juce::juce_cryptography
         world
         carve-instrument-data
         juce::juce_recommended_config_flags
@@ -302,7 +304,8 @@ set(CARVE_BUILD_NUMBER "${PROJECT_VERSION}" CACHE STRING "CFBundleVersion of the
 
 # What JUCE's Info.plist does not say by itself, and the App Store reads:
 # the category the app is filed under, that it has no encryption to declare
-# (it has no network code of its own to encrypt anything for), and the one
+# (its only network use is HTTPS downloads of the sound library through the
+# system's own URL loading, which is exempt), and the one
 # language the interface is in. The first macOS it runs on is here because a
 # Makefile build of JUCE leaves it out, and the store then assumes the oldest
 # it knows of.
@@ -403,12 +406,16 @@ target_sources(carve PRIVATE
     src/app/TimeSigSupport.h
     src/app/TouchUi.h
     src/app/SandboxAccess.h
+    src/app/SoundLibrary.h
+    src/app/SoundLibrary.cpp
+    src/app/SoundLibraryWindow.h
+    src/app/SoundLibraryWindow.cpp
     src/app/AppFiles.h)
 # Security-scoped bookmarks are Foundation, so the real thing is Objective-C++.
 # The Mac's App Sandbox and the iPad, which keeps a file picked in Files
 # readable the same way (see claimChosen).
 if(APPLE)
-    target_sources(carve PRIVATE src/app/SandboxAccess.mm)
+    target_sources(carve PRIVATE src/app/SandboxAccess.mm src/app/SoundLibraryApple.mm)
 else()
     target_sources(carve PRIVATE src/app/SandboxAccess.cpp)
 endif()

@@ -413,7 +413,7 @@ void TransportBar::showFileMenu()
     // The recent songs get IDs of their own above the fixed items, so one
     // callback can tell "the third recent song" from "Save As".
     enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId, analyzerId,
-           settingsId, aboutId, noticesId,
+           settingsId, aboutId, noticesId, soundLibraryId,
            firstRecentId = 100, firstSampleSongId = 200 };
 
     juce::PopupMenu menu;
@@ -446,6 +446,8 @@ void TransportBar::showFileMenu()
     menu.addSeparator();
     menu.addItem (exportId, "Export Audio...");
     menu.addItem (analyzerId, "Analyzer...");
+    menu.addSeparator();
+    menu.addItem (soundLibraryId, "Sound Library...");
 
     // On macOS these three are in the application menu, at the top of the
     // screen. Anywhere else this menu is the only one there is, and About is
@@ -476,6 +478,7 @@ void TransportBar::showFileMenu()
             case settingsId:  if (safe->onSettings) safe->onSettings(); break;
             case aboutId:     if (safe->onAbout)    safe->onAbout();    break;
             case noticesId:   if (safe->onNotices)  safe->onNotices();  break;
+            case soundLibraryId: if (safe->onSoundLibrary) safe->onSoundLibrary(); break;
 
             default:
                 if (result >= firstSampleSongId)

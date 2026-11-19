@@ -4,6 +4,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "SoundLibrary.h"
+
 namespace carve::app
 {
 
@@ -72,6 +74,23 @@ inline juce::File relocateIntoThisInstall (const juce::File& file)
         if (const auto at = path.lastIndexOf (marker); at >= 0 && path.substring (0, at).endsWith ("/Carve DAW"))
             if (const auto content = factoryContentFolder(); content != juce::File())
                 return content.getChildFile (path.substring (at + (int) std::strlen (marker)));
+
+    // The sound library, as another copy of the app had it: the Mac App
+    // Store build keeps it inside its container, the disk image's build in
+    // ~/Library, an iPad under a container that changes with each update.
+    // What follows the library folder is the same everywhere.
+    {
+        constexpr const char* marker = "/Carve DAW/Sound Library/";
+
+        if (const auto at = path.lastIndexOf (marker); at >= 0)
+        {
+            const auto here = SoundLibrary::defaultRoot()
+                                  .getChildFile (path.substring (at + (int) std::strlen (marker)));
+
+            if (here.exists())
+                return here;
+        }
+    }
 
    #if JUCE_IOS
     // Another install's Documents: .../Data/Application/<id>/Documents/...

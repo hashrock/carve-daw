@@ -51,6 +51,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onOpenRecent = [this] (int index) { openRecentSong (index); };
     transportBar->onOpenSampleSong = [this] (int index) { openSampleSong (index); };
     transportBar->onSettings = [this] { openSettings(); };
+    transportBar->onSoundLibrary = [this] { openSoundLibrary(); };
     transportBar->onAbout = [this] { if (onShowAbout) onShowAbout(); };
     transportBar->onNotices = [this] { if (onShowNotices) onShowNotices(); };
 
@@ -73,7 +74,9 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onCapture = [this] { capturePlayed(); };
     transportBar->onToggleTypingKeyboard = [this] { toggleTypingKeyboard(); };
 
+    soundLibrary = std::make_unique<SoundLibrary>();
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
+    generatorController->setSoundLibrary (soundLibrary.get());
     generatorController->onSelectionChanged = [this] (const juce::String& generatorId,
                                              const juce::String& patternId)
     {
@@ -814,6 +817,36 @@ void MainComponent::openSettings()
     settingsWindow = std::make_unique<SettingsWindow> (engine, std::move (onClose));
 }
 
+void MainComponent::openSoundLibrary (const juce::String& packId)
+{
+    if (soundLibraryWindow == nullptr)
+    {
+        auto onClose = [safe = juce::Component::SafePointer (this)]
+        {
+            juce::MessageManager::callAsync ([safe]
+            {
+                if (safe != nullptr)
+                    safe->soundLibraryWindow.reset();
+            });
+        };
+
+        auto onUse = [safe = juce::Component::SafePointer (this)] (SoundLibrary::Kind kind, const juce::File& entry)
+        {
+            if (safe != nullptr)
+                safe->generatorController->addFromLibrary (kind == SoundLibrary::Kind::soundFont ? MediaKind::soundFont
+                                                                                                  : MediaKind::voicebank,
+                                                           entry);
+        };
+
+        soundLibraryWindow = std::make_unique<SoundLibraryWindow> (*soundLibrary, std::move (onUse), std::move (onClose));
+    }
+
+    if (packId.isNotEmpty())
+        soundLibraryWindow->select (packId);
+
+    soundLibraryWindow->toFront (true);
+}
+
 void MainComponent::openMixer()
 {
     if (mixerWindow != nullptr)
@@ -1375,6 +1408,7 @@ void MainComponent::perform (Action action)
         case Action::openPatternEditor: openPatternEditor(); break;
         case Action::pluginManager:     openPluginManager(); break;
         case Action::settings:          openSettings(); break;
+        case Action::soundLibrary:      openSoundLibrary(); break;
     }
 }
 

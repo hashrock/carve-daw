@@ -16,6 +16,10 @@
         bookmarks. A song is a list of paths to samples picked on some
         earlier day, and without this every one of them would be out of
         reach the next time the app opened. See src/app/SandboxAccess.h.
+      * outgoing network connections, for one thing only: the Sound Library
+        window downloads voicebanks and SoundFonts, over HTTPS, from the
+        carve-library Worker, when the user asks it to. See
+        src/app/SoundLibrary.h.
 
     What is deliberately absent:
 
@@ -24,13 +28,15 @@
         build hosts none, and the store does not take that exception.
       * audio input. The app never records audio. MIDI input needs no
         entitlement.
-      * network. The app talks to nobody.
+      * incoming network connections. The app serves nothing.
     -->
     <key>com.apple.security.app-sandbox</key>
     <true/>
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
     <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
     <true/>
 </dict>
 </plist>
