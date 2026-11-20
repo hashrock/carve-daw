@@ -78,6 +78,13 @@ what **Third-Party Notices** displays.
 
 ## Revenue limits, and what to do when one is crossed
 
+**Current position (owner, 2026-11-20): Carve DAW takes in no money.** The
+app is free on the store, and there is no revenue or funding from it. So
+neither cap is near, and nothing below needs tracking for now. Before any
+change that would bring money in -- a price, in-app purchases, ads,
+donations, sponsorship or funding, all of which JUCE counts -- come back to
+this section and decide how the figures are to be recorded first.
+
 The two caps are independent. Crossing either one means that binary cannot
 keep shipping on that tier. Moving the App Store binary onto the AGPL (or
 onto the GPL) does not make it an App Store binary: the store's terms are the

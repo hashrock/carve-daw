@@ -15,7 +15,8 @@ The choice is not really a choice: it follows from what the app is built on.
 | [TinySoundFont](https://github.com/schellingb/TinySoundFont) (the SF2 player) | commit 853a0a1 | MIT |
 | [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (the pitch shifter) | 1.4.0 | MIT |
 | [WORLD](https://github.com/mmorise/World) (the UTAU singer's vocoder) | commit c794856 | modified BSD |
-| AudioUnit SDK, FLAC, Ogg Vorbis, zlib, HarfBuzz, and the rest inside JUCE | bundled | Apache-2.0 / BSD / zlib / MIT |
+| FLAC, Ogg Vorbis, zlib, libpng, libjpeg, HarfBuzz, SheenBidi (inside JUCE) | bundled | BSD / zlib / libpng / IJG / MIT / Apache-2.0 |
+| choc, crill, libsamplerate, magic_enum, NanoRange and the rest inside tracktion_engine | bundled | ISC / Boost / BSD / MIT / CC0 / public domain |
 
 The source tree and the GitHub Releases disk images use the copyleft arm of
 both. JUCE's is the AGPL, which is the strictest of them, and that combined
