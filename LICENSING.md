@@ -83,7 +83,9 @@ app is free on the store, and there is no revenue or funding from it. So
 neither cap is near, and nothing below needs tracking for now. Before any
 change that would bring money in -- a price, in-app purchases, ads,
 donations, sponsorship or funding, all of which JUCE counts -- come back to
-this section and decide how the figures are to be recorded first.
+this section and decide how the figures are to be recorded first. Tell
+the voicebank authors too: both were told Carve would stay free and
+ad-free (library-server/README.md).
 
 The two caps are independent. Crossing either one means that binary cannot
 keep shipping on that tier. Moving the App Store binary onto the AGPL (or
