@@ -5,6 +5,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "RecentMediaList.h"
+#include "SoundLibrary.h"
 #include "model/Capture.h"
 #include "model/SongModel.h"
 
@@ -30,6 +31,10 @@ public:
     std::function<void (const juce::String&, const juce::String&)> onSelectionChanged;
     std::function<void()> onManagePlugins;
 
+    // The Add menu's "Sound Library > Browse..." item: open the library's
+    // window, to download more.
+    std::function<void()> onOpenSoundLibrary;
+
     // A generator was just made that has nothing to play yet -- a sampler, a
     // SoundFont player, a singer -- and it is selected: its Inst tab is
     // where it gets something, so the owner should open it there. Nothing
@@ -39,6 +44,12 @@ public:
     // What each kind of instrument was last given, newest first, and only
     // what is still on disk. For the empty Inst tabs' Recent lists.
     std::vector<RecentMediaList::Item> getRecentMedia (MediaKind) const;
+
+    // The sound library's installed packs join the recent ones in the Inst
+    // tabs' lists, and its window's Use button comes through addFromLibrary:
+    // a new singer or SF2 player with the pack loaded, selected.
+    void setSoundLibrary (const SoundLibrary* library)  { soundLibrary = library; }
+    void addFromLibrary (MediaKind, const juce::File& entry);
 
     // A Recent entry clicked: loads it into the selected generator, if that
     // is the kind it is for.
@@ -261,6 +272,7 @@ private:
     void importMidiIntoPattern (const juce::String& generatorId, const juce::String& patternId);
 
     te::Engine& engine;
+    const SoundLibrary* soundLibrary = nullptr;
     model::Song song;
     juce::UndoManager& undoManager;
 

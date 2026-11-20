@@ -7,3 +7,4 @@ build-*/
 !content/Drums/*.wav
 .claude/
 dist/
+/build-library/

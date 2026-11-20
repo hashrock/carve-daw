@@ -168,6 +168,11 @@ private:
                                                              if (*alive)
                                                                  aboutWindow.reset();
                                                          });
+                                                     },
+                                                     [this]
+                                                     {
+                                                         if (auto* main = getMainComponent())
+                                                             main->openSoundLibrary();
                                                      });
     }
 
@@ -271,6 +276,7 @@ private:
                 add (Action::openMixer, "Mixer");
                 add (Action::openPatternEditor, "Pattern Editor");
                 m.addSeparator();
+                add (Action::soundLibrary, "Sound Library...");
 
                 // Not in a build that hosts no plugins (the App Store one):
                 // there is nothing to scan for, and the window this opens

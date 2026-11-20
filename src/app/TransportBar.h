@@ -154,7 +154,7 @@ public:
 
     // In the logo menu wherever there is no macOS application menu to hold
     // them.
-    std::function<void()> onSettings, onAbout, onNotices;
+    std::function<void()> onSettings, onAbout, onNotices, onSoundLibrary;
 
     // Open Recent, in the logo menu. The names are asked for as the menu is
     // built rather than pushed in when they change, so the submenu can never

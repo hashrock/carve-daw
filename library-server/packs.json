@@ -1,0 +1,67 @@
+{
+  "comment": "The sound library Carve DAW downloads. scripts/package-library.py turns each entry into a zip plus a UTF-8 README, and writes v1/library.json. Sources are the authors' own distributions, unpacked; nothing in them is changed. Paths starting with ~ are on the machine that packages.",
+  "packs": [
+    {
+      "id": "adachi-rei",
+      "kind": "voicebank",
+      "name": "足立レイ",
+      "nameEn": "Adachi Rei",
+      "version": "3.5.0",
+      "author": "みさいる (@missile_39)",
+      "homepage": "https://mechanicalgirl.jp/adachi-rei/",
+      "description": "A UTAU voicebank built from sine-wave synthesis rather than a human voice. Single-sound (CV), Japanese.",
+      "licenseSummary": "Redistribution and use inside programs are allowed by the author's guideline. Free for doujin (hobby) work, paid or free. Commercial use by a corporation needs the author's permission.",
+      "credit": "足立レイ (Adachi Rei) UTAU voicebank by みさいる / Mechanical Girl — https://mechanicalgirl.jp/adachi-rei/",
+      "source": "~/utau/足立レイver3.5.0",
+      "folder": "足立レイ",
+      "terms": ["利用規約等/足立レイのガイドライン.txt", "readme.txt"]
+    },
+    {
+      "id": "koharune-ami",
+      "kind": "voicebank",
+      "name": "小春音アミ 単独音",
+      "nameEn": "Koharune Ami (CV)",
+      "version": "3.00",
+      "author": "あみたろ",
+      "homepage": "http://www14.big.or.jp/~amiami/happy/utau.html",
+      "description": "A UTAU voicebank recorded by あみたろ. Single-sound (CV) at four pitches: G4, B4, E4 and C4. Japanese.",
+      "licenseSummary": "Free. Redistribution, commercial use and audio processing are allowed. Not for adult, religious, political or violent works. Credit 小春音アミ as the voice provider in a published song.",
+      "credit": "小春音アミ (Koharune Ami) UTAU voicebank by あみたろ — http://www14.big.or.jp/~amiami/happy/",
+      "source": "~/utau/koharuneami_0300/小春音アミ",
+      "folder": "小春音アミ",
+      "terms": ["詳しいReadme.txt", "Readme.txt"]
+    },
+    {
+      "id": "koharune-ami-vcv",
+      "kind": "voicebank",
+      "name": "小春音アミ 連続音",
+      "nameEn": "Koharune Ami (VCV)",
+      "version": "1.10",
+      "author": "あみたろ",
+      "homepage": "http://www14.big.or.jp/~amiami/happy/utau.html",
+      "description": "A UTAU voicebank recorded by あみたろ. Connected (VCV) sounds for smoother legato. Japanese.",
+      "licenseSummary": "Free. Redistribution, commercial use and audio processing are allowed. Not for adult, religious, political or violent works. Credit 小春音アミ as the voice provider in a published song.",
+      "credit": "小春音アミ連続音 (Koharune Ami VCV) UTAU voicebank by あみたろ — http://www14.big.or.jp/~amiami/happy/",
+      "source": "~/utau/koharuneami_r_0110/小春音アミ連続音 Ver.1.10",
+      "folder": "小春音アミ連続音",
+      "terms": ["詳しいReadme.txt", "Readme.txt"]
+    },
+    {
+      "id": "generaluser-gs",
+      "kind": "soundfont",
+      "name": "GeneralUser GS",
+      "nameEn": "GeneralUser GS",
+      "version": "2.0.3",
+      "author": "S. Christian Collins",
+      "homepage": "https://schristiancollins.com/generaluser.php",
+      "description": "A General MIDI / GS SoundFont: 261 instruments and 13 drum kits in about 30 MB.",
+      "licenseSummary": "Free for any music, private or commercial, and free to include in software. The full license is below.",
+      "credit": "GeneralUser GS by S. Christian Collins — https://schristiancollins.com/generaluser.php",
+      "source": "~/Downloads/GeneralUser-GS",
+      "folder": "GeneralUser GS",
+      "include": ["GeneralUser-GS.sf2", "documentation"],
+      "entry": "GeneralUser-GS.sf2",
+      "terms": ["documentation/LICENSE.txt"]
+    }
+  ]
+}
