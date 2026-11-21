@@ -136,6 +136,10 @@ public:
         dbLabel.setFont (uiFont (fonts::small));
         dbLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
 
+        loadLabel.setJustificationType (juce::Justification::centred);
+        loadLabel.setFont (uiFont (fonts::small));
+        loadLabel.setInterceptsMouseClicks (false, false);
+
         // The fader works in tracktion's fader-position space (0..1) so it gets
         // the engine's own taper; the model stores the resulting dB.
         volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
@@ -202,7 +206,7 @@ public:
         FaderLookAndFeel::setKeyKind (groupButton, FaderLookAndFeel::KeyKind::plain);
 
         for (auto* c : std::initializer_list<juce::Component*> {
-                 &nameLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
+                 &nameLabel, &loadLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
                  &groupButton, &muteButton, &soloButton })
             addAndMakeVisible (c);
 
@@ -281,6 +285,7 @@ public:
     {
         auto* meterPlugin = track != nullptr ? track->getLevelMeterPlugin() : nullptr;
         meter.update (meterPlugin != nullptr ? &meterPlugin->measurer : nullptr);
+        updateLoad (track);
     }
 
     void paint (juce::Graphics& g) override
@@ -295,6 +300,7 @@ public:
         auto area = getLocalBounds().reduced (4, 4);
 
         nameLabel.setBounds (area.removeFromTop (18));
+        loadLabel.setBounds (area.removeFromTop (14));
         area.removeFromTop (2);
         panSlider.setBounds (area.removeFromTop (18));
         area.removeFromTop (4);
@@ -365,11 +371,56 @@ private:
     // Below this the fader stops being aimable, so the slots scroll instead.
     static constexpr int minFaderHeight = 110;
 
+    // What this generator costs the audio thread: the instrument and its
+    // insert effects, each as the share of one audio block tracktion timed it
+    // taking in applyToBuffer, added up. 100% is a whole block's time on one
+    // core -- the point at which this track alone would make playback glitch
+    // (the engine spreads tracks over cores, so the strips can add up to more
+    // than that between them). The level meter and the volume/pan plugin opt
+    // out of being timed, so nothing is counted twice.
+    //
+    // Work a plugin does on a thread of its own is not in it: Modelled
+    // Drums' stroke renderer, the UTAU singer's render pool and the Gabber
+    // Kick's re-render all run beside the audio thread, and only their
+    // playback shows here.
+    void updateLoad (te::AudioTrack* track)
+    {
+        double load = 0.0;
+
+        if (track != nullptr)
+            for (auto* plugin : track->pluginList)
+                load += plugin->getCpuUsage();
+
+        // tracktion already smooths each plugin over blocks; this steadies the
+        // figure over UI ticks too, so it can be read rather than watched.
+        smoothedLoad += (load - smoothedLoad) * 0.15;
+
+        const auto percent = smoothedLoad * 100.0;
+        const auto text = "CPU " + (percent < 10.0 ? juce::String (percent, 1)
+                                                    : juce::String (juce::roundToInt (percent)))
+                          + "%";
+
+        if (text != loadLabel.getText())
+            loadLabel.setText (text, juce::dontSendNotification);
+
+        // Grey while it is nothing to worry about; amber from a quarter of
+        // the block, red from half -- one track alone taking half the time
+        // every track has to share.
+        const auto colour = percent >= 50.0 ? juce::Colour (0xffe0605a)
+                          : percent >= 25.0 ? juce::Colour (0xffd8a24a)
+                                            : juce::Colour (0xff7a7a84);
+
+        if (loadLabel.findColour (juce::Label::textColourId) != colour)
+            loadLabel.setColour (juce::Label::textColourId, colour);
+    }
+
     model::Generator generator;
     juce::UndoManager& undoManager;
 
+    double smoothedLoad = 0.0;
+
     DoubleClickLabel nameLabel;
-    juce::Label dbLabel;
+    juce::Label dbLabel, loadLabel;
     juce::Slider volumeSlider, panSlider;
     juce::TextButton muteButton { "M" }, soloButton { "S" }, groupButton { "- group -" };
 
