@@ -17,7 +17,7 @@ namespace te = tracktion;
 namespace carve::app
 {
 
-// One channel strip per Generator: insert effect slots, post-fader level meter,
+// One channel strip per Generator: its CPU load, insert effect slots, post-fader level meter,
 // volume fader, pan, mute and solo. A master strip is pinned to the right of
 // them, carrying the Edit's master fader, its output meter and its insert
 // chain.
