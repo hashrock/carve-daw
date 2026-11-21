@@ -9,8 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # simulator, configure it with the Xcode generator:
 #
 #   cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
-#         -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
-#         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
+#         -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64
 #   cmake --build build-ios --config Debug --target carve -- -sdk iphonesimulator
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(CARVE_IOS TRUE)
@@ -54,22 +53,35 @@ else()
     set(CARVE_PLUGIN_HOSTING 1)
 endif()
 
-# ccache, when it is installed: a rebuild after a branch switch or a fresh
-# build directory (build-asan, a worktree) then gets tracktion and JUCE back
-# from the cache instead of compiling them again. Before any target is made,
+# ccache, when it is installed: a rebuild after a branch switch, a fresh
+# build directory (build-asan) or a fresh worktree then gets back from the
+# cache what any checkout has compiled before. Before any target is made,
 # since the launcher is read when a target is created. The Makefile and Ninja
-# generators honour it; Xcode does not, and is left alone.
+# generators honour it; Xcode does not, and is left alone. A launcher given
+# on the command line (the CI workflow's) is left as it is.
+#
+# base_dir is what makes the cache shared between checkouts: paths inside
+# this checkout are hashed relative to the build directory, so the same file
+# in two worktrees is the same compile. That holds while build directories
+# sit inside the checkout (build/, build-asan/, ...) and nothing outside it
+# differs between checkouts -- which is why tracktion lives in the shared
+# directory below, at one absolute path for all of them, and why no compile
+# line carries this checkout's absolute path in a -D (see the CARVE_SOURCE_
+# definitions on Main.cpp).
 # -DCARVE_USE_CCACHE=OFF to do without.
 option(CARVE_USE_CCACHE "Compile through ccache when it is installed" ON)
 if(CARVE_USE_CCACHE AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
     find_program(CARVE_CCACHE_PROGRAM ccache)
     if(CARVE_CCACHE_PROGRAM)
+        file(REAL_PATH "${CMAKE_SOURCE_DIR}" _carve_base_dir)
         foreach(_carve_lang C CXX OBJC OBJCXX)
             if(NOT CMAKE_${_carve_lang}_COMPILER_LAUNCHER)
-                set(CMAKE_${_carve_lang}_COMPILER_LAUNCHER "${CARVE_CCACHE_PROGRAM}")
+                set(CMAKE_${_carve_lang}_COMPILER_LAUNCHER
+                    "${CARVE_CCACHE_PROGRAM}" "base_dir=${_carve_base_dir}")
             endif()
         endforeach()
         unset(_carve_lang)
+        unset(_carve_base_dir)
     endif()
 endif()
 
@@ -94,30 +106,126 @@ set(ENV{GIT_CONFIG_COUNT} "${_carve_git_config_next}")
 unset(_carve_git_config_index)
 unset(_carve_git_config_next)
 
+# tracktion_engine, with this tree's fixes to it. Each patch is explained in
+# its own header:
+#   * fixed-seed oscillator phase, so two renders of a song are identical
+#   * pending live MIDI (note previews) survives the graph rebuild that
+#     every MIDI note edit triggers
+#   * SoundTouch (LGPL) is compiled only when its stretcher is asked
+#     for, which here it never is
+#   * an audio clip already at the output rate skips the sinc resampler,
+#     so it plays bit-for-bit rather than band-limited
+#   * a constant-power pan law whose centre is unity
+# JUCE itself is not patched.
+set(CARVE_TRACKTION_TAG v3.2.0)
+set(CARVE_TRACKTION_PATCHES
+    tracktion-deterministic-osc-phase.patch
+    tracktion-live-midi-survives-note-edit-rebuild.patch
+    tracktion-soundtouch-optional.patch
+    tracktion-wave-clip-sinc-only-when-resampling.patch
+    tracktion-pan-law-3db-unity-centre.patch)
+
+# The checkout (~500MB with JUCE) is kept outside any one build directory, in
+# a directory every checkout of this repository shares: a new worktree or
+# build directory finds it there instead of cloning its own, and -- because it
+# is at the same absolute path for all of them -- ccache finds the engine
+# compiled by any of them. Its name carries the tag and a hash of the
+# patches, so a branch that changes a patch gets a checkout of its own and
+# never edits the one the others are using. Old ones are safe to delete.
+#
+# -DFETCHCONTENT_SOURCE_DIR_TRACKTION=<dir> still overrides all of this, and
+# -DCARVE_DEPS_DIR=<dir> moves the shared directory.
+if(APPLE)
+    set(_carve_deps_default "$ENV{HOME}/Library/Caches/carve-daw/deps")
+elseif(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
+    set(_carve_deps_default "$ENV{XDG_CACHE_HOME}/carve-daw/deps")
+else()
+    set(_carve_deps_default "$ENV{HOME}/.cache/carve-daw/deps")
+endif()
+set(CARVE_DEPS_DIR "${_carve_deps_default}" CACHE PATH
+    "Where the tracktion_engine checkout shared by every checkout of this repository is kept")
+unset(_carve_deps_default)
+
+if(NOT FETCHCONTENT_SOURCE_DIR_TRACKTION)
+    set(_carve_key "${CARVE_TRACKTION_TAG}")
+    foreach(_carve_patch IN LISTS CARVE_TRACKTION_PATCHES)
+        file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/patches/${_carve_patch}" _carve_hash)
+        string(APPEND _carve_key " ${_carve_patch}=${_carve_hash}")
+    endforeach()
+    string(SHA256 _carve_key "${_carve_key}")
+    string(SUBSTRING "${_carve_key}" 0 12 _carve_key)
+    set(_carve_tracktion_dir "${CARVE_DEPS_DIR}/tracktion-${CARVE_TRACKTION_TAG}-${_carve_key}")
+
+    # Cloned and patched beside its final name and renamed into place only
+    # when complete, so a checkout never sees a half-made one, and two
+    # configures racing to make it cannot step on each other: the second
+    # rename fails, and that configure uses the first one's.
+    if(NOT EXISTS "${_carve_tracktion_dir}/.carve-complete")
+        string(RANDOM LENGTH 8 _carve_suffix)
+        set(_carve_partial "${_carve_tracktion_dir}.partial-${_carve_suffix}")
+        message(STATUS "Fetching tracktion_engine ${CARVE_TRACKTION_TAG} into ${_carve_tracktion_dir}")
+        file(MAKE_DIRECTORY "${CARVE_DEPS_DIR}")
+        execute_process(
+            COMMAND git clone --quiet --depth 1 --branch ${CARVE_TRACKTION_TAG}
+                    --recurse-submodules --shallow-submodules
+                    https://github.com/Tracktion/tracktion_engine.git "${_carve_partial}"
+            RESULT_VARIABLE _carve_result)
+        if(NOT _carve_result EQUAL 0)
+            file(REMOVE_RECURSE "${_carve_partial}")
+            message(FATAL_ERROR "Cloning tracktion_engine ${CARVE_TRACKTION_TAG} failed")
+        endif()
+        foreach(_carve_patch IN LISTS CARVE_TRACKTION_PATCHES)
+            execute_process(
+                COMMAND git apply "${CMAKE_CURRENT_SOURCE_DIR}/patches/${_carve_patch}"
+                WORKING_DIRECTORY "${_carve_partial}"
+                RESULT_VARIABLE _carve_result)
+            if(NOT _carve_result EQUAL 0)
+                file(REMOVE_RECURSE "${_carve_partial}")
+                message(FATAL_ERROR "patches/${_carve_patch} does not apply to tracktion_engine ${CARVE_TRACKTION_TAG}")
+            endif()
+        endforeach()
+        file(TOUCH "${_carve_partial}/.carve-complete")
+        file(RENAME "${_carve_partial}" "${_carve_tracktion_dir}" RESULT _carve_result)
+        if(NOT _carve_result EQUAL 0)
+            file(REMOVE_RECURSE "${_carve_partial}")
+            if(NOT EXISTS "${_carve_tracktion_dir}/.carve-complete")
+                message(FATAL_ERROR "Could not put tracktion_engine at ${_carve_tracktion_dir}: ${_carve_result}")
+            endif()
+        endif()
+    endif()
+
+    # A plain variable, not the cache entry: it follows the patches, so a
+    # reconfigure after one changes picks the new checkout.
+    set(FETCHCONTENT_SOURCE_DIR_TRACKTION "${_carve_tracktion_dir}")
+    unset(_carve_key)
+    unset(_carve_hash)
+    unset(_carve_patch)
+    unset(_carve_suffix)
+    unset(_carve_partial)
+    unset(_carve_result)
+    unset(_carve_tracktion_dir)
+endif()
+
+# JUCE configures juceaide in a CMake build of its own under tracktion's build
+# directory, and that build refuses to run against a source directory other
+# than the one it was made from. So when the tracktion checkout this build
+# directory uses moves -- a patch changed, or a build directory made before
+# the shared one existed -- tracktion's build directory goes, and is made
+# again from the new checkout.
+file(REAL_PATH "${FETCHCONTENT_SOURCE_DIR_TRACKTION}" _carve_tracktion_now)
+if(NOT CARVE_TRACKTION_SOURCE_IN_USE STREQUAL _carve_tracktion_now)
+    file(REMOVE_RECURSE "${FETCHCONTENT_BASE_DIR}/tracktion-build")
+    set(CARVE_TRACKTION_SOURCE_IN_USE "${_carve_tracktion_now}" CACHE INTERNAL
+        "The tracktion checkout this build directory's tracktion-build was made from")
+endif()
+unset(_carve_tracktion_now)
+
 FetchContent_Declare(tracktion
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
-    GIT_TAG        v3.2.0
-    GIT_SHALLOW    TRUE
-    # Local fixes, each explained in its own patch header:
-    #   * fixed-seed oscillator phase, so two renders of a song are identical
-    #   * pending live MIDI (note previews) survives the graph rebuild that
-    #     every MIDI note edit triggers
-    #   * SoundTouch (LGPL) is compiled only when its stretcher is asked
-    #     for, which here it never is
-    #   * an audio clip already at the output rate skips the sinc resampler,
-    #     so it plays bit-for-bit rather than band-limited
-    #   * a constant-power pan law whose centre is unity
-    # JUCE itself is not patched, and the last step makes sure of it: a
-    # checkout from when this tree did patch JUCE (the Ogg writer) is put
-    # back as JUCE shipped it.
-    # Idempotent: CMake re-runs this on reconfigure, so an already-patched
-    # tree has to pass. "Reverse would apply" means the patch is in place.
-    # (No semicolons in here: CMake would split the command on them.)
-    PATCH_COMMAND  bash -c "(git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-deterministic-osc-phase.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-live-midi-survives-note-edit-rebuild.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-soundtouch-optional.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-wave-clip-sinc-only-when-resampling.patch') && (git apply --reverse --check '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-pan-law-3db-unity-centre.patch' 2>/dev/null || git apply '${CMAKE_CURRENT_SOURCE_DIR}/patches/tracktion-pan-law-3db-unity-centre.patch') && git -C modules/juce checkout -- ."
+    GIT_TAG        ${CARVE_TRACKTION_TAG}
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)
-
 FetchContent_MakeAvailable(tracktion)
 
 # TinySoundFont: the SF2 player behind the SoundFont generator. One header,
@@ -349,9 +457,9 @@ juce_add_binary_data(carve-instrument-data
 # need are handed on by name.
 #
 # Nothing of this tree's own is on these compile lines -- no src/, no build
-# directory paths -- so two checkouts sharing one tracktion source directory
-# (a worktree configured with FETCHCONTENT_SOURCE_DIR_TRACKTION) compile the
-# engine with the same command, and ccache serves the second from the first.
+# directory paths -- so every checkout, sharing the one tracktion directory
+# (CARVE_DEPS_DIR), compiles the engine with the same command, and ccache
+# serves the second from the first.
 add_library(carve-engine STATIC)
 target_compile_definitions(carve-engine PUBLIC
     # What juce_add_gui_app / juce_add_console_app define for an app's code.
@@ -555,7 +663,13 @@ carve_configure_target(carve)
 # The source path is a fallback for anything that runs without the copy having
 # happened, which in practice means a scratch program linked against these
 # objects; see src/app/FactoryContent.h.
-target_compile_definitions(carve PRIVATE
+#
+# On the two files that read them and no others: an absolute path of this
+# checkout on a compile line makes that compile this checkout's alone, so
+# ccache could not share it with another worktree (see CARVE_USE_CCACHE).
+set_property(SOURCE src/app/Main.cpp src/app/SampleBrowser.cpp
+    TARGET_DIRECTORY carve
+    APPEND PROPERTY COMPILE_DEFINITIONS
     CARVE_SOURCE_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/content"
     # Where About looks when the bundle copy below has not happened yet.
     CARVE_SOURCE_NOTICES_FILE="${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
@@ -624,21 +738,16 @@ endif()
 # On by default. It was off to begin with, on the grounds that a plain build of
 # the app has no use for Catch2 or RapidCheck -- but a test suite nobody runs
 # without knowing to ask for it is a test suite nobody runs, and the two are a
-# rounding error next to the ~500MB tracktion checkout that every configure
-# already pays for. Turn it off with -DCARVE_BUILD_TESTS=OFF.
+# rounding error next to the ~500MB tracktion checkout the build needs
+# anyway. Turn it off with -DCARVE_BUILD_TESTS=OFF.
 #
 #   ./run.sh --test                   builds and runs them
 #
-# ...or by hand, against the tracktion checkout the app build already fetched:
+# ...or by hand:
 #
-#   cmake -B build-tests -DCMAKE_BUILD_TYPE=Debug \
-#         -DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src
+#   cmake -B build-tests -DCMAKE_BUILD_TYPE=Debug
 #   cmake --build build-tests --target carve-tests --parallel
 #   ./build-tests/carve-tests_artefacts/Debug/carve-tests
-#
-# The tracktion source directory is the same reuse run.sh does for --asan: the
-# tests need JUCE, which only arrives inside that checkout, and fetching a
-# second copy costs ~500MB.
 #
 # Run the binary rather than ctest: enable_testing() here would also pull in
 # the tests tracktion registers for its own bundled examples, which this build
