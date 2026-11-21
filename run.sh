@@ -9,9 +9,10 @@
 #   ./run.sh --test                   the property tests, arguments passed through
 #   ./run.sh --sync-test              the property tests that need the engine
 #
-# The first run configures the build directory, which downloads tracktion_engine
-# and JUCE (~500MB) and takes a while. --asan and --test reuse that checkout
-# rather than fetching a second copy.
+# The first configure on a machine downloads tracktion_engine and JUCE (~500MB)
+# and takes a while. It goes to a directory every checkout and build directory
+# shares (CARVE_DEPS_DIR in CMakeLists.txt), so --asan, --test and worktrees
+# do not fetch it again.
 
 set -euo pipefail
 
@@ -35,15 +36,10 @@ done
 
 if [[ $mode == test ]]; then
     # Its own directory at Debug, so the assertions the properties rely on are
-    # live and the app's Release build is left alone. Reuses the Release
-    # build's tracktion checkout for the same reason --asan does.
+    # live and the app's Release build is left alone.
     build_dir=build-tests
     config=Debug
     configure_args=(-DCMAKE_BUILD_TYPE=Debug)
-
-    if [[ -d build/_deps/tracktion-src ]]; then
-        configure_args+=(-DFETCHCONTENT_SOURCE_DIR_TRACKTION="$PWD/build/_deps/tracktion-src")
-    fi
 elif [[ $mode == sync-test ]]; then
     # These link the engine, so they live in the app's own build directory:
     # tracktion is compiled there already and this target reuses it rather
@@ -64,10 +60,6 @@ elif [[ $mode == asan ]]; then
         -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g"
         -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address
     )
-    # Reuse the checkout the Release build already fetched.
-    if [[ -d build/_deps/tracktion-src ]]; then
-        configure_args+=(-DFETCHCONTENT_SOURCE_DIR_TRACKTION="$PWD/build/_deps/tracktion-src")
-    fi
     export ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=0:print_stacktrace=1}
 else
     build_dir=build

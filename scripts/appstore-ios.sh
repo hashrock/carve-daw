@@ -66,7 +66,6 @@ cmake_args=(
     -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="$team_id"
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE=Automatic
 )
-[[ -d build/_deps/tracktion-src ]] && cmake_args+=("-DFETCHCONTENT_SOURCE_DIR_TRACKTION=$PWD/build/_deps/tracktion-src")
 
 mkdir -p "$build_dir"
 cmake -B "$build_dir" "${cmake_args[@]}" > "$build_dir/appstore-configure.log" 2>&1 \

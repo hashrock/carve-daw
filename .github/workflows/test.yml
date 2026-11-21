@@ -28,10 +28,13 @@ jobs:
       - uses: actions/checkout@v4
 
       # The fetched sources, which are the slow half of a cold run: tracktion
-      # carries JUCE as a submodule and lands at ~500MB. Keyed on CMakeLists
-      # because that is where the pinned tag and commit live, with a loose
-      # restore key so an unrelated edit to it still starts from the last
-      # checkout rather than cloning again.
+      # carries JUCE as a submodule and lands at ~500MB. Its shared directory
+      # (CARVE_DEPS_DIR, under the user's caches by default) is put inside
+      # this path by the configure step below, so one cache holds it all.
+      # Keyed on CMakeLists and the patches because that is where the pinned
+      # tags, commits and tracktion fixes live, with a loose restore key so an
+      # unrelated edit to it still starts from the last checkout rather than
+      # cloning again.
       #
       # The repository name is in the key because the checkout path is
       # derived from it, and FetchContent's sub-build bakes that path into
@@ -43,7 +46,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build-tests/_deps
-          key: deps-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('CMakeLists.txt') }}
+          key: deps-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('CMakeLists.txt', 'patches/*') }}
           restore-keys: deps-${{ runner.os }}-${{ github.repository }}-
 
       # tracktion pins JUCE as a submodule with an SSH URL
@@ -67,6 +70,7 @@ jobs:
         run: |
           cmake -B build-tests \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DCARVE_DEPS_DIR="$PWD/build-tests/_deps/shared" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
