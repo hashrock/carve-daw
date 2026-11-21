@@ -592,7 +592,7 @@ public:
     static constexpr const char* bassModelType = "bass-model";
 
     // A modelled drum kit, the same way: the drums' heads, air and shells
-    // computed as they are hit (the cymbals sampled from the same model),
+    // computed, each stroke once (the cymbals sampled from the same model),
     // nothing to load, its knobs its plugin's own tree.
     static constexpr const char* drumModelType = "drum-model";
 
