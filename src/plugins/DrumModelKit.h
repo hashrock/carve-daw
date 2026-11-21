@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <bitset>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -110,6 +111,15 @@ public:
     // The bytes the cache holds now (any thread; for the curious).
     std::size_t getCacheBytes() const;
 
+    // Strokes to have ready before they are played -- the song's notes, so
+    // that playing it never waits on the live engines (any thread, once
+    // loaded). Kept through knob turns: they are rendered again as the drum
+    // is then. A stroke played is rendered whether kept or not.
+    static constexpr int numStrokes = 5 * 2 * 8;   // numDrums * numVariants * numLayers
+    using Strokes = std::bitset<(size_t) numStrokes>;
+    static int strokeIndex (Piece, double velocity, bool allRimshots);   // -1 for a cymbal or nothing
+    void keepStrokes (const Strokes&);
+
     struct CymbalSample;
     struct HitSample;
     class Renderer;
@@ -117,6 +127,7 @@ public:
     static constexpr int numDrums = 5;      // the 10", 12", 16" toms, the kick, the snare
     static constexpr int numLayers = 8;     // velocity layers, 0 .. 1 evenly
     static constexpr int numVariants = 2;   // plain, rimshot (the snare)
+    static_assert (numStrokes == numDrums * numVariants * numLayers);
 
 private:
     struct CymbalVoice
@@ -137,11 +148,12 @@ private:
 
     // One stroke of one drum. The audio thread owns `current`; the renderer
     // hands a new sample over through `incoming` and is asked for one by
-    // setting `wanted` to the drum's generation.
+    // setting `wanted` to the drum's generation (a hit), or by `keep`.
     struct Slot
     {
         std::atomic<HitSample*> incoming { nullptr };
         std::atomic<std::uint32_t> wanted { 0 };
+        std::atomic<bool> keep { false };
         HitSample* current = nullptr;
     };
 

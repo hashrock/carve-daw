@@ -273,6 +273,41 @@ TEST_CASE ("Modelled Drums: a cached stroke sounds as the live one", "[drummodel
     CHECK (kit.isCached (Piece::kick, velocity));   // the others keep theirs
 }
 
+TEST_CASE ("Modelled Drums: kept strokes are ready before they are played", "[drummodel]")
+{
+    Kit kit;
+    REQUIRE (kit.load());
+    kit.prepare (48000, 512);
+    Settings s;
+    s.room = 0;
+    kit.setSettings (s);
+
+    auto waitFor = [&kit] (Piece p, double velocity)
+    {
+        for (int i = 0; i < 400 && ! kit.isCached (p, velocity); ++i)
+            std::this_thread::sleep_for (std::chrono::milliseconds (25));
+        return kit.isCached (p, velocity);
+    };
+
+    CHECK (Kit::strokeIndex (Piece::crash, 0.5, false) < 0);
+    CHECK (Kit::strokeIndex (Piece::snare, 0.5, true) == Kit::strokeIndex (Piece::rimshot, 0.5, false));
+
+    Kit::Strokes strokes;
+    strokes.set ((size_t) Kit::strokeIndex (Piece::tomFloor, 0.9, false));
+    strokes.set ((size_t) Kit::strokeIndex (Piece::kick, 0.3, false));
+    kit.keepStrokes (strokes);
+
+    CHECK (waitFor (Piece::tomFloor, 0.9));
+    CHECK (waitFor (Piece::kick, 0.3));
+    CHECK (! kit.isCached (Piece::tomFloor, 0.3));   // not kept, not played
+
+    // a knob turned: rendered again without a hit
+    s.kick.tune = -3;
+    kit.setSettings (s);
+    CHECK (! kit.isCached (Piece::kick, 0.3));
+    CHECK (waitFor (Piece::kick, 0.3));
+}
+
 TEST_CASE ("Modelled Drums: the resampler passes the band at unity", "[drummodel]")
 {
     for (const auto& [from, to] : { std::pair { 16000.0, 44100.0 }, { 48000.0, 44100.0 }, { 48000.0, 96000.0 } })

@@ -229,51 +229,56 @@ private:
             int waitMs = 250;
             bool rendered = false;
 
-            for (int d = 0; d < numDrums && ! rendered && ! quit.load(); ++d)
+            // the strokes being played first, then the ones kept for the song
+            for (int pass = 0; pass < 2 && ! rendered; ++pass)
             {
-                std::array<double, 6> p {};
-                const auto gen = readDrum (d, p);
-                if (gen == 0)
-                    continue;
-
-                // A drum whose knob is moving is left until it has stopped
-                // for a moment: no point rendering every step of the turn.
-                const auto now = juce::Time::getMillisecondCounter();
-                if (gen != seenGen[(size_t) d])
+                for (int d = 0; d < numDrums && ! rendered && ! quit.load(); ++d)
                 {
-                    if (seenGen[(size_t) d] != 0)
-                        seenAt[(size_t) d] = now;
-                    seenGen[(size_t) d] = gen;
-                }
-                const bool settled = now - seenAt[(size_t) d] >= 150;
+                    std::array<double, 6> p {};
+                    const auto gen = readDrum (d, p);
+                    if (gen == 0)
+                        continue;
 
-                for (int v = 0; v < numVariants && ! rendered; ++v)
-                    for (int l = 0; l < numLayers && ! rendered; ++l)
+                    // A drum whose knob is moving is left until it has stopped
+                    // for a moment: no point rendering every step of the turn.
+                    const auto now = juce::Time::getMillisecondCounter();
+                    if (gen != seenGen[(size_t) d])
                     {
-                        const auto index = (size_t) ((d * numVariants + v) * numLayers + l);
-                        auto& s = kit.slots[index];
-                        if (s.wanted.load() != gen || done[index] == gen)
-                            continue;
-                        if (! settled)
-                        {
-                            waitMs = 30;
-                            continue;
-                        }
-
-                        done[index] = gen;
-                        auto sample = render (d, v, l, p);
-                        rendered = true;
-                        if (sample == nullptr || kit.drumStates[(size_t) d].seq.load (std::memory_order_acquire) != gen)
-                            continue;   // turned since: it will be wanted again
-
-                        sample->drum = d;
-                        sample->gen = gen;
-                        auto* raw = sample.get();
-                        bytes += raw->bytes();
-                        owned.push_back (std::move (sample));
-                        if (auto* old = s.incoming.exchange (raw))
-                            old->dead.store (true);   // never taken
+                        if (seenGen[(size_t) d] != 0)
+                            seenAt[(size_t) d] = now;
+                        seenGen[(size_t) d] = gen;
                     }
+                    const bool settled = now - seenAt[(size_t) d] >= 150;
+
+                    for (int v = 0; v < numVariants && ! rendered; ++v)
+                        for (int l = 0; l < numLayers && ! rendered; ++l)
+                        {
+                            const auto index = (size_t) ((d * numVariants + v) * numLayers + l);
+                            auto& s = kit.slots[index];
+                            const bool want = pass == 0 ? s.wanted.load() == gen : s.keep.load();
+                            if (! want || done[index] == gen)
+                                continue;
+                            if (! settled)
+                            {
+                                waitMs = 30;
+                                continue;
+                            }
+
+                            done[index] = gen;
+                            auto sample = render (d, v, l, p);
+                            rendered = true;
+                            if (sample == nullptr || kit.drumStates[(size_t) d].seq.load (std::memory_order_acquire) != gen)
+                                continue;   // turned since: it will be wanted again
+
+                            sample->drum = d;
+                            sample->gen = gen;
+                            auto* raw = sample.get();
+                            bytes += raw->bytes();
+                            owned.push_back (std::move (sample));
+                            if (auto* old = s.incoming.exchange (raw))
+                                old->dead.store (true);   // never taken
+                        }
+                }
             }
 
             collect();
@@ -491,6 +496,7 @@ bool Kit::load()
         sl.current = nullptr;
         sl.incoming.store (nullptr);
         sl.wanted.store (0);
+        sl.keep.store (false);
     }
     renderer.reset();
 
@@ -737,28 +743,43 @@ bool Kit::playCached (int d, int variant, double velocity)
 
 bool Kit::isCached (Piece p, double velocity)
 {
+    const int index = strokeIndex (p, velocity, settings.allRimshots);
+    if (index < 0 || ! cacheEnabled || renderer == nullptr)
+        return false;
+
+    applySettings (false);
+    auto& sl = slots[(size_t) index];
+    const auto gen = drumStates[(size_t) (index / (numVariants * numLayers))].seq.load (std::memory_order_relaxed);
+    const auto* in = sl.incoming.load();
+    return (sl.current != nullptr && sl.current->gen == gen) || (in != nullptr && in->gen == gen);
+}
+
+int Kit::strokeIndex (Piece p, double velocity, bool allRimshots)
+{
     int d = -1, variant = 0;
     switch (p)
     {
         case Piece::kick:     d = kickDrum; break;
-        case Piece::snare:    d = snareDrum; variant = settings.allRimshots ? 1 : 0; break;
+        case Piece::snare:    d = snareDrum; variant = allRimshots ? 1 : 0; break;
         case Piece::rimshot:  d = snareDrum; variant = 1; break;
         case Piece::tomHigh:  d = 0; break;
         case Piece::tomMid:   d = 1; break;
         case Piece::tomFloor: d = 2; break;
         case Piece::hatClosed: case Piece::hatOpen: case Piece::hatPedal: case Piece::crash:
         case Piece::crashChoke: case Piece::ride: case Piece::rideBell: case Piece::none:
-            return false;
+            return -1;
     }
-    if (! cacheEnabled || renderer == nullptr)
-        return false;
-
-    applySettings (false);
     const int layer = juce::jlimit (0, numLayers - 1, juce::roundToInt (velocity * (numLayers - 1)));
-    auto& sl = slot (d, variant, layer);
-    const auto gen = drumStates[(size_t) d].seq.load (std::memory_order_relaxed);
-    const auto* in = sl.incoming.load();
-    return (sl.current != nullptr && sl.current->gen == gen) || (in != nullptr && in->gen == gen);
+    return (d * numVariants + variant) * numLayers + layer;
+}
+
+void Kit::keepStrokes (const Strokes& strokes)
+{
+    bool more = false;
+    for (size_t i = 0; i < slots.size(); ++i)
+        more = (slots[i].keep.exchange (strokes[i]) != strokes[i] && strokes[i]) || more;
+    if (more && renderer != nullptr)
+        renderer->wake();
 }
 
 std::size_t Kit::getCacheBytes() const

@@ -31,7 +31,12 @@ namespace carve::plugins
 // The models are compiled in, gzipped; they are unpacked, and the snare's
 // wires settled onto its head, on a thread of their own when the plugin is
 // made, and initialise() waits for that.
-class DrumModelPlugin : public te::Plugin
+//
+// The notes of its track's clips are the strokes the kit keeps ready: looked
+// over twice a second, so a song plays from the cache from its first note
+// (the strokes render in the background as soon as the song is open).
+class DrumModelPlugin : public te::Plugin,
+                        private juce::Timer
 {
 public:
     explicit DrumModelPlugin (te::PluginCreationInfo);
@@ -88,12 +93,14 @@ public:
     // For the editor, from the audio thread: how busy each drum is.
     struct Activity { std::atomic<int> kick { 0 }, snare { 0 }, toms[3] {}, cymbals { 0 }; };
     const Activity& getActivity() const  { return activity; }
+    std::size_t getCacheBytes() const    { return isLoaded() ? kit->getCacheBytes() : 0; }   // the strokes it keeps (any thread)
     bool isLoaded() const                { return loadState.load() == 1; }
     bool failedToLoad() const            { return loadState.load() == 2; }
 
 private:
     drummodel::Settings readSettings() const;
     void waitForLoad();
+    void timerCallback() override;   // the strokes the track's clips play
 
     std::array<juce::CachedValue<float>, numParams> values;
     std::array<te::AutomatableParameter::Ptr, numParams> params;
@@ -102,6 +109,7 @@ private:
     std::thread loader;
     std::atomic<int> loadState { 0 };   // 0 loading, 1 loaded, 2 failed
     Activity activity;
+    drummodel::Kit::Strokes keptStrokes;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DrumModelPlugin)
 };

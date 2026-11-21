@@ -152,10 +152,13 @@ DrumModelPlugin::DrumModelPlugin (te::PluginCreationInfo info)
     {
         loadState.store (kit->load() ? 1 : 2);
     });
+
+    startTimer (500);
 }
 
 DrumModelPlugin::~DrumModelPlugin()
 {
+    stopTimer();
     notifyListenersOfDeletion();
 
     if (loader.joinable())
@@ -169,6 +172,33 @@ void DrumModelPlugin::waitForLoad()
 {
     if (loader.joinable())
         loader.join();
+}
+
+void DrumModelPlugin::timerCallback()
+{
+    if (! isLoaded())
+        return;
+
+    drummodel::Kit::Strokes strokes;
+    const bool allRimshots = params[(size_t) snareRim]->getCurrentValue() >= 0.5f;
+
+    if (auto* track = dynamic_cast<te::AudioTrack*> (getOwnerTrack()))
+        for (auto* clip : track->getClips())
+            if (auto* midi = dynamic_cast<te::MidiClip*> (clip); midi != nullptr && ! midi->isMuted())
+                for (auto* note : midi->getSequence().getNotes())
+                    if (! note->isMute())
+                    {
+                        const auto piece = drummodel::pieceForNote (note->getNoteNumber());
+                        const int index = drummodel::Kit::strokeIndex (piece, note->getVelocity() / 127.0, allRimshots);
+                        if (index >= 0)
+                            strokes.set ((size_t) index);
+                    }
+
+    if (strokes != keptStrokes)
+    {
+        keptStrokes = strokes;
+        kit->keepStrokes (strokes);
+    }
 }
 
 void DrumModelPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v)
