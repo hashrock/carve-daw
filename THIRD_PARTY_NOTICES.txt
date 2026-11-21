@@ -43,6 +43,16 @@ here as thanks rather than as a licence condition:
         https://github.com/sfzinstruments/karoryfer.growlybass
 
 
+Modelled Drums
+--------------
+
+Modelled Drums contains no recordings. Its models (assets/instruments/
+modelled-drums/*.bin.gz) and the cymbal samples beside them, which are
+renders of the same physical models, come from the PhysKit project by the
+author of this application; scripts/build-modelled-drums.py makes them from
+it.
+
+
 CMU Pronouncing Dictionary (Modelled Voice (EN))
 ------------------------------------------------
 

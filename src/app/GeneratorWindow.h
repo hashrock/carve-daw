@@ -16,6 +16,7 @@
 #include "ElectricBassEditor.h"
 #include "PianoEditor.h"
 #include "BassModelEditor.h"
+#include "DrumModelEditor.h"
 #include "SlateEditor.h"
 #include "SoundFontEditor.h"
 #include "BreakEditor.h"
@@ -243,6 +244,9 @@ public:
 
         if (bassModel != nullptr)
             return juce::Point<int> (bassModel->getWidth(), bassModel->getHeight());
+
+        if (drumModel != nullptr)
+            return juce::Point<int> (drumModel->getWidth(), drumModel->getHeight());
 
         if (soundFont != nullptr)
             return juce::Point<int> (soundFont->getWidth(), soundFont->getHeight());
@@ -508,6 +512,18 @@ public:
                         onPreviewNote (note, velocity);
                 };
                 viewport.setViewedComponent (bassModel.get(), false);
+                viewport.setScrollBarsShown (true, true);
+                addAndMakeVisible (viewport);
+            }
+            else if (auto modelledKit = dynamic_cast<plugins::DrumModelPlugin*> (instrument))
+            {
+                drumModel = std::make_unique<DrumModelEditor> (*modelledKit);
+                drumModel->onPreviewNote = [this] (int note, int velocity)
+                {
+                    if (onPreviewNote)
+                        onPreviewNote (note, velocity);
+                };
+                viewport.setViewedComponent (drumModel.get(), false);
                 viewport.setScrollBarsShown (true, true);
                 addAndMakeVisible (viewport);
             }
@@ -812,7 +828,7 @@ public:
 
         if (slate != nullptr || drumSynth != nullptr || gabberKick != nullptr || soundFont != nullptr || utau != nullptr
              || breakEditor != nullptr || acousticDrums != nullptr || electricBass != nullptr
-             || pianoEditor != nullptr || bassModel != nullptr || vocalModel != nullptr)
+             || pianoEditor != nullptr || bassModel != nullptr || drumModel != nullptr || vocalModel != nullptr)
             viewport.setBounds (area);   // the editor sized itself
 
         // ...except this one, which fills the window it is given.
@@ -888,6 +904,7 @@ private:
         electricBass.reset();
         pianoEditor.reset();
         bassModel.reset();
+        drumModel.reset();
         soundFont.reset();
         breakEditor.reset();
         utau.reset();
@@ -954,6 +971,7 @@ private:
     std::unique_ptr<ElectricBassEditor> electricBass;
     std::unique_ptr<PianoEditor> pianoEditor;
     std::unique_ptr<BassModelEditor> bassModel;
+    std::unique_ptr<DrumModelEditor> drumModel;
     std::unique_ptr<SoundFontEditor> soundFont;
     std::unique_ptr<UtauEditor> utau;
     std::unique_ptr<VocalModelEditor> vocalModel;
@@ -1145,6 +1163,11 @@ public:
                 for (auto note : pad.notes)
                     if (note > 0)
                         map[note] = { pad.name, true };
+        }
+        else if (generator->isDrumModel())
+        {
+            for (const auto& n : plugins::DrumModelPlugin::getNotes())
+                map[n.note] = { plugins::drummodel::pieceName (n.piece), true };
         }
         else if (generator->isBreak())
         {

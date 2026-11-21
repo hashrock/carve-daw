@@ -88,6 +88,7 @@ namespace
                      || dynamic_cast<const plugins::ElectricBassPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::PianoPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::BassModelPlugin*> (&plugin) != nullptr
+                     || dynamic_cast<const plugins::DrumModelPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::SoundFontPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::UtauPlugin*> (&plugin) != nullptr
                      || dynamic_cast<const plugins::VocalModelPlugin*> (&plugin) != nullptr
@@ -223,6 +224,7 @@ namespace
                  : generator.isElectricBass() ? dynamic_cast<plugins::ElectricBassPlugin*> (existing) != nullptr
                  : generator.isPiano() ? dynamic_cast<plugins::PianoPlugin*> (existing) != nullptr
                  : generator.isBassModel() ? dynamic_cast<plugins::BassModelPlugin*> (existing) != nullptr
+                 : generator.isDrumModel() ? dynamic_cast<plugins::DrumModelPlugin*> (existing) != nullptr
                  : generator.isVocalModel() ? (dynamic_cast<plugins::VocalModelPlugin*> (existing) != nullptr
                                                && dynamic_cast<plugins::VocalModelPlugin*> (existing)->isEnglish() == generator.isEnglishVocalModel())
                                             : dynamic_cast<te::FourOscPlugin*> (existing) != nullptr))
@@ -236,6 +238,7 @@ namespace
                                : generator.isElectricBass() ? plugins::ElectricBassPlugin::xmlTypeName
                                : generator.isPiano() ? plugins::PianoPlugin::xmlTypeName
                                : generator.isBassModel() ? plugins::BassModelPlugin::xmlTypeName
+                               : generator.isDrumModel() ? plugins::DrumModelPlugin::xmlTypeName
                                : generator.isVocalModel() ? plugins::VocalModelPlugin::xmlTypeName
                                                           : te::FourOscPlugin::xmlTypeName;
 

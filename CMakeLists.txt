@@ -205,6 +205,15 @@ set(CARVE_CORE_SOURCES
     src/plugins/BassModel.cpp
     src/plugins/BassModelPlugin.h
     src/plugins/BassModelPlugin.cpp
+    src/plugins/DrumModel.h
+    src/plugins/DrumModelBessel.h
+    src/plugins/DrumModelSimd.h
+    src/plugins/DrumModelModal.cpp
+    src/plugins/DrumModelSnare.cpp
+    src/plugins/DrumModelKit.h
+    src/plugins/DrumModelKit.cpp
+    src/plugins/DrumModelPlugin.h
+    src/plugins/DrumModelPlugin.cpp
     src/plugins/SoundFontPlugin.h
     src/plugins/SoundFontPlugin.cpp
     src/plugins/BreakPlugin.h
@@ -232,6 +241,12 @@ set(CARVE_CORE_SOURCES
 set_source_files_properties(src/voice/VocalModel.cpp src/voice/VocalScore.cpp
     PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffp-contract=off>")
 
+# Modelled Drums' engines run a few thousand modes and a grid a sample at a
+# time; the PhysKit engines they port were built with fast maths too. Not
+# finite-only: they test for NaN-free contact gaps with !(e > 0).
+set_source_files_properties(src/plugins/DrumModelModal.cpp src/plugins/DrumModelSnare.cpp
+    PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3;-ffast-math;-fno-finite-math-only>")
+
 # Shift_JIS, for UTAU voicebanks written by Windows UTAU (src/voice). glibc
 # has iconv built in; macOS keeps it in a library of its own.
 function(carve_link_iconv target)
@@ -250,6 +265,57 @@ juce_add_binary_data(carve-instrument-data
     SOURCES
         assets/instruments/acoustic-drums.ctd
         assets/instruments/electric-bass.bas
+        # Modelled Drums: the PhysKit project's real-time models (gzipped
+        # PKD2 / PKS1, see src/plugins/DrumModel.h) and its dry kit's cymbals
+        # as Ogg Vorbis, made by scripts/build-modelled-drums.py.
+        assets/instruments/modelled-drums/tom_hi.bin.gz
+        assets/instruments/modelled-drums/tom_mid.bin.gz
+        assets/instruments/modelled-drums/tom_floor.bin.gz
+        assets/instruments/modelled-drums/snare.bin.gz
+        assets/instruments/modelled-drums/kick.bin.gz
+        assets/instruments/modelled-drums/cymbals.txt
+        assets/instruments/modelled-drums/crash_choke_l1_rr1.ogg
+        assets/instruments/modelled-drums/crash_choke_l1_rr2.ogg
+        assets/instruments/modelled-drums/crash_choke_l2_rr1.ogg
+        assets/instruments/modelled-drums/crash_choke_l2_rr2.ogg
+        assets/instruments/modelled-drums/crash_l1_rr1.ogg
+        assets/instruments/modelled-drums/crash_l1_rr2.ogg
+        assets/instruments/modelled-drums/crash_l2_rr1.ogg
+        assets/instruments/modelled-drums/crash_l2_rr2.ogg
+        assets/instruments/modelled-drums/crash_l3_rr1.ogg
+        assets/instruments/modelled-drums/crash_l3_rr2.ogg
+        assets/instruments/modelled-drums/crash_l4_rr1.ogg
+        assets/instruments/modelled-drums/crash_l4_rr2.ogg
+        assets/instruments/modelled-drums/hh_closed_l1_rr1.ogg
+        assets/instruments/modelled-drums/hh_closed_l1_rr2.ogg
+        assets/instruments/modelled-drums/hh_closed_l2_rr1.ogg
+        assets/instruments/modelled-drums/hh_closed_l2_rr2.ogg
+        assets/instruments/modelled-drums/hh_closed_l3_rr1.ogg
+        assets/instruments/modelled-drums/hh_closed_l3_rr2.ogg
+        assets/instruments/modelled-drums/hh_closed_l4_rr1.ogg
+        assets/instruments/modelled-drums/hh_closed_l4_rr2.ogg
+        assets/instruments/modelled-drums/hh_open_l1_rr1.ogg
+        assets/instruments/modelled-drums/hh_open_l1_rr2.ogg
+        assets/instruments/modelled-drums/hh_open_l2_rr1.ogg
+        assets/instruments/modelled-drums/hh_open_l2_rr2.ogg
+        assets/instruments/modelled-drums/hh_open_l3_rr1.ogg
+        assets/instruments/modelled-drums/hh_open_l3_rr2.ogg
+        assets/instruments/modelled-drums/hh_pedal_l1_rr1.ogg
+        assets/instruments/modelled-drums/hh_pedal_l1_rr2.ogg
+        assets/instruments/modelled-drums/hh_pedal_l2_rr1.ogg
+        assets/instruments/modelled-drums/hh_pedal_l2_rr2.ogg
+        assets/instruments/modelled-drums/ride_bell_l1_rr1.ogg
+        assets/instruments/modelled-drums/ride_bell_l1_rr2.ogg
+        assets/instruments/modelled-drums/ride_bell_l2_rr1.ogg
+        assets/instruments/modelled-drums/ride_bell_l2_rr2.ogg
+        assets/instruments/modelled-drums/ride_bell_l3_rr1.ogg
+        assets/instruments/modelled-drums/ride_bell_l3_rr2.ogg
+        assets/instruments/modelled-drums/ride_l1_rr1.ogg
+        assets/instruments/modelled-drums/ride_l1_rr2.ogg
+        assets/instruments/modelled-drums/ride_l2_rr1.ogg
+        assets/instruments/modelled-drums/ride_l2_rr2.ogg
+        assets/instruments/modelled-drums/ride_l3_rr1.ogg
+        assets/instruments/modelled-drums/ride_l3_rr2.ogg
         # Modelled Voice (EN)'s pronouncing dictionary: the CMU Pronouncing
         # Dictionary, as the web-voice prototype's tools/build-en-dict.mjs
         # writes it (see THIRD_PARTY_NOTICES.txt).
@@ -569,6 +635,9 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         src/plugins/GabberKickDsp.cpp
         src/plugins/PianoModel.cpp
         src/plugins/BassModel.cpp
+        src/plugins/DrumModelModal.cpp
+        src/plugins/DrumModelSnare.cpp
+        src/plugins/DrumModelKit.cpp
         src/voice/VocalModel.cpp
         src/voice/VocalScore.cpp
         src/sync/VorbisComments.cpp
@@ -577,6 +646,7 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         tests/GeneratorEditTests.cpp
         tests/PianoTests.cpp
         tests/BassModelTests.cpp
+        tests/DrumModelTests.cpp
         tests/CaptureProperties.cpp
         tests/ControllerCurveTests.cpp
         tests/VoicebankTests.cpp
@@ -591,6 +661,8 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         JUCE_USE_CURL=0
         JUCE_STANDALONE_APPLICATION=1)
     target_link_libraries(carve-tests PRIVATE
+        carve-instrument-data
+        juce::juce_dsp
         juce::juce_audio_formats
         juce::juce_audio_processors
         juce::juce_data_structures
