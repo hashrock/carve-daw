@@ -54,6 +54,25 @@ else()
     set(CARVE_PLUGIN_HOSTING 1)
 endif()
 
+# ccache, when it is installed: a rebuild after a branch switch or a fresh
+# build directory (build-asan, a worktree) then gets tracktion and JUCE back
+# from the cache instead of compiling them again. Before any target is made,
+# since the launcher is read when a target is created. The Makefile and Ninja
+# generators honour it; Xcode does not, and is left alone.
+# -DCARVE_USE_CCACHE=OFF to do without.
+option(CARVE_USE_CCACHE "Compile through ccache when it is installed" ON)
+if(CARVE_USE_CCACHE AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
+    find_program(CARVE_CCACHE_PROGRAM ccache)
+    if(CARVE_CCACHE_PROGRAM)
+        foreach(_carve_lang C CXX OBJC OBJCXX)
+            if(NOT CMAKE_${_carve_lang}_COMPILER_LAUNCHER)
+                set(CMAKE_${_carve_lang}_COMPILER_LAUNCHER "${CARVE_CCACHE_PROGRAM}")
+            endif()
+        endforeach()
+        unset(_carve_lang)
+    endif()
+endif()
+
 include(FetchContent)
 
 # tracktion_engine bundles JUCE as a git submodule, so no separate JUCE fetch.
@@ -321,41 +340,79 @@ juce_add_binary_data(carve-instrument-data
         # writes it (see THIRD_PARTY_NOTICES.txt).
         assets/voice/en-dict.txt)
 
+# tracktion_engine and JUCE, compiled once. JUCE modules (tracktion_engine is
+# one) hand their .cpp files to whatever links them, so the app, carve-render
+# and carve-sync-tests each used to compile the whole engine over again: three
+# times the work for identical objects. This is how JUCE's own plugin targets
+# share their code (_SharedCode): the modules are linked PRIVATE, so their
+# sources stay in this library, and the include paths and definitions they
+# need are handed on by name.
+#
+# Nothing of this tree's own is on these compile lines -- no src/, no build
+# directory paths -- so two checkouts sharing one tracktion source directory
+# (a worktree configured with FETCHCONTENT_SOURCE_DIR_TRACKTION) compile the
+# engine with the same command, and ccache serves the second from the first.
+add_library(carve-engine STATIC)
+target_compile_definitions(carve-engine PUBLIC
+    # What juce_add_gui_app / juce_add_console_app define for an app's code.
+    JUCE_STANDALONE_APPLICATION=1
+    # No tracktion time-stretcher is compiled in. Its only user here was
+    # the engine's Pitch Shifter, which src/plugins/PitchShifterPlugin
+    # replaces; SoundTouch (LGPL) stays out of every binary. Spelled out
+    # as 0 so nobody reads its absence as an oversight.
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_VST3=${CARVE_PLUGIN_HOSTING}
+    $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=${CARVE_PLUGIN_HOSTING}>
+    # Always defined, including as 0: the sources branch on them with #if,
+    # and an undefined macro would trip -Wundef under JUCE's warning flags.
+    CARVE_PLUGIN_HOSTING=${CARVE_PLUGIN_HOSTING}
+    CARVE_APP_STORE=$<BOOL:${CARVE_APP_STORE}>
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(carve-engine PRIVATE
+    tracktion::tracktion_engine
+    # SHA-256, to check the sound library's downloads (src/app/SoundLibrary).
+    juce::juce_cryptography
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+# The modules' include paths and definitions, for whatever links this -- the
+# same re-export JUCE's plugin wrappers do (see _juce_link_plugin_wrapper).
+target_include_directories(carve-engine INTERFACE
+    $<TARGET_PROPERTY:carve-engine,INCLUDE_DIRECTORIES>)
+target_compile_definitions(carve-engine INTERFACE
+    $<TARGET_PROPERTY:carve-engine,COMPILE_DEFINITIONS>)
+
+# The model, sync and plugin sources: everything the three engine targets
+# share above the engine, also compiled once.
+add_library(carve-core STATIC ${CARVE_CORE_SOURCES})
+target_include_directories(carve-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# SYSTEM, and by path rather than by linking the interface targets, so
+# the headers' own warnings stay out of a build with JUCE's flags on.
+target_include_directories(carve-core SYSTEM PUBLIC
+    ${tinysoundfont_SOURCE_DIR}
+    ${signalsmith-stretch_SOURCE_DIR}/include
+    ${signalsmith-linear_SOURCE_DIR}/include)
+target_link_libraries(carve-core
+    PUBLIC
+        carve-engine
+        world
+        carve-instrument-data
+    PRIVATE
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+carve_link_iconv(carve-core)
+
 function(carve_configure_target target)
-    target_sources(${target} PRIVATE ${CARVE_CORE_SOURCES})
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    # SYSTEM, and by path rather than by linking the interface targets, so
-    # the headers' own warnings stay out of a build with JUCE's flags on.
-    target_include_directories(${target} SYSTEM PRIVATE
-        ${tinysoundfont_SOURCE_DIR}
-        ${signalsmith-stretch_SOURCE_DIR}/include
-        ${signalsmith-linear_SOURCE_DIR}/include)
     target_compile_definitions(${target} PRIVATE
-        # No tracktion time-stretcher is compiled in. Its only user here was
-        # the engine's Pitch Shifter, which src/plugins/PitchShifterPlugin
-        # replaces; SoundTouch (LGPL) stays out of every binary. Spelled out
-        # as 0 so nobody reads its absence as an oversight.
-        TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_PLUGINHOST_VST3=${CARVE_PLUGIN_HOSTING}
-        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=${CARVE_PLUGIN_HOSTING}>
-        # Always defined, including as 0: the sources branch on them with #if,
-        # and an undefined macro would trip -Wundef under JUCE's warning flags.
-        CARVE_PLUGIN_HOSTING=${CARVE_PLUGIN_HOSTING}
-        CARVE_APP_STORE=$<BOOL:${CARVE_APP_STORE}>
-        JUCE_MODAL_LOOPS_PERMITTED=1
+        # Per target, which is why only Main.cpp may read them: the libraries
+        # above are shared, and have neither.
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
     target_link_libraries(${target} PRIVATE
-        tracktion::tracktion_engine
-        # SHA-256, to check the sound library's downloads (src/app/SoundLibrary).
-        juce::juce_cryptography
-        world
-        carve-instrument-data
+        carve-core
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
-    carve_link_iconv(${target})
 endfunction()
 
 # --- GUI app ---
@@ -555,8 +612,7 @@ if(NOT CARVE_IOS)
 juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
 # NoteOffPlayback and SignalPathChecks are tests, but they need a playing
-# engine, and carve-render is the console target that already links one -- a
-# target of their own would compile the whole of tracktion_engine a third time.
+# engine, and carve-render is the console target that already links one.
 target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp tests/SignalPathChecks.cpp)
 target_include_directories(carve-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 carve_configure_target(carve-render)
