@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <mutex>
+#include <thread>
 
 // The comparisons with == and != on doubles here are exact on purpose, as in
 // the PhysKit engines: flags and counts read from the model, a setting that
@@ -158,6 +160,317 @@ struct Kit::CymbalSample
     juce::AudioBuffer<float> audio;   // stereo
 };
 
+//==============================================================================
+// The hit cache (see Kit): a stroke of one drum, rendered from rest, as 16-bit
+// samples at the model's rate (mono for the snare, stereo for the others),
+// cut 70dB below its peak.
+struct Kit::HitSample
+{
+    int drum = 0;
+    std::uint32_t gen = 0;          // the drum's generation it was rendered for
+    int channels = 1, length = 0;
+    float scale = 1;                // data * scale = the engine's output
+    std::vector<std::int16_t> data; // interleaved
+
+    // The audio thread's alone, once it has taken the sample: the voices
+    // playing it, and whether a slot still holds it. When neither does, it
+    // sets `dead` and leaves it to the renderer to free.
+    int voices = 0;
+    bool inTable = false;
+    std::atomic<bool> dead { false };
+
+    std::size_t bytes() const   { return sizeof (*this) + data.size() * sizeof (std::int16_t); }
+};
+
+namespace
+{
+    constexpr int tomDrum = 0, kickDrum = 3, snareDrum = 4;
+
+    double layerVelocity (int layer)   { return (double) layer / (Kit::numLayers - 1); }
+
+    double strokeSpeed (int drum, int variant, double velocity)
+    {
+        return drum == kickDrum ? kickSpeed (velocity)
+             : drum == snareDrum ? (variant == 1 ? rimshotSpeed (velocity) : snareSpeed (velocity))
+             : tomSpeed (velocity);
+    }
+}
+
+// Renders what the slots want, on a thread of its own, with engines of its
+// own: each loaded the first time one of its strokes is wanted, and let go
+// again when there has been nothing to render for a while (a loaded engine
+// is several MB).
+class Kit::Renderer
+{
+public:
+    explicit Renderer (Kit& k) : kit (k)
+    {
+        done.fill (0);
+        seenGen.fill (0);
+        seenAt.fill (0);
+        thread = std::thread ([this] { run(); });
+    }
+
+    ~Renderer()
+    {
+        quit.store (true);
+        event.signal();
+        thread.join();
+    }
+
+    void wake()   { event.signal(); }
+    std::size_t getBytes() const   { return bytes.load (std::memory_order_relaxed); }
+
+private:
+    void run()
+    {
+        while (! quit.load())
+        {
+            int waitMs = 250;
+            bool rendered = false;
+
+            for (int d = 0; d < numDrums && ! rendered && ! quit.load(); ++d)
+            {
+                std::array<double, 6> p {};
+                const auto gen = readDrum (d, p);
+                if (gen == 0)
+                    continue;
+
+                // A drum whose knob is moving is left until it has stopped
+                // for a moment: no point rendering every step of the turn.
+                const auto now = juce::Time::getMillisecondCounter();
+                if (gen != seenGen[(size_t) d])
+                {
+                    if (seenGen[(size_t) d] != 0)
+                        seenAt[(size_t) d] = now;
+                    seenGen[(size_t) d] = gen;
+                }
+                const bool settled = now - seenAt[(size_t) d] >= 150;
+
+                for (int v = 0; v < numVariants && ! rendered; ++v)
+                    for (int l = 0; l < numLayers && ! rendered; ++l)
+                    {
+                        const auto index = (size_t) ((d * numVariants + v) * numLayers + l);
+                        auto& s = kit.slots[index];
+                        if (s.wanted.load() != gen || done[index] == gen)
+                            continue;
+                        if (! settled)
+                        {
+                            waitMs = 30;
+                            continue;
+                        }
+
+                        done[index] = gen;
+                        auto sample = render (d, v, l, p);
+                        rendered = true;
+                        if (sample == nullptr || kit.drumStates[(size_t) d].seq.load (std::memory_order_acquire) != gen)
+                            continue;   // turned since: it will be wanted again
+
+                        sample->drum = d;
+                        sample->gen = gen;
+                        auto* raw = sample.get();
+                        bytes += raw->bytes();
+                        owned.push_back (std::move (sample));
+                        if (auto* old = s.incoming.exchange (raw))
+                            old->dead.store (true);   // never taken
+                    }
+            }
+
+            collect();
+
+            const auto now = juce::Time::getMillisecondCounter();
+            if (rendered)
+                lastWork = now;
+            else if (now - lastWork > 10000)
+                releaseEngines();
+
+            if (! rendered)
+                event.wait (waitMs);
+        }
+    }
+
+    // The drum's settings and generation, consistently (the sequence lock).
+    std::uint32_t readDrum (int d, std::array<double, 6>& p) const
+    {
+        const auto& st = kit.drumStates[(size_t) d];
+        for (;;)
+        {
+            const auto s0 = st.seq.load (std::memory_order_acquire);
+            if ((s0 & 1) != 0)
+            {
+                std::this_thread::yield();
+                continue;
+            }
+            for (size_t i = 0; i < p.size(); ++i)
+                p[i] = st.params[i].load (std::memory_order_relaxed);
+            std::atomic_thread_fence (std::memory_order_acquire);
+            if (st.seq.load (std::memory_order_relaxed) == s0)
+                return s0;
+        }
+    }
+
+    void collect()
+    {
+        const auto end = std::remove_if (owned.begin(), owned.end(), [this] (const std::unique_ptr<HitSample>& h)
+        {
+            if (! h->dead.load (std::memory_order_acquire))
+                return false;
+            bytes -= h->bytes();
+            return true;
+        });
+        owned.erase (end, owned.end());
+    }
+
+    bool loadEngine (int d)
+    {
+        if (d == snareDrum ? snare != nullptr : modals[(size_t) d] != nullptr)
+            return true;
+
+        if (d == snareDrum)
+        {
+            const auto b = gunzip (findInstrumentData ("snare.bin.gz"));
+            auto e = std::make_unique<Snare>();
+            if (! e->load (b.getData(), b.getSize()))
+                return false;
+            snare = std::move (e);
+        }
+        else
+        {
+            const auto b = gunzip (findInstrumentData (d == kickDrum ? "kick.bin.gz" : tomModels[d]));
+            auto e = std::make_unique<ModalDrum>();
+            if (! e->load (b.getData(), b.getSize(), d == kickDrum ? kickGain : tomGain))
+                return false;
+            modals[(size_t) d] = std::move (e);
+        }
+        engineParams[(size_t) d].fill (std::numeric_limits<double>::quiet_NaN());
+        return true;
+    }
+
+    void releaseEngines()
+    {
+        for (auto& m : modals) m.reset();
+        snare.reset();
+    }
+
+    ModalDrum& modal (int d)   { return *modals[(size_t) d]; }
+
+    std::unique_ptr<HitSample> render (int d, int variant, int layer, const std::array<double, 6>& p)
+    {
+        if (! loadEngine (d))
+            return nullptr;
+
+        const bool isSnare = d == snareDrum;
+        Snare* sn = isSnare ? snare.get() : nullptr;
+        auto& was = engineParams[(size_t) d];
+        for (int i = 0; i < 6; ++i)
+            if (! (p[(size_t) i] == was[(size_t) i]))
+            {
+                if (isSnare) sn->setParam (i, p[(size_t) i]);
+                else         modal (d).setParam (i, p[(size_t) i]);
+                was[(size_t) i] = p[(size_t) i];
+            }
+
+        const double rate = isSnare ? sn->getModelRate() : modal (d).getModelRate();
+        const int channels = isSnare ? 1 : 2;
+        constexpr int block = 512;
+        std::vector<float> l (block), r (block);
+
+        auto process = [&] (float* a, float* b)
+        {
+            std::fill (a, a + block, 0.0f);
+            std::fill (b, b + block, 0.0f);
+            if (isSnare) sn->process (a, block);
+            else         modal (d).process (a, b, block);
+        };
+
+        auto asleep = [&] { return isSnare ? sn->isAsleep() : modal (d).isAsleep(); };
+
+        if (isSnare)
+        {
+            // back to the snare as loaded, the settings kept; with a strainer
+            // other than the model's the wires first come down to it
+            sn->reset();
+            for (int i = 0; i < (int) (3 * rate) / block && ! asleep() && ! quit.load(); ++i)
+                process (l.data(), r.data());
+        }
+        else
+        {
+            modal (d).reset();
+        }
+
+        const double speed = strokeSpeed (d, variant, layerVelocity (layer));
+        if (isSnare) sn->hit (snareX, snareY, speed, variant == 1, 0);
+        else modal (d).hit (d == kickDrum ? kickX : tomX, d == kickDrum ? kickY : tomY, speed, 0);
+
+        std::vector<float> out;
+        const auto maxSamples = (size_t) (8 * rate);
+        out.reserve ((size_t) (1.5 * rate) * (size_t) channels);
+        while (out.size() < maxSamples * (size_t) channels)
+        {
+            if (quit.load())
+                return nullptr;
+            process (l.data(), r.data());
+            for (int i = 0; i < block; ++i)
+            {
+                out.push_back (l[(size_t) i]);
+                if (channels == 2)
+                    out.push_back (r[(size_t) i]);
+            }
+            if (asleep())
+                break;
+        }
+
+        // cut 70dB below the peak, with a 20ms fade into the cut
+        float peak = 0;
+        for (const auto x : out)
+            peak = std::max (peak, std::abs (x));
+        if (! (peak > 0) || ! std::isfinite (peak))
+            return nullptr;
+
+        const float floor = peak * 3.16e-4f;
+        const auto frames = out.size() / (size_t) channels;
+        size_t last = 0;
+        for (size_t i = 0; i < out.size(); ++i)
+            if (std::abs (out[i]) > floor)
+                last = i / (size_t) channels;
+        const auto fade = (size_t) (0.02 * rate);
+        const auto length = std::min (frames, last + 1 + fade);
+
+        auto h = std::make_unique<HitSample>();
+        h->channels = channels;
+        h->length = (int) length;
+        h->scale = peak / 32767.0f;
+        h->data.resize (length * (size_t) channels);
+        const float toInt = 32767.0f / peak;
+        for (size_t f = 0; f < length; ++f)
+        {
+            const float g = f <= last ? 1.0f : 1.0f - (float) (f - last) / (float) (fade + 1);
+            for (int c = 0; c < channels; ++c)
+            {
+                const auto i = f * (size_t) channels + (size_t) c;
+                h->data[i] = (std::int16_t) juce::roundToInt (juce::jlimit (-32767.0f, 32767.0f, out[i] * toInt * g));
+            }
+        }
+        return h;
+    }
+
+    Kit& kit;
+    std::thread thread;
+    std::atomic<bool> quit { false };
+    juce::WaitableEvent event;
+
+    std::array<std::unique_ptr<ModalDrum>, 4> modals;   // the toms, the kick
+    std::unique_ptr<Snare> snare;
+    std::array<std::array<double, 6>, (size_t) numDrums> engineParams;
+    std::uint32_t lastWork = 0;
+
+    std::vector<std::unique_ptr<HitSample>> owned;
+    std::atomic<std::size_t> bytes { 0 };
+    std::array<std::uint32_t, (size_t) (numDrums * numVariants * numLayers)> done;
+    std::array<std::uint32_t, (size_t) numDrums> seenGen;
+    std::array<std::uint32_t, (size_t) numDrums> seenAt;
+};
+
 namespace
 {
     std::shared_ptr<const std::vector<Kit::CymbalSample>> loadCymbalsOnce();
@@ -170,6 +483,16 @@ Kit::~Kit() = default;
 bool Kit::load()
 {
     loaded = false;
+
+    // (a second load starts the cache afresh)
+    stopHitVoices();
+    for (auto& sl : slots)
+    {
+        sl.current = nullptr;
+        sl.incoming.store (nullptr);
+        sl.wanted.store (0);
+    }
+    renderer.reset();
 
     for (int i = 0; i < 3; ++i)
     {
@@ -207,6 +530,7 @@ bool Kit::load()
     loaded = true;
     settingsChanged = true;
     applySettings (true);
+    renderer = std::make_unique<Renderer> (*this);
     return true;
 }
 
@@ -278,7 +602,210 @@ void Kit::applySettings (bool force)
     if (force || s.snareWires != a.snareWires)   snare.setParam (2, s.snareWires < 0.03 ? -20.0 : s.snareWires);
     if (mics) { snare.setParam (4, s.close); snare.setParam (5, s.overhead); }
 
+    // the cache: what each drum's strokes are rendered with
+    auto modalParams = [&s] (const Settings::Drum& d)
+    {
+        return std::array<double, 6> { std::pow (2.0, d.tune / 12), std::pow (2.0, d.mute), d.glide,
+                                       std::pow (2.0, d.stick), s.close, s.overhead };
+    };
+    std::array<std::array<double, 6>, (size_t) numDrums> now;
+    for (size_t i = 0; i < 3; ++i) now[i] = modalParams (s.toms[i]);
+    now[(size_t) kickDrum] = modalParams (s.kick);
+    now[(size_t) snareDrum] = { std::pow (2.0, s.snare.tune / 12), std::pow (2.0, s.snare.mute),
+                                s.snareWires < 0.03 ? -20.0 : s.snareWires, std::pow (2.0, s.snare.stick),
+                                s.close, s.overhead };
+
+    for (int d = 0; d < numDrums; ++d)
+    {
+        const auto& st = drumStates[(size_t) d];
+        bool same = st.seq.load (std::memory_order_relaxed) != 0;
+        for (size_t i = 0; i < 6 && same; ++i)
+            same = st.params[i].load (std::memory_order_relaxed) == now[(size_t) d][i];
+        if (! same)
+            publishDrum (d, now[(size_t) d]);
+    }
+
     a = s;
+}
+
+void Kit::publishDrum (int d, const std::array<double, 6>& p)
+{
+    auto& st = drumStates[(size_t) d];
+    const auto seq = st.seq.load (std::memory_order_relaxed);
+    st.seq.store (seq + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    for (size_t i = 0; i < p.size(); ++i)
+        st.params[i].store (p[i], std::memory_order_relaxed);
+    const auto gen = seq + 2;
+    st.seq.store (gen, std::memory_order_release);
+
+    // Its strokes are out of date: the ones it had (or was waiting for) are
+    // wanted again as it is now.
+    bool any = false;
+    for (int v = 0; v < numVariants; ++v)
+        for (int l = 0; l < numLayers; ++l)
+        {
+            auto& sl = slot (d, v, l);
+            const bool had = sl.current != nullptr || sl.wanted.load (std::memory_order_relaxed) != 0;
+            if (sl.current != nullptr)
+            {
+                retire (sl.current);
+                sl.current = nullptr;
+            }
+            if (had)
+            {
+                sl.wanted.store (gen);
+                any = true;
+            }
+        }
+
+    if (any && renderer != nullptr)
+        renderer->wake();
+}
+
+//==============================================================================
+void Kit::retire (HitSample* h)
+{
+    h->inTable = false;
+    if (h->voices == 0)
+        h->dead.store (true, std::memory_order_release);
+}
+
+void Kit::stopHitVoices()
+{
+    for (auto& v : hitVoices)
+    {
+        if (v.sample != nullptr && --v.sample->voices == 0 && ! v.sample->inTable)
+            v.sample->dead.store (true, std::memory_order_release);
+        v.sample = nullptr;
+    }
+}
+
+bool Kit::playCached (int d, int variant, double velocity)
+{
+    if (! cacheEnabled || renderer == nullptr)
+        return false;
+
+    const int layer = juce::jlimit (0, numLayers - 1, juce::roundToInt (velocity * (numLayers - 1)));
+    auto& sl = slot (d, variant, layer);
+    const auto gen = drumStates[(size_t) d].seq.load (std::memory_order_relaxed);
+
+    if (auto* in = sl.incoming.exchange (nullptr))
+    {
+        if (sl.current != nullptr)
+            retire (sl.current);
+        sl.current = in;
+        in->inTable = true;
+    }
+
+    if (sl.current != nullptr && sl.current->gen != gen)
+    {
+        retire (sl.current);
+        sl.current = nullptr;
+    }
+
+    if (sl.current == nullptr)
+    {
+        if (sl.wanted.load (std::memory_order_relaxed) != gen)
+        {
+            sl.wanted.store (gen);
+            renderer->wake();
+        }
+        return false;
+    }
+
+    // a free voice, or the one nearest its end
+    HitVoice* voice = nullptr;
+    double best = -1;
+    for (auto& v : hitVoices)
+    {
+        if (v.sample == nullptr) { voice = &v; break; }
+        const double progress = (double) v.pos / v.sample->length;
+        if (progress > best) { best = progress; voice = &v; }
+    }
+
+    if (voice->sample != nullptr && --voice->sample->voices == 0 && ! voice->sample->inTable)
+        voice->sample->dead.store (true, std::memory_order_release);
+
+    voice->sample = sl.current;
+    ++sl.current->voices;
+    voice->pos = 0;
+    // between layers, the nearest one at the stroke's level
+    voice->gain = (float) (strokeSpeed (d, variant, velocity) / strokeSpeed (d, variant, layerVelocity (layer)));
+    return true;
+}
+
+bool Kit::isCached (Piece p, double velocity)
+{
+    int d = -1, variant = 0;
+    switch (p)
+    {
+        case Piece::kick:     d = kickDrum; break;
+        case Piece::snare:    d = snareDrum; variant = settings.allRimshots ? 1 : 0; break;
+        case Piece::rimshot:  d = snareDrum; variant = 1; break;
+        case Piece::tomHigh:  d = 0; break;
+        case Piece::tomMid:   d = 1; break;
+        case Piece::tomFloor: d = 2; break;
+        case Piece::hatClosed: case Piece::hatOpen: case Piece::hatPedal: case Piece::crash:
+        case Piece::crashChoke: case Piece::ride: case Piece::rideBell: case Piece::none:
+            return false;
+    }
+    if (! cacheEnabled || renderer == nullptr)
+        return false;
+
+    applySettings (false);
+    const int layer = juce::jlimit (0, numLayers - 1, juce::roundToInt (velocity * (numLayers - 1)));
+    auto& sl = slot (d, variant, layer);
+    const auto gen = drumStates[(size_t) d].seq.load (std::memory_order_relaxed);
+    const auto* in = sl.incoming.load();
+    return (sl.current != nullptr && sl.current->gen == gen) || (in != nullptr && in->gen == gen);
+}
+
+std::size_t Kit::getCacheBytes() const
+{
+    return renderer != nullptr ? renderer->getBytes() : 0;
+}
+
+void Kit::renderHits (int bus, float* l, float* r, int n)
+{
+    const auto snareG = (float) (snareGain * settings.snareLevel);
+
+    for (auto& v : hitVoices)
+    {
+        auto* h = v.sample;
+        if (h == nullptr || (h->drum == kickDrum) != (bus == 1))
+            continue;
+
+        const float g = v.gain * h->scale * (h->drum == snareDrum ? snareG : 1.0f);
+        const int m = juce::jmin (n, h->length - v.pos);
+        const auto* src = h->data.data() + (size_t) v.pos * (size_t) h->channels;
+
+        if (h->channels == 1)
+        {
+            for (int i = 0; i < m; ++i)
+            {
+                const float x = g * src[i];
+                l[i] += x;
+                r[i] += x;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < m; ++i)
+            {
+                l[i] += g * src[2 * i];
+                r[i] += g * src[2 * i + 1];
+            }
+        }
+
+        v.pos += m;
+        if (v.pos >= h->length)
+        {
+            if (--h->voices == 0 && ! h->inTable)
+                h->dead.store (true, std::memory_order_release);
+            v.sample = nullptr;
+        }
+    }
 }
 
 //==============================================================================
@@ -292,15 +819,24 @@ void Kit::hit (Piece p, double velocity)
 
     switch (p)
     {
-        case Piece::kick:      kick.hit (kickX, kickY, kickSpeed (velocity)); break;
-        case Piece::snare:
-            if (settings.allRimshots) snare.hit (snareX, snareY, rimshotSpeed (velocity), true);
-            else                      snare.hit (snareX, snareY, snareSpeed (velocity), false);
+        // From the cache when it has the stroke; solved live when not (yet).
+        case Piece::kick:
+            if (! playCached (kickDrum, 0, velocity)) kick.hit (kickX, kickY, kickSpeed (velocity));
             break;
-        case Piece::rimshot:   snare.hit (snareX, snareY, rimshotSpeed (velocity), true); break;
-        case Piece::tomHigh:   toms[0].hit (tomX, tomY, tomSpeed (velocity)); break;
-        case Piece::tomMid:    toms[1].hit (tomX, tomY, tomSpeed (velocity)); break;
-        case Piece::tomFloor:  toms[2].hit (tomX, tomY, tomSpeed (velocity)); break;
+        case Piece::snare:
+        case Piece::rimshot:
+        {
+            const bool rim = p == Piece::rimshot || settings.allRimshots;
+            if (! playCached (snareDrum, rim ? 1 : 0, velocity))
+                snare.hit (snareX, snareY, rim ? rimshotSpeed (velocity) : snareSpeed (velocity), rim);
+            break;
+        }
+        case Piece::tomHigh: case Piece::tomMid: case Piece::tomFloor:
+        {
+            const int i = p == Piece::tomHigh ? 0 : p == Piece::tomMid ? 1 : 2;
+            if (! playCached (tomDrum + i, 0, velocity)) toms[(size_t) i].hit (tomX, tomY, tomSpeed (velocity));
+            break;
+        }
         case Piece::hatClosed: case Piece::hatOpen: case Piece::hatPedal:
         case Piece::crash: case Piece::crashChoke: case Piece::ride: case Piece::rideBell:
             startCymbal (p, velocity);
@@ -365,6 +901,7 @@ void Kit::allNotesOff()
     for (auto& t : toms) t.reset();
     kick.reset();
     snare.reset();
+    stopHitVoices();
     for (auto& v : voices) v.sample = nullptr;
     busResampler.reset();
     kickResampler.reset();
@@ -379,6 +916,14 @@ Kit::Activity Kit::getActivity() const
     a.snare = snare.isAsleep() ? 0 : juce::jmax (1, snare.getActiveModes());
     for (int i = 0; i < 3; ++i) a.toms[i] = toms[(size_t) i].getActiveModes();
     for (const auto& v : voices) a.cymbals += v.sample != nullptr ? 1 : 0;
+    for (const auto& v : hitVoices)
+    {
+        if (v.sample == nullptr) continue;
+        const int d = v.sample->drum;
+        if (d == kickDrum) ++a.kick;
+        else if (d == snareDrum) ++a.snare;
+        else ++a.toms[d];
+    }
     return a;
 }
 
@@ -435,6 +980,7 @@ void Kit::renderModelBus (int m)
         busR[(size_t) i] += g * snareBuf[(size_t) i];
     }
 
+    renderHits (0, busL.data(), busR.data(), m);
     renderCymbals (busL.data(), busR.data(), m);
 }
 
@@ -465,6 +1011,7 @@ void Kit::process (float* left, float* right, int n)
         std::fill (kickL.begin(), kickL.begin() + mk, 0.0f);
         std::fill (kickR.begin(), kickR.begin() + mk, 0.0f);
         kick.process (kickL.data(), kickR.data(), mk);
+        renderHits (1, kickL.data(), kickR.data(), mk);
         kickResampler.process (kickL.data(), kickR.data(), mk, tmpL.data(), tmpR.data(), c);
         const auto kg = (float) settings.kickLevel;
         for (int i = 0; i < c; ++i)

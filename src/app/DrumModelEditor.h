@@ -209,7 +209,7 @@ private:
         }
 
         const juce::String status = kit->failedToLoad() ? juce::String ("The kit's models could not be loaded.")
-                                  : kit->isLoaded() ? juce::String ("Kick, snare and toms computed as they are hit; cymbals sampled from the same model.")
+                                  : kit->isLoaded() ? juce::String ("Kick, snare and toms computed from their models, each stroke once; cymbals sampled from the same model.")
                                                     : juce::String ("Settling the snare wires...");
         if (status != pads.status)
         {

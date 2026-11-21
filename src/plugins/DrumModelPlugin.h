@@ -15,11 +15,12 @@ namespace carve::plugins
 {
 
 // A drum kit, as an internal instrument, modelled rather than recorded: the
-// PhysKit project's physically modelled kit (DrumModel.h), solved as it
-// plays. The kick, the snare and the three toms are computed -- heads, air,
-// shell, the stick or beater meeting the head, the snare wires rattling on
-// the resonant head, the mics -- so a second hit lands on the moving head and
-// no two strokes are quite alike. The cymbals are samples of the same kit
+// PhysKit project's physically modelled kit (DrumModel.h). The kick, the
+// snare and the three toms are computed -- heads, air, shell, the stick or
+// beater meeting the head, the snare wires rattling on the resonant head, the
+// mics -- each stroke once, in the background, the first time it is played,
+// and replayed after that (drummodel::Kit); a stroke not rendered yet is
+// solved live. The cymbals are samples of the same kit
 // rendered offline (their physics runs far slower than real time). (Acoustic
 // Drums beside it is the other way round: a recording, analysed and
 // resynthesised.)

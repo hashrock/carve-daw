@@ -8,7 +8,9 @@
 // kick to rounding, the snare to 0.04dB in octave-band energy (its wires are
 // chaotic) -- and needs the PhysKit project, so it is not repeated here.
 
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -204,6 +206,71 @@ TEST_CASE ("Modelled Drums: the engines are deterministic", "[drummodel]")
     }
     CHECK (sum > 0);
     CHECK (diff == 0);
+}
+
+TEST_CASE ("Modelled Drums: a cached stroke sounds as the live one", "[drummodel]")
+{
+    Kit kit;
+    REQUIRE (kit.load());
+    kit.prepare (48000, 512);
+    Settings s;
+    s.room = 0;
+    s.volume = 0.3;   // under the limiter
+    kit.setSettings (s);
+
+    auto waitForCache = [&kit] (Piece p, double velocity)
+    {
+        for (int i = 0; i < 400 && ! kit.isCached (p, velocity); ++i)
+            std::this_thread::sleep_for (std::chrono::milliseconds (25));
+        return kit.isCached (p, velocity);
+    };
+
+    const double velocity = 4.0 / 7.0;   // on a layer: no gain between layers
+
+    for (const auto p : { Piece::tomMid, Piece::kick, Piece::snare, Piece::rimshot })
+    {
+        INFO (pieceName (p));
+
+        kit.setCacheEnabled (false);
+        kit.allNotesOff();
+        kit.hit (p, velocity);
+        const auto live = render (kit, 48000, 1.5);
+
+        kit.setCacheEnabled (true);
+        kit.allNotesOff();
+        CHECK (! kit.isCached (p, velocity));
+        kit.hit (p, velocity);   // live, and asks for it
+        render (kit, 48000, 0.1);
+        REQUIRE (waitForCache (p, velocity));
+
+        kit.allNotesOff();
+        kit.hit (p, velocity);
+        CHECK (kit.getActivity().cymbals == 0);
+        const auto cached = render (kit, 48000, 1.5);
+
+        double diff = 0, sum = 0;
+        for (size_t i = 0; i < live.l.size(); ++i)
+        {
+            const double dl = live.l[i] - cached.l[i], dr = live.r[i] - cached.r[i];
+            diff += dl * dl + dr * dr;
+            sum += (double) live.l[i] * live.l[i] + (double) live.r[i] * live.r[i];
+        }
+        // The snare's wires are chaotic, and its engine culls once per block:
+        // rendered in other blocks than the live one's, it drifts a little.
+        const bool snare = p == Piece::snare || p == Piece::rimshot;
+        CHECK (sum > 0);
+        CHECK (10 * std::log10 (diff / sum + 1e-30) < (snare ? -40 : -50));
+    }
+
+    CHECK (kit.getCacheBytes() > 0);
+
+    // Turning a drum's knob throws its strokes away and renders them again
+    // without another hit.
+    s.toms[1].tune = 2;
+    kit.setSettings (s);
+    CHECK (! kit.isCached (Piece::tomMid, velocity));
+    CHECK (waitForCache (Piece::tomMid, velocity));
+    CHECK (kit.isCached (Piece::kick, velocity));   // the others keep theirs
 }
 
 TEST_CASE ("Modelled Drums: the resampler passes the band at unity", "[drummodel]")
