@@ -7,6 +7,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "BackgroundLoad.h"
 #include "DrumModelKit.h"
 
 namespace te = tracktion;
@@ -36,6 +37,7 @@ namespace carve::plugins
 // over twice a second, so a song plays from the cache from its first note
 // (the strokes render in the background as soon as the song is open).
 class DrumModelPlugin : public te::Plugin,
+                        public BackgroundWorker,
                         private juce::Timer
 {
 public:
@@ -95,6 +97,7 @@ public:
     const Activity& getActivity() const  { return activity; }
     std::size_t getCacheBytes() const    { return isLoaded() ? kit->getCacheBytes() : 0; }   // the strokes it keeps (any thread)
     bool isLoaded() const                { return loadState.load() == 1; }
+    double getBackgroundSeconds() const noexcept override   { return kit->getBackgroundTime().getSeconds(); }   // loading, and the stroke renderer
     bool failedToLoad() const            { return loadState.load() == 2; }
 
 private:

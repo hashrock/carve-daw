@@ -1,10 +1,14 @@
 #include "MixerComponent.h"
+
+#include <map>
+
 #include "Fonts.h"
 #include "IconButton.h"
 
 #include "../sync/EffectChains.h"
 
 #include "LevelMeterView.h"
+#include "plugins/BackgroundLoad.h"
 
 #include "sync/EngineIds.h"
 
@@ -379,17 +383,43 @@ private:
     // than that between them). The level meter and the volume/pan plugin opt
     // out of being timed, so nothing is counted twice.
     //
-    // Work a plugin does on a thread of its own is not in it: Modelled
-    // Drums' stroke renderer, the UTAU singer's render pool and the Gabber
-    // Kick's re-render all run beside the audio thread, and only their
-    // playback shows here.
+    // Work a plugin does on a thread of its own -- Modelled Drums' stroke
+    // renderer, the UTAU singer's synthesis, the Kick Designer's re-render --
+    // is added in as well: each such plugin keeps a running total of the
+    // seconds it has spent (plugins::BackgroundWorker), and the growth of that
+    // total over the time since the last tick is the share of a core it took
+    // meanwhile. That work does not hold up the audio thread, so a strip in
+    // red while it renders means the machine is busy, not that playback is
+    // about to break.
     void updateLoad (te::AudioTrack* track)
     {
         double load = 0.0;
 
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto elapsed = (now - lastLoadTick) / 1000.0;
+        lastLoadTick = now;
+
+        std::map<te::EditItemID, double> seconds;
+
         if (track != nullptr)
             for (auto* plugin : track->pluginList)
+            {
                 load += plugin->getCpuUsage();
+
+                if (auto* worker = dynamic_cast<plugins::BackgroundWorker*> (plugin))
+                {
+                    const auto total = worker->getBackgroundSeconds();
+                    seconds[plugin->itemID] = total;
+
+                    // Only a plugin seen at the last tick too: one just added
+                    // (or the strip just given another track) brings a total
+                    // that was built up before.
+                    if (auto last = backgroundSeconds.find (plugin->itemID); last != backgroundSeconds.end() && elapsed > 0.0)
+                        load += juce::jmax (0.0, total - last->second) / elapsed;
+                }
+            }
+
+        backgroundSeconds = std::move (seconds);
 
         // tracktion already smooths each plugin over blocks; this steadies the
         // figure over UI ticks too, so it can be read rather than watched.
@@ -418,6 +448,8 @@ private:
     juce::UndoManager& undoManager;
 
     double smoothedLoad = 0.0;
+    double lastLoadTick = juce::Time::getMillisecondCounterHiRes();
+    std::map<te::EditItemID, double> backgroundSeconds;   // per plugin, at the last tick
 
     DoubleClickLabel nameLabel;
     juce::Label dbLabel, loadLabel;

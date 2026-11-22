@@ -316,6 +316,7 @@ void UtauPlugin::submit (std::shared_ptr<Snippet> snippet, const voice::NoteRend
         }
 
         juce::String error;
+        const BackgroundTime::Scope timed (jobState->renderTime);
 
         if (auto rendered = voice::renderNote (request, error))
         {

@@ -265,7 +265,11 @@ private:
                             }
 
                             done[index] = gen;
-                            auto sample = render (d, v, l, p);
+                            auto sample = [&]
+                            {
+                                const BackgroundTime::Scope timed (kit.backgroundTime);
+                                return render (d, v, l, p);
+                            }();
                             rendered = true;
                             if (sample == nullptr || kit.drumStates[(size_t) d].seq.load (std::memory_order_acquire) != gen)
                                 continue;   // turned since: it will be wanted again

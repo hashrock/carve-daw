@@ -7,6 +7,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "BackgroundLoad.h"
 #include "model/SongModel.h"
 #include "voice/Voicebank.h"
 #include "voice/VoiceSynth.h"
@@ -37,6 +38,7 @@ namespace carve::plugins
 // with no lyric and no time to synthesise, so they play the bank's "あ"
 // recording, transposed. A guide, not the song.
 class UtauPlugin : public te::Plugin,
+                   public BackgroundWorker,
                    private juce::Timer
 {
 public:
@@ -118,6 +120,7 @@ public:
     // these, or it would have holes where they go.
     int getNumPending() const   { return renderState->pending.load(); }
     int getNumFailed() const    { return renderState->failed.load(); }
+    double getBackgroundSeconds() const noexcept override   { return renderState->renderTime.getSeconds(); }   // synthesising notes
     juce::String getLastRenderError() const;
 
     // Blocks until nothing is pending, or the timeout passes. Any thread.
@@ -149,6 +152,7 @@ public:
     struct RenderState
     {
         std::atomic<int> pending { 0 }, failed { 0 };
+        BackgroundTime renderTime;   // this singer's share of the shared pool
         juce::CriticalSection errorLock;
         juce::String lastError;
     };
