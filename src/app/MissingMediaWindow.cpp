@@ -28,7 +28,7 @@ MissingMediaComponent::Row::Row (MissingMediaComponent& owner, juce::ValueTree n
     pathLabel.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
     pathLabel.setMinimumHorizontalScale (0.5f);
 
-    locateButton.onClick = [&owner, node = node] { owner.locate (node); };
+    locateButton.onClick = [&owner, missing = node] { owner.locate (missing); };
 
     addAndMakeVisible (nameLabel);
     addAndMakeVisible (pathLabel);

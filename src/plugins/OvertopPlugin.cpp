@@ -69,10 +69,10 @@ namespace
 const char* OvertopPlugin::xmlTypeName = "carveOvertop";
 
 //==============================================================================
-OvertopPlugin::BiquadCoefficients OvertopPlugin::butterworthLowPass (double hz, double sampleRate)
+OvertopPlugin::BiquadCoefficients OvertopPlugin::butterworthLowPass (double hz, double rate)
 {
     const auto w = juce::MathConstants<double>::twoPi
-                    * juce::jlimit (10.0, sampleRate * 0.45, hz) / sampleRate;
+                    * juce::jlimit (10.0, rate * 0.45, hz) / rate;
     const auto cosw = std::cos (w);
     const auto alpha = std::sin (w) / juce::MathConstants<double>::sqrt2;
     const auto a0 = 1.0 + alpha;
@@ -86,10 +86,10 @@ OvertopPlugin::BiquadCoefficients OvertopPlugin::butterworthLowPass (double hz, 
     return c;
 }
 
-OvertopPlugin::BiquadCoefficients OvertopPlugin::butterworthHighPass (double hz, double sampleRate)
+OvertopPlugin::BiquadCoefficients OvertopPlugin::butterworthHighPass (double hz, double rate)
 {
     const auto w = juce::MathConstants<double>::twoPi
-                    * juce::jlimit (10.0, sampleRate * 0.45, hz) / sampleRate;
+                    * juce::jlimit (10.0, rate * 0.45, hz) / rate;
     const auto cosw = std::cos (w);
     const auto alpha = std::sin (w) / juce::MathConstants<double>::sqrt2;
     const auto a0 = 1.0 + alpha;

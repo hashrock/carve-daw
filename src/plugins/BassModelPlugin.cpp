@@ -32,7 +32,7 @@ BassModelPlugin::BassModelPlugin (te::PluginCreationInfo info) : te::Plugin (inf
     brightValue.referTo (state, "bright", um, (float) d.bright);
     muteValue.referTo (state, "mute", um, (float) d.mute);
     slideValue.referTo (state, "slide", um, (float) d.slide);
-    fretlessValue.referTo (state, "fretless", um, d.fretless ? 1.0f : 0.0f);
+    fretlessValue.referTo (state, "fretless", um, (float) d.fretless);
     legatoValue.referTo (state, "legato", um, (float) d.legato);
     driveValue.referTo (state, "drive", um, (float) d.drive);
     ampValue.referTo (state, "amp", um, (float) d.amp);

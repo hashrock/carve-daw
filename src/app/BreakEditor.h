@@ -43,7 +43,7 @@ public:
     // The view: which stretch of the loop is on screen. Cmd (or Ctrl) and
     // the wheel, or a pinch, zoom about the pointer; the wheel alone scrolls;
     // the scrollbar under the waveform does both the usual way.
-    void zoomBy (double factor)  { zoomAbout (factor, getWidth() * 0.5f); }
+    void zoomBy (double factor)  { zoomAbout (factor, (float) getWidth() * 0.5f); }
     void zoomToFit()             { setView (0.0, getLengthSeconds()); }
     bool isZoomedIn() const      { return getLengthSeconds() > 0.0 && visibleLength() < getLengthSeconds() - 1.0e-9; }
 

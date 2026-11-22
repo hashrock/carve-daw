@@ -308,7 +308,7 @@ struct Track
 {
     juce::String id;
     float volumeDb = 0.0f;
-    juce::String attributes, children;
+    juce::String attributes {}, children {};   // so a case can leave them out
 };
 
 std::optional<model::Song> makeSong (const std::vector<Track>& tracks, const juce::File& file,

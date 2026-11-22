@@ -105,9 +105,9 @@ private:
     // Chamberlin form has already blown up.
     struct SVF
     {
-        void set (double fc, double q, double sampleRate) noexcept
+        void set (double fc, double q, double rate) noexcept
         {
-            const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (fc, sampleRate * 0.49) / sampleRate);
+            const auto g = std::tan (juce::MathConstants<double>::pi * juce::jmin (fc, rate * 0.49) / rate);
             k = 1.0 / q;
             a1 = 1.0 / (1.0 + g * (g + k));
             a2 = g * a1;
@@ -162,7 +162,6 @@ private:
     std::array<Voice, numDrums> voices;
     std::array<std::atomic<uint32_t>, numDrums> hitCounts;
     std::array<std::atomic<bool>, numDrums> soundingDrums;
-    double sampleRate = 44100.0;
     uint32_t noiseState = 0x9e3779b9u;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DrumSynthPlugin)

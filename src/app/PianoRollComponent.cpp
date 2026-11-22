@@ -852,7 +852,7 @@ void PianoRollComponent::setPlayheadBeat (std::optional<double> beat)
         repaint();
     }
 }
-int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / getRowHeight()); }
+int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / (float) getRowHeight()); }
 float PianoRollComponent::pitchToY (int pitch) const   { return (float) ((highestPitch - pitch) * getRowHeight()); }
 
 void PianoRollComponent::setPixelsPerBeat (double newPixelsPerBeat, float anchorX)
@@ -1686,13 +1686,13 @@ void PianoRollComponent::paint (juce::Graphics& g)
             if (! playable)
             {
                 g.setColour (juce::Colour (0xff18181c));
-                g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) getRowHeight());
+                g.fillRect ((float) getKeyboardWidth(), y, gridRight - (float) getKeyboardWidth(), (float) getRowHeight());
             }
         }
         else if (isBlackKey (pitch))
         {
             g.setColour (juce::Colour (0xff1c1c20));
-            g.fillRect ((float) getKeyboardWidth(), y, gridRight - getKeyboardWidth(), (float) getRowHeight());
+            g.fillRect ((float) getKeyboardWidth(), y, gridRight - (float) getKeyboardWidth(), (float) getRowHeight());
         }
         if (pitch % 12 == 0)   // octave line above each C row
         {

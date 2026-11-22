@@ -671,7 +671,7 @@ namespace
             if (found < 0 || found == (int) position)
                 continue;
 
-            trackState.moveChild (effectSlots[found], effectSlots[position], nullptr);
+            trackState.moveChild (effectSlots[found], effectSlots[(int) position], nullptr);
         }
     }
 

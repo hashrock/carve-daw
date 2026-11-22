@@ -130,7 +130,7 @@ public:
         {
             if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
             {
-                main->confirmDiscardChanges ([this] (bool goAhead)
+                main->confirmDiscardChanges ([] (bool goAhead)
                 {
                     if (goAhead)
                         quit();

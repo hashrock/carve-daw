@@ -190,8 +190,8 @@ private:
     // One Butterworth section; two in series make one half of an LR4
     // crossover. Members rather than free functions only because the
     // coefficient type is one.
-    static BiquadCoefficients butterworthLowPass (double hz, double sampleRate);
-    static BiquadCoefficients butterworthHighPass (double hz, double sampleRate);
+    static BiquadCoefficients butterworthLowPass (double hz, double rate);
+    static BiquadCoefficients butterworthHighPass (double hz, double rate);
 
     BlockSettings readSettings();
 

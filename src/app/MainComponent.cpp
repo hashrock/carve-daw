@@ -373,14 +373,14 @@ void MainComponent::checkForMissingMedia()
     // Deferred so the main window is on screen first: the constructor loads
     // the demo song through here before there is one.
     juce::MessageManager::callAsync ([safe = juce::Component::SafePointer (this),
-                                      songHandle = song, onClose = std::move (onClose)]
+                                      songHandle = song, closeWindow = std::move (onClose)]
     {
         // Only for the song that was loaded; a load that came in between
         // has had its own check.
         if (safe == nullptr || safe->song.state != songHandle.state)
             return;
 
-        safe->missingMediaWindow = std::make_unique<MissingMediaWindow> (songHandle, onClose);
+        safe->missingMediaWindow = std::make_unique<MissingMediaWindow> (songHandle, closeWindow);
     });
 }
 
@@ -1104,7 +1104,7 @@ void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
     prompt->setAlwaysOnTop (true);
 
     prompt->enterModalState (true, juce::ModalCallbackFunction::create (
-        [safe = juce::Component::SafePointer (this), prompt, onDone = std::move (onDone)] (int result)
+        [safe = juce::Component::SafePointer (this), prompt, done = std::move (onDone)] (int result)
     {
         if (safe == nullptr)
             return;
@@ -1113,8 +1113,8 @@ void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
 
         if (result != 1 || name.isEmpty())
         {
-            if (onDone)
-                onDone (false);
+            if (done)
+                done (false);
 
             return;
         }
@@ -1128,8 +1128,8 @@ void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
 
         const bool saved = safe->writeSongTo (file);
 
-        if (onDone)
-            onDone (saved);
+        if (done)
+            done (saved);
     }), false);
 
     if (auto* editor = prompt->getTextEditor ("name"))
@@ -1226,7 +1226,7 @@ void MainComponent::saveSongAs (std::function<void (bool)> onDone)
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                   | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [this, onDone = std::move (onDone)] (const juce::FileChooser& chooser)
+                              [this, done = std::move (onDone)] (const juce::FileChooser& chooser)
     {
         auto file = chooser.getResult();
 
@@ -1234,16 +1234,16 @@ void MainComponent::saveSongAs (std::function<void (bool)> onDone)
         // either -- and whoever asked for one needs to know the difference.
         if (file == juce::File())
         {
-            if (onDone)
-                onDone (false);
+            if (done)
+                done (false);
 
             return;
         }
 
         const bool saved = writeSongTo (file.withFileExtension ("carve"));
 
-        if (onDone)
-            onDone (saved);
+        if (done)
+            done (saved);
     });
 }
 
@@ -1294,26 +1294,26 @@ void MainComponent::confirmDiscardChanges (std::function<void (bool)> onResolved
         this,
         juce::ModalCallbackFunction::create (
             [safe = juce::Component::SafePointer (this),
-             onResolved = std::move (onResolved)] (int result)
+             resolved = std::move (onResolved)] (int result)
     {
         if (safe == nullptr)
             return;
 
         if (result == 2)            // Don't Save
         {
-            onResolved (true);
+            resolved (true);
             return;
         }
 
         if (result != 1)            // Cancel, or the box dismissed some other way
         {
-            onResolved (false);
+            resolved (false);
             return;
         }
 
         // Save, and go ahead only if the song actually reached disk: a
         // cancelled chooser or a failed write must not take it with them.
-        safe->saveSong (onResolved);
+        safe->saveSong (resolved);
     }));
 }
 

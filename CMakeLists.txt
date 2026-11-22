@@ -482,11 +482,30 @@ target_link_libraries(carve-engine PRIVATE
     tracktion::tracktion_engine
     # SHA-256, to check the sound library's downloads (src/app/SoundLibrary).
     juce::juce_cryptography
-    juce::juce_recommended_config_flags
-    juce::juce_recommended_warning_flags)
+    # Not JUCE's warning flags: this is tracktion's and JUCE's code, not
+    # ours, and under them it says a couple of hundred things nobody here
+    # is going to fix.
+    juce::juce_recommended_config_flags)
+# Nor clang's own defaults, for the same reason: with them gone, a warning
+# in the build is always one of ours.
+target_compile_options(carve-engine PRIVATE -w)
+# JUCE's LV2 and ARA wrappers compile to nothing with those formats off, and
+# Apple's ar and ranlib say so for each archive; there is nothing to do about
+# it. ar is told to leave the symbol table (S) to ranlib, which can be told to
+# keep quiet.
+if(APPLE AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
+    foreach(_carve_lang C CXX OBJC OBJCXX)
+        set(CMAKE_${_carve_lang}_ARCHIVE_CREATE "<CMAKE_AR> qcS <TARGET> <LINK_FLAGS> <OBJECTS>")
+        set(CMAKE_${_carve_lang}_ARCHIVE_APPEND "<CMAKE_AR> qS <TARGET> <LINK_FLAGS> <OBJECTS>")
+        set(CMAKE_${_carve_lang}_ARCHIVE_FINISH "<CMAKE_RANLIB> -no_warning_for_no_symbols <TARGET>")
+    endforeach()
+    unset(_carve_lang)
+endif()
 # The modules' include paths and definitions, for whatever links this -- the
 # same re-export JUCE's plugin wrappers do (see _juce_link_plugin_wrapper).
-target_include_directories(carve-engine INTERFACE
+# SYSTEM, so their headers stay quiet in our sources too, which do build
+# with the warning flags.
+target_include_directories(carve-engine SYSTEM INTERFACE
     $<TARGET_PROPERTY:carve-engine,INCLUDE_DIRECTORIES>)
 target_compile_definitions(carve-engine INTERFACE
     $<TARGET_PROPERTY:carve-engine,COMPILE_DEFINITIONS>)
@@ -821,16 +840,28 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         tests/SongStateProperties.cpp
         tests/SongTimeProperties.cpp)
     target_include_directories(carve-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_definitions(carve-tests PRIVATE
+    # The JUCE modules it needs, compiled in a library of their own for the
+    # same reason as carve-engine: so their warnings can be switched off
+    # without switching off ours.
+    add_library(carve-tests-juce STATIC)
+    target_compile_definitions(carve-tests-juce PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_STANDALONE_APPLICATION=1)
-    target_link_libraries(carve-tests PRIVATE
-        carve-instrument-data
+    target_link_libraries(carve-tests-juce PRIVATE
         juce::juce_dsp
         juce::juce_audio_formats
         juce::juce_audio_processors
         juce::juce_data_structures
+        juce::juce_recommended_config_flags)
+    target_compile_options(carve-tests-juce PRIVATE -w)
+    target_include_directories(carve-tests-juce SYSTEM INTERFACE
+        $<TARGET_PROPERTY:carve-tests-juce,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(carve-tests-juce INTERFACE
+        $<TARGET_PROPERTY:carve-tests-juce,COMPILE_DEFINITIONS>)
+    target_link_libraries(carve-tests PRIVATE
+        carve-instrument-data
+        carve-tests-juce
         Catch2::Catch2WithMain
         rapidcheck
         juce::juce_recommended_config_flags)
