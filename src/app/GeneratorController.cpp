@@ -393,12 +393,12 @@ void GeneratorController::launchSampleChooser (std::function<void (const juce::F
 
     sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
                                     | juce::FileBrowserComponent::canSelectFiles,
-                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+                                [this, chosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
         if (const auto sample = sandbox::claimChosen (chooser.getURLResult()); sample.existsAsFile())
         {
             rememberSampleDirectory (sample);
-            onChosen (sample);
+            chosen (sample);
         }
     });
 }
@@ -466,13 +466,13 @@ void GeneratorController::launchSoundFontChooser (std::function<void (const juce
 
     sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
                                     | juce::FileBrowserComponent::canSelectFiles,
-                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+                                [this, chosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
         if (const auto soundFont = sandbox::claimChosen (chooser.getURLResult()); soundFont.existsAsFile())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastSoundFontDirectoryKey, soundFont.getParentDirectory().getFullPathName());
-            onChosen (soundFont);
+            chosen (soundFont);
         }
     });
 }
@@ -558,13 +558,13 @@ void GeneratorController::launchVoicebankChooser (std::function<void (const juce
 
     sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
                                     | juce::FileBrowserComponent::canSelectDirectories,
-                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+                                [this, chosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
         if (const auto folder = sandbox::claimChosen (chooser.getURLResult()); folder.isDirectory())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastVoicebankDirectoryKey, folder.getParentDirectory().getFullPathName());
-            onChosen (folder);
+            chosen (folder);
         }
     });
 }
@@ -640,13 +640,13 @@ void GeneratorController::launchBreakChooser (std::function<void (const juce::Fi
 
     sampleChooser->launchAsync (juce::FileBrowserComponent::openMode
                                     | juce::FileBrowserComponent::canSelectFiles,
-                                [this, onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+                                [this, chosen = std::move (onChosen)] (const juce::FileChooser& chooser)
     {
         if (const auto loop = sandbox::claimChosen (chooser.getURLResult()); loop.existsAsFile())
         {
             engine.getPropertyStorage().getPropertiesFile()
                 .setValue (lastBreakDirectoryKey, loop.getParentDirectory().getFullPathName());
-            onChosen (loop);
+            chosen (loop);
         }
     });
 }

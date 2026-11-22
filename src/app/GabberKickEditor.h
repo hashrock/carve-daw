@@ -491,10 +491,10 @@ private:
         void change (std::function<void (Stage&)> apply)
         {
             const auto i = index;
-            editor.edit ([i, apply = std::move (apply)] (Patch& p)
+            editor.edit ([i, applyToStage = std::move (apply)] (Patch& p)
             {
                 if (i < (int) p.stages.size())
-                    apply (p.stages[(size_t) i]);
+                    applyToStage (p.stages[(size_t) i]);
             });
         }
 

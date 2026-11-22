@@ -603,7 +603,12 @@ void Bass::prepare (double sampleRate, std::uint32_t seed)
 {
     seedState = seed != 0 ? seed : 1;
 
-    if (! prepared || sampleRate != fs)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wfloat-equal"   // exactly: any other rate needs the tables again
+    const bool rateChanged = sampleRate != fs;
+    #pragma clang diagnostic pop
+
+    if (! prepared || rateChanged)
     {
         fs = sampleRate;
         dispersions.assign ((size_t) (numStrings * (numFrets + 1)), {});

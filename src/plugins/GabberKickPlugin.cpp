@@ -186,7 +186,7 @@ void GabberKickPlugin::renderIfStale()
     }
 
     if (const auto current = getRenderedKick();
-        current != nullptr && current->revision == revision && current->sampleRate == rate)
+        current != nullptr && current->revision == revision && juce::exactlyEqual (current->sampleRate, rate))
         return;
 
     auto result = gabber::render (patch, rate);
@@ -224,8 +224,6 @@ bool GabberKickPlugin::isRenderPending() const
 //==============================================================================
 void GabberKickPlugin::initialise (const te::PluginInitialisationInfo& info)
 {
-    sampleRate = info.sampleRate;
-
     for (auto& voice : voices)
         voice.kick.reset();
 

@@ -201,9 +201,8 @@ DrumSynthPlugin::~DrumSynthPlugin()
         parameter->detachFromCurrentValue();
 }
 
-void DrumSynthPlugin::initialise (const te::PluginInitialisationInfo& info)
+void DrumSynthPlugin::initialise (const te::PluginInitialisationInfo&)
 {
-    sampleRate = info.sampleRate;
     killAll();
 }
 

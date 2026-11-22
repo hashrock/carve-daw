@@ -26,7 +26,9 @@ namespace carve::plugins::gabber
 struct Point
 {
     double x = 0.0, y = 0.0;
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wfloat-equal")   // exactly: whether anything was edited
     bool operator== (const Point&) const = default;
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 };
 
 enum class Shape { linear, softClip, hardClip, asymmetric, wavefold, rectifier };
@@ -51,7 +53,9 @@ struct Stage
     Shape shape = Shape::softClip;
     std::vector<Point> points = getShapePoints (Shape::softClip);
 
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wfloat-equal")   // exactly: whether anything was edited
     bool operator== (const Stage&) const = default;
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 };
 
 Stage makeStage (Shape = Shape::softClip);
@@ -67,7 +71,9 @@ struct Patch
     double gain = 0.0;                   // dB
     bool normalize = true;
 
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wfloat-equal")   // exactly: whether anything was edited
     bool operator== (const Patch&) const = default;
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 };
 
 inline constexpr int numFactoryPresets = 4;

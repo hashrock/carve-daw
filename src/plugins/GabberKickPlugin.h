@@ -134,7 +134,6 @@ private:
     // Audio thread only.
     std::shared_ptr<const RenderedKick> live;
     std::array<Voice, 2> voices;
-    double sampleRate = 44100.0;
 
     bool writingPatch = false;
     StateWatcher watcher { *this };
