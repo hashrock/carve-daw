@@ -172,6 +172,7 @@ void GabberKickPlugin::RenderThread::run()
 void GabberKickPlugin::renderIfStale()
 {
     const juce::ScopedLock renderGuard (renderLock);
+    const BackgroundTime::Scope timed (renderTime);
 
     gabber::Patch patch;
     std::uint64_t revision;

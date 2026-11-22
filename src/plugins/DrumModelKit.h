@@ -10,6 +10,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "BackgroundLoad.h"
 #include "DrumModel.h"
 
 namespace carve::plugins::drummodel
@@ -111,6 +112,11 @@ public:
     // The bytes the cache holds now (any thread; for the curious).
     std::size_t getCacheBytes() const;
 
+    // The time spent loading and rendering strokes off the audio thread
+    // (any thread; for the mixer's load figure).
+    BackgroundTime& getBackgroundTime()   { return backgroundTime; }
+    const BackgroundTime& getBackgroundTime() const   { return backgroundTime; }
+
     // Strokes to have ready before they are played -- the song's notes, so
     // that playing it never waits on the live engines (any thread, once
     // loaded). Kept through knob turns: they are rendered again as the drum
@@ -189,6 +195,7 @@ private:
     std::array<Slot, (size_t) (numDrums * numVariants * numLayers)> slots;
     std::array<DrumState, (size_t) numDrums> drumStates;
     std::array<HitVoice, 32> hitVoices;
+    BackgroundTime backgroundTime;          // before the renderer, which adds to it until it is gone
     std::unique_ptr<Renderer> renderer;
 
     Settings settings, applied;

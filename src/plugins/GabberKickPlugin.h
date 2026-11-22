@@ -7,6 +7,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+#include "BackgroundLoad.h"
 #include "GabberKickDsp.h"
 
 namespace te = tracktion;
@@ -28,7 +29,8 @@ namespace carve::plugins
 // songs and presets carry it without knowing what it is. The rendered kick is
 // derived from it, never stored: a change on the message thread wakes a
 // renderer thread, and the audio thread picks up the result at its next block.
-class GabberKickPlugin : public te::Plugin
+class GabberKickPlugin : public te::Plugin,
+                         public BackgroundWorker
 {
 public:
     explicit GabberKickPlugin (te::PluginCreationInfo);
@@ -78,6 +80,9 @@ public:
     // Null until the first render is done.
     std::shared_ptr<const RenderedKick> getRenderedKick() const;
 
+    // The time spent rendering the kick, on its thread or in initialise().
+    double getBackgroundSeconds() const noexcept override   { return renderTime.getSeconds(); }
+
     // True while what can be heard is behind the patch.
     bool isRenderPending() const;
 
@@ -116,6 +121,7 @@ private:
     double renderRate = 44100.0;
 
     juce::CriticalSection renderLock;     // one render at a time: the thread, or initialise()
+    BackgroundTime renderTime;
 
     // The audio thread takes `published` with a try-lock, so publishing never
     // blocks it. `retained` keeps a reference to every kick a voice might hold,

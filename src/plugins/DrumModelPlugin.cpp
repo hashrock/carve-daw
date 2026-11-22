@@ -150,6 +150,7 @@ DrumModelPlugin::DrumModelPlugin (te::PluginCreationInfo info)
     // not on the message thread.
     loader = std::thread ([this]
     {
+        const BackgroundTime::Scope timed (kit->getBackgroundTime());
         loadState.store (kit->load() ? 1 : 2);
     });
 
