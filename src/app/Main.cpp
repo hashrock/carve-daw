@@ -245,6 +245,9 @@ private:
                     for (int i = 0; i < recent.size(); ++i)
                         recentMenu.addItem (firstRecentItemID + i, recent[i]);
 
+                    recentMenu.addSeparator();
+                    recentMenu.addItem (clearRecentItemID, "Clear Menu");
+
                     m.addSubMenu ("Open Recent", recentMenu, ! recent.isEmpty());
                 }
 
@@ -319,7 +322,9 @@ private:
 
             if (auto main = owner.getMainComponent())
             {
-                if (itemID >= firstSampleSongItemID)
+                if (itemID == clearRecentItemID)
+                    main->clearRecentSongs();
+                else if (itemID >= firstSampleSongItemID)
                     main->openSampleSong (itemID - firstSampleSongItemID);
                 else if (itemID >= firstRecentItemID)
                     main->openRecentSong (itemID - firstRecentItemID);
@@ -337,6 +342,7 @@ private:
         // and the sample songs start far enough above them that neither list
         // has to know the other's length.
         static constexpr int firstRecentItemID = 100;
+        static constexpr int clearRecentItemID = 150;
         static constexpr int firstSampleSongItemID = 200;
 
         Application& owner;

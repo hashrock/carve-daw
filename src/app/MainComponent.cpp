@@ -6,6 +6,7 @@
 #include "EngineSetup.h"
 #include "SandboxAccess.h"
 #include "AppFiles.h"
+#include "FactoryContent.h"
 #include "model/DemoSong.h"
 #include "model/SampleSongs.h"
 
@@ -15,6 +16,8 @@ namespace carve::app
 //==============================================================================
 // The recent songs, in the same properties file. juce::RecentlyOpenedFilesList
 // does the ordering and the de-duplicating; all that is kept is its string.
+// The properties file is the app's own settings on this device -- the list is
+// never synced anywhere.
 static constexpr const char* recentSongsKey = "recentSongs";
 
 MainComponent::MainComponent (te::Engine& engineToUse)
@@ -49,6 +52,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onOpenDemo = [this] { openDemoSong(); };
     transportBar->getRecentSongs = [this] { return recentSongNames(); };
     transportBar->onOpenRecent = [this] (int index) { openRecentSong (index); };
+    transportBar->onClearRecent = [this] { clearRecentSongs(); };
     transportBar->onOpenSampleSong = [this] (int index) { openSampleSong (index); };
     transportBar->onSettings = [this] { openSettings(); };
     transportBar->onSoundLibrary = [this] { openSoundLibrary(); };
@@ -56,8 +60,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     transportBar->onNotices = [this] { if (onShowNotices) onShowNotices(); };
 
     recentSongs.setMaxNumberOfItems (10);
-    recentSongs.restoreFromString (engine.getPropertyStorage().getPropertiesFile()
-                                       .getValue (recentSongsKey));
+    restoreRecentSongs();
 
     // Live MIDI in. Built before the controller below so that the selection
     // callbacks, which fire from it, always have somewhere to point.
@@ -1160,6 +1163,48 @@ void MainComponent::rememberRecentSong (const juce::File& songFile)
 {
     recentSongs.addFile (songFile);
     engine.getPropertyStorage().getPropertiesFile().setValue (recentSongsKey, recentSongs.toString());
+}
+
+void MainComponent::restoreRecentSongs()
+{
+    juce::RecentlyOpenedFilesList stored;
+    stored.setMaxNumberOfItems (recentSongs.getMaxNumberOfItems());
+    stored.restoreFromString (engine.getPropertyStorage().getPropertiesFile().getValue (recentSongsKey));
+
+    // On the iPad the app's Documents folder moves with every update -- the
+    // container's id is part of its path -- so every song saved there would
+    // otherwise read as gone after one, and recentSongNames would drop the
+    // lot. They are where they were within Documents; relocateIntoThisInstall
+    // knows the way, as it does for a song's samples. Oldest first, since
+    // addFile puts each one at the front.
+    recentSongs.clear();
+    bool relocated = false;
+
+    for (int i = stored.getNumFiles(); --i >= 0;)
+    {
+        auto file = stored.getFile (i);
+
+        if (! file.existsAsFile())
+        {
+            if (const auto moved = relocateIntoThisInstall (file); moved.existsAsFile())
+            {
+                file = moved;
+                relocated = true;
+            }
+        }
+
+        recentSongs.addFile (file);
+    }
+
+    // Written back, so the next launch starts from the paths as they are now.
+    if (relocated)
+        engine.getPropertyStorage().getPropertiesFile().setValue (recentSongsKey, recentSongs.toString());
+}
+
+void MainComponent::clearRecentSongs()
+{
+    recentSongs.clear();
+    engine.getPropertyStorage().getPropertiesFile().removeValue (recentSongsKey);
 }
 
 juce::StringArray MainComponent::recentSongNames()

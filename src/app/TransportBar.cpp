@@ -414,7 +414,7 @@ void TransportBar::showFileMenu()
     // callback can tell "the third recent song" from "Save As".
     enum { newId = 1, openId, openDemoId, saveId, saveAsId, exportId, analyzerId,
            settingsId, aboutId, noticesId, soundLibraryId,
-           firstRecentId = 100, firstSampleSongId = 200 };
+           firstRecentId = 100, clearRecentId = 150, firstSampleSongId = 200 };
 
     juce::PopupMenu menu;
     menu.addItem (newId, "New");
@@ -425,6 +425,11 @@ void TransportBar::showFileMenu()
 
     for (int i = 0; i < recent.size(); ++i)
         recentMenu.addItem (firstRecentId + i, recent[i]);
+
+    // At the end, as in every Mac app's Open Recent. No confirmation: what it
+    // throws away is a list of shortcuts, not anything that was made.
+    recentMenu.addSeparator();
+    recentMenu.addItem (clearRecentId, "Clear Menu");
 
     // Shown greyed rather than hidden when there is nothing in it: a menu that
     // grows an item is harder to learn than one whose item is dim at first.
@@ -479,6 +484,7 @@ void TransportBar::showFileMenu()
             case aboutId:     if (safe->onAbout)    safe->onAbout();    break;
             case noticesId:   if (safe->onNotices)  safe->onNotices();  break;
             case soundLibraryId: if (safe->onSoundLibrary) safe->onSoundLibrary(); break;
+            case clearRecentId:  if (safe->onClearRecent)  safe->onClearRecent();  break;
 
             default:
                 if (result >= firstSampleSongId)

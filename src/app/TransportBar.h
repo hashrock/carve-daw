@@ -161,6 +161,7 @@ public:
     // be stale; the index picked is an index into that same list.
     std::function<juce::StringArray()> getRecentSongs;
     std::function<void (int index)> onOpenRecent;
+    std::function<void()> onClearRecent;   // the submenu's last item, "Clear Menu"
 
     // Open Sample Song, beside it: the list comes from the model, so only
     // the choice has to be handed back.
