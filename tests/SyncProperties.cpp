@@ -752,6 +752,26 @@ TEST_CASE ("Factory presets come back as themselves after a save and reload", "[
     }
 }
 
+// The singer's Character menu sets a subset of the knobs a voice preset sets,
+// from the same list; picking one must read back as that one.
+TEST_CASE ("A singer's character reads back as itself", "[sync][presets]")
+{
+    auto song = Song::create ("Characters");
+    song.addGenerator ("V", Generator::vocalModelType, nullptr);
+
+    auto edit = te::Edit::createSingleTrackEdit (testEngine());
+    sync::syncSongToEdit (song, *edit);
+
+    auto* singer = dynamic_cast<carve::plugins::VocalModelPlugin*> (sync::findInstrumentPlugin (*te::getAudioTracks (*edit)[0]));
+    REQUIRE (singer != nullptr);
+
+    for (int i = 0; i < carve::voice::vocal::numCharacters; ++i)
+    {
+        singer->applyCharacter (i);
+        CHECK (singer->findCurrentCharacter() == i);
+    }
+}
+
 //==============================================================================
 // The engine and JUCE's own state are owned here rather than by a static
 // inside testEngine(), and the difference is not tidiness.

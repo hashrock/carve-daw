@@ -204,60 +204,64 @@ void VocalModelPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v
 //==============================================================================
 // Characters
 
+std::vector<std::pair<juce::Identifier, double>> VocalModelPlugin::getCharacterSettings (int index)
+{
+    const auto& c = vocal::getCharacter (index);
+
+    return { { "tractLength", c.tractLength }, { "fold", c.fold }, { "resonance", c.resonance },
+             { "breath", c.breath }, { "press", c.press }, { "register", c.registerMix },
+             { "jitter", c.jitter }, { "shimmer", c.shimmer }, { "throat", c.throat },
+             { "pharynx", c.pharynx }, { "twang", c.twang }, { "nasal", c.nasal },
+             { "clarity", c.clarity }, { "vibrato", c.vibrato }, { "vibratoRate", c.vibratoRate },
+             { "drift", c.drift }, { "brightness", c.brightness }, { "body", c.body },
+             { "ring", c.ring }, { "air", c.air } };
+}
+
+namespace
+{
+    te::AutomatableParameter* findParameter (te::Plugin& plugin, const juce::Identifier& id)
+    {
+        for (auto* parameter : plugin.getAutomatableParameters())
+            if (parameter != nullptr && parameter->paramID == id.toString())
+                return parameter;
+
+        jassertfalse;   // a character names a knob this plugin does not have
+        return nullptr;
+    }
+}
+
 void VocalModelPlugin::applyCharacter (int index)
 {
     JUCE_ASSERT_MESSAGE_THREAD
 
-    const auto& c = vocal::getCharacter (index);
-
     if (auto um = getUndoManager())
         um->beginNewTransaction ("Character");
 
-    auto setTo = [] (te::AutomatableParameter& parameter, double value)
+    for (const auto& [id, value] : getCharacterSettings (index))
     {
-        parameter.parameterChangeGestureBegin();
-        parameter.setParameter ((float) value, juce::sendNotification);
-        parameter.parameterChangeGestureEnd();
-    };
-
-    setTo (*tractLength, c.tractLength);
-    setTo (*fold, c.fold);
-    setTo (*resonance, c.resonance);
-    setTo (*breath, c.breath);
-    setTo (*press, c.press);
-    setTo (*registerMix, c.registerMix);
-    setTo (*jitter, c.jitter);
-    setTo (*shimmer, c.shimmer);
-    setTo (*throat, c.throat);
-    setTo (*pharynx, c.pharynx);
-    setTo (*twang, c.twang);
-    setTo (*nasal, c.nasal);
-    setTo (*clarity, c.clarity);
-    setTo (*vibrato, c.vibrato);
-    setTo (*vibratoRate, c.vibratoRate);
-    setTo (*drift, c.drift);
-    setTo (*brightness, c.brightness);
-    setTo (*body, c.body);
-    setTo (*ring, c.ring);
-    setTo (*air, c.air);
+        if (auto* parameter = findParameter (*this, id))
+        {
+            parameter->parameterChangeGestureBegin();
+            parameter->setParameter ((float) value, juce::sendNotification);
+            parameter->parameterChangeGestureEnd();
+        }
+    }
 }
 
 int VocalModelPlugin::findCurrentCharacter() const
 {
+    auto& self = const_cast<VocalModelPlugin&> (*this);   // getAutomatableParameters is not const
+
     for (int i = 0; i < vocal::numCharacters; ++i)
     {
-        const auto& c = vocal::getCharacter (i);
-        const std::pair<te::AutomatableParameter*, double> pairs[] = {
-            { tractLength.get(), c.tractLength }, { fold.get(), c.fold }, { resonance.get(), c.resonance },
-            { breath.get(), c.breath }, { press.get(), c.press }, { registerMix.get(), c.registerMix },
-            { throat.get(), c.throat }, { twang.get(), c.twang }, { nasal.get(), c.nasal }, { clarity.get(), c.clarity },
-            { vibrato.get(), c.vibrato }, { vibratoRate.get(), c.vibratoRate }, { drift.get(), c.drift },
-            { brightness.get(), c.brightness }, { body.get(), c.body }, { ring.get(), c.ring }, { air.get(), c.air },
-            { pharynx.get(), c.pharynx }, { jitter.get(), c.jitter }, { shimmer.get(), c.shimmer }
-        };
+        const auto settings = getCharacterSettings (i);
 
-        if (std::all_of (std::begin (pairs), std::end (pairs), [] (const auto& p)
-                         { return std::abs ((double) p.first->getCurrentValue() - p.second) < 1.0e-3; }))
+        if (std::all_of (settings.begin(), settings.end(), [&self] (const auto& setting)
+                         {
+                             auto* parameter = findParameter (self, setting.first);
+                             return parameter != nullptr
+                                     && std::abs ((double) parameter->getCurrentValue() - setting.second) < 1.0e-3;
+                         }))
             return i;
     }
 

@@ -140,45 +140,6 @@ bassmodel::Options BassModelPlugin::readOptions() const
     return o;
 }
 
-void BassModelPlugin::setFactoryPreset (int index)
-{
-    if (! juce::isPositiveAndBelow (index, bassmodel::numFactoryPresets))
-        return;
-
-    const auto p = bassmodel::getFactoryPreset (index);
-    const std::pair<te::AutomatableParameter*, double> values[]
-    {
-        { style.get(), p.style }, { pluck.get(), p.pluck }, { pickup.get(), p.pickup }, { height.get(), p.height },
-        { tone.get(), p.tone }, { action.get(), p.action }, { sustain.get(), p.sustain }, { bright.get(), p.bright },
-        { mute.get(), p.mute }, { slide.get(), p.slide }, { fretless.get(), p.fretless ? 1.0 : 0.0 },
-        { drive.get(), p.drive }, { amp.get(), p.amp }, { volume.get(), p.volume },
-    };
-
-    // The legato setting is how the part is written, not the sound: a preset leaves it.
-    for (const auto& [parameter, value] : values)
-        parameter->setParameter ((float) value, juce::sendNotification);
-}
-
-int BassModelPlugin::getMatchingFactoryPreset() const
-{
-    const auto o = readOptions();
-
-    for (int i = 0; i < bassmodel::numFactoryPresets; ++i)
-    {
-        const auto p = bassmodel::getFactoryPreset (i);
-        auto near = [] (double a, double b) { return std::abs (a - b) < 1e-4; };
-
-        if (o.style == p.style && o.fretless == p.fretless
-             && near (o.pluck, p.pluck) && near (o.pickup, p.pickup) && near (o.height, p.height)
-             && near (o.tone, p.tone) && near (o.action, p.action) && near (o.sustain, p.sustain)
-             && near (o.bright, p.bright) && near (o.mute, p.mute) && near (o.slide, p.slide)
-             && near (o.drive, p.drive) && near (o.amp, p.amp) && near (o.volume, p.volume))
-            return i;
-    }
-
-    return -1;
-}
-
 void BassModelPlugin::initialise (const te::PluginInitialisationInfo& info)
 {
     model.setOptions (readOptions());
