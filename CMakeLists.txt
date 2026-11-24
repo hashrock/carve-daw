@@ -332,6 +332,8 @@ set(CARVE_CORE_SOURCES
     src/plugins/BassModel.cpp
     src/plugins/BassModelPlugin.h
     src/plugins/BassModelPlugin.cpp
+    src/plugins/FactoryPresets.h
+    src/plugins/FactoryPresets.cpp
     src/plugins/DrumModel.h
     src/plugins/DrumModelBessel.h
     src/plugins/DrumModelSimd.h
@@ -746,7 +748,8 @@ juce_add_console_app(carve-render
     PRODUCT_NAME "carve-render")
 # NoteOffPlayback and SignalPathChecks are tests, but they need a playing
 # engine, and carve-render is the console target that already links one.
-target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp tests/SignalPathChecks.cpp)
+target_sources(carve-render PRIVATE src/RenderMain.cpp tests/NoteOffPlayback.cpp tests/SignalPathChecks.cpp
+    tests/PresetAudition.cpp)
 target_include_directories(carve-render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 carve_configure_target(carve-render)
 endif()

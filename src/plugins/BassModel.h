@@ -65,7 +65,7 @@ struct Options
 };
 
 // The prototype's sounds; their volumes level the demo phrases they go with.
-constexpr int numFactoryPresets = 9;
+constexpr int numFactoryPresets = 12;
 const char* getFactoryPresetName (int index);
 Options getFactoryPreset (int index);
 

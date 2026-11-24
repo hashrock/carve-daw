@@ -76,7 +76,7 @@ struct Patch
     JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 };
 
-inline constexpr int numFactoryPresets = 4;
+inline constexpr int numFactoryPresets = 8;   // new ones go on the end: a new generator is preset 0
 const char* getFactoryPresetName (int index);
 Patch getFactoryPreset (int index);
 

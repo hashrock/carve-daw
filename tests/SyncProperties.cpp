@@ -40,6 +40,7 @@
 #include "sync/EditSync.h"
 #include "sync/EffectChains.h"
 #include "sync/EngineIds.h"
+#include "plugins/FactoryPresets.h"
 
 namespace
 {
@@ -688,6 +689,67 @@ TEST_CASE ("A drawn bend is played as the pitch wheel", "[sync][controllers]")
     const auto* first = clip->getSequence().getControllerEvents()[0];
     sync::syncSongToEdit (song, *edit);
     CHECK (clip->getSequence().getControllerEvents()[0] == first);
+}
+
+//==============================================================================
+// A factory preset is the plugin's tree like any other setting, so it has to
+// survive what every setting does: the capture into the song, a save, a
+// reload into a new Edit -- and still be recognised as the preset it was. And
+// what a preset leaves alone (how the part is played) stays where it was.
+TEST_CASE ("Factory presets come back as themselves after a save and reload", "[sync][presets]")
+{
+    namespace presets = carve::plugins::presets;
+
+    for (const auto* type : { Generator::synthType, Generator::drumSynthType, Generator::gabberKickType,
+                              Generator::acousticDrumsType, Generator::electricBassType, Generator::pianoType,
+                              Generator::bassModelType, Generator::drumModelType, Generator::vocalModelType })
+    {
+        auto song = Song::create ("Presets");
+        song.addGenerator ("G", type, nullptr);
+
+        auto edit = te::Edit::createSingleTrackEdit (testEngine());
+        sync::syncSongToEdit (song, *edit);
+
+        auto* track = te::getAudioTracks (*edit)[0];
+        REQUIRE (track != nullptr);
+        auto* plugin = sync::findInstrumentPlugin (*track);
+        REQUIRE (plugin != nullptr);
+
+        const auto names = presets::getFactoryPresetNames (*plugin);
+        INFO (type);
+        CHECK (names.size() >= 6);
+
+        // A setting of the part's own, which no preset may touch.
+        static const juce::Identifier technique ("technique"), pedal ("pedal"), legato ("legato");
+        const auto keep = juce::String (type) == Generator::electricBassType ? technique
+                        : juce::String (type) == Generator::pianoType        ? pedal
+                        : juce::String (type) == Generator::bassModelType    ? legato
+                                                                             : juce::Identifier();
+        const juce::var kept = juce::String (type) == Generator::electricBassType ? juce::var ("slide") : juce::var (1.0);
+
+        if (keep.isValid())
+            plugin->state.setProperty (keep, kept, nullptr);
+
+        for (int i = 0; i < names.size(); ++i)
+        {
+            INFO (names[i]);
+            REQUIRE (presets::applyFactoryPreset (*plugin, i));
+            CHECK (presets::findMatchingFactoryPreset (*plugin) == i);
+
+            if (keep.isValid())
+                CHECK (plugin->state[keep] == kept);
+
+            sync::captureLivePluginState (song, *edit);
+            const auto reloaded = Song::fromXml (song.toXmlString());
+            REQUIRE (reloaded.has_value());
+
+            auto again = te::Edit::createSingleTrackEdit (testEngine());
+            sync::syncSongToEdit (*reloaded, *again);
+            auto* reloadedPlugin = sync::findInstrumentPlugin (*te::getAudioTracks (*again)[0]);
+            REQUIRE (reloadedPlugin != nullptr);
+            CHECK (presets::findMatchingFactoryPreset (*reloadedPlugin) == i);
+        }
+    }
 }
 
 //==============================================================================

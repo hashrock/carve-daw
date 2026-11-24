@@ -1,9 +1,7 @@
 #include "PresetManager.h"
 #include "Fonts.h"
 
-#include "plugins/BassModelPlugin.h"
-#include "plugins/GabberKickPlugin.h"
-#include "sync/EngineIds.h"
+#include "plugins/FactoryPresets.h"
 #include "TouchUi.h"
 
 namespace carve::app
@@ -33,44 +31,7 @@ namespace
         return plugin.getPluginType();
     }
 
-    // What in a plugin's state says where it sits in the Edit rather than how it
-    // sounds. None of it may travel in a preset: `id` is the EditItemID, the
-    // window properties are where the editor was last opened, `enabled` is the
-    // bypass switch the user set on this slot, and carveEffectId is what
-    // EditSync reconciles the chain by -- copying that onto another plugin would
-    // leave two slots claiming the same effect.
-    bool isStructuralProperty (const juce::Identifier& property)
-    {
-        return property == te::IDs::type
-                || property == te::IDs::id
-                || property == te::IDs::enabled
-                || property == te::IDs::process
-                || property == te::IDs::windowX
-                || property == te::IDs::windowY
-                || property == te::IDs::windowLocked
-                || property == te::IDs::quickParamName
-                || property == sync::effectIdProperty;
-    }
-
-    // Automation belongs to the song, not to the sound: a preset load should
-    // leave a curve the user drew exactly where it was.
-    bool isStructuralChild (const juce::Identifier& type)
-    {
-        return type == te::IDs::AUTOMATIONCURVE
-                || type == te::IDs::MACROPARAMETERS
-                || type == te::IDs::MODIFIERASSIGNMENTS;
-    }
-
-    void stripStructuralParts (juce::ValueTree& state)
-    {
-        for (int i = state.getNumProperties(); --i >= 0;)
-            if (const auto name = state.getPropertyName (i); isStructuralProperty (name))
-                state.removeProperty (name, nullptr);
-
-        for (int i = state.getNumChildren(); --i >= 0;)
-            if (isStructuralChild (state.getChild (i).getType()))
-                state.removeChild (i, nullptr);
-    }
+    using plugins::presets::stripStructuralParts;
 } // namespace
 
 //==============================================================================
@@ -89,25 +50,15 @@ juce::AudioPluginInstance* PluginPresets::getExternalInstance() const
 
 bool PluginPresets::hasFactoryPresets() const
 {
-    return dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()) != nullptr
-            || dynamic_cast<plugins::BassModelPlugin*> (plugin.get()) != nullptr;
+    auto* p = plugin.get();
+    return p != nullptr && plugins::presets::hasFactoryPresets (*p);
 }
 
 juce::StringArray PluginPresets::getPluginProgramNames() const
 {
     juce::StringArray names;
 
-    if (dynamic_cast<plugins::BassModelPlugin*> (plugin.get()) != nullptr)
-    {
-        for (int i = 0; i < plugins::bassmodel::numFactoryPresets; ++i)
-            names.add (plugins::bassmodel::getFactoryPresetName (i));
-    }
-    else if (hasFactoryPresets())
-    {
-        for (int i = 0; i < plugins::gabber::numFactoryPresets; ++i)
-            names.add (plugins::gabber::getFactoryPresetName (i));
-    }
-    else if (auto instance = getExternalInstance())
+    if (auto instance = getExternalInstance())
     {
         const int count = instance->getNumPrograms();
 
@@ -115,51 +66,38 @@ juce::StringArray PluginPresets::getPluginProgramNames() const
             for (int i = 0; i < count; ++i)
                 names.add (instance->getProgramName (i));
     }
+    else if (auto* p = plugin.get())
+    {
+        names = plugins::presets::getFactoryPresetNames (*p);
+    }
 
     return names;
 }
 
 int PluginPresets::getCurrentPluginProgram() const
 {
-    if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
-        return kick->getMatchingFactoryPreset();
-
-    if (auto* bass = dynamic_cast<plugins::BassModelPlugin*> (plugin.get()))
-        return bass->getMatchingFactoryPreset();
-
     if (auto instance = getExternalInstance())
         return instance->getCurrentProgram();
+
+    if (auto* p = plugin.get())
+        return plugins::presets::findMatchingFactoryPreset (*p);
 
     return -1;
 }
 
 bool PluginPresets::selectPluginProgram (int index)
 {
-    if (auto* bass = dynamic_cast<plugins::BassModelPlugin*> (plugin.get()))
+    if (auto instance = getExternalInstance())
     {
-        if (! juce::isPositiveAndBelow (index, plugins::bassmodel::numFactoryPresets))
+        if (! juce::isPositiveAndBelow (index, instance->getNumPrograms()))
             return false;
 
-        bass->setFactoryPreset (index);
+        instance->setCurrentProgram (index);
         return true;
     }
 
-    if (auto* kick = dynamic_cast<plugins::GabberKickPlugin*> (plugin.get()))
-    {
-        if (! juce::isPositiveAndBelow (index, plugins::gabber::numFactoryPresets))
-            return false;
-
-        kick->setPatch (plugins::gabber::getFactoryPreset (index));
-        return true;
-    }
-
-    auto instance = getExternalInstance();
-
-    if (instance == nullptr || ! juce::isPositiveAndBelow (index, instance->getNumPrograms()))
-        return false;
-
-    instance->setCurrentProgram (index);
-    return true;
+    auto* p = plugin.get();
+    return p != nullptr && plugins::presets::applyFactoryPreset (*p, index);
 }
 
 juce::File PluginPresets::getFolder() const
@@ -272,55 +210,9 @@ bool PluginPresets::apply (const juce::XmlElement& preset)
     if (! stored.isValid())
         return false;
 
-    // Deliberately not Plugin::restorePluginStateFromValueTree(): the base
-    // implementation is a jassertfalse, and several of the internal effects the
-    // app offers -- lowpass among them -- never override it. Writing the
-    // properties is what the ones that do override it do anyway, because the
-    // tree is the store.
-    //
     // Also deliberately not undoable, like every other parameter move in the
     // app: EditSync copies the tree into the model when the song is saved.
-    auto state = p->state;
-
-    // A CachedValue returns its default while its property is absent, so a
-    // plugin's tree only ever holds what has been moved away from the defaults
-    // -- and a saved preset is exactly that much. Clearing the settings the
-    // preset does not mention is therefore what puts them back to default;
-    // without it, loading a second preset would leave the first one's stray
-    // values behind.
-    for (int i = state.getNumProperties(); --i >= 0;)
-        if (const auto name = state.getPropertyName (i);
-            ! isStructuralProperty (name) && ! stored.hasProperty (name))
-            state.removeProperty (name, nullptr);
-
-    for (int i = 0; i < stored.getNumProperties(); ++i)
-        if (const auto name = stored.getPropertyName (i); ! isStructuralProperty (name))
-            state.setProperty (name, stored[name], nullptr);
-
-    // 4OSC keeps its modulation matrix in a child tree, and the same rule
-    // applies to it: the preset's children replace the plugin's, and one the
-    // preset does not carry goes away. Automation curves and the rest are
-    // structural, so they stay where they were.
-    for (int i = state.getNumChildren(); --i >= 0;)
-        if (const auto type = state.getChild (i).getType();
-            ! isStructuralChild (type) && ! stored.getChildWithName (type).isValid())
-            state.removeChild (i, nullptr);
-
-    for (const auto& child : stored)
-    {
-        if (isStructuralChild (child.getType()))
-            continue;
-
-        state.removeChild (state.getChildWithName (child.getType()), nullptr);
-        state.appendChild (child.createCopy(), nullptr);
-    }
-
-    // The parameters cache their value alongside the tree, and a property write
-    // is not enough to move the cached one.
-    for (auto* parameter : p->getAutomatableParameters())
-        if (parameter != nullptr)
-            parameter->updateFromAttachedValue();
-
+    plugins::presets::replaceSettings (*p, stored);
     return true;
 }
 

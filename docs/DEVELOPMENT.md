@@ -50,6 +50,7 @@ RC_PARAMS="max_success=20000 max_size=200 seed=1" ./run.sh --test
 エンジンを通す検査は二つある。
 
 - `carve-render --check-note-offs`（`tests/NoteOffPlayback.cpp`）。再生中にノート・クリップ・パターンを消して、鳴っていた音のノートオフが楽器に届くかを、ホスト型オーディオデバイスでブロック単位に回して確かめる。終了コードは鳴りっぱなしになったシナリオ数。
+- `carve-render --audition-presets <フォルダ> [絞り込み]`（`tests/PresetAudition.cpp`）。内蔵音源のファクトリープリセットを 1 つずつ、役割に合うフレーズ (キットはビート、ベースはライン、鍵盤は和音とメロディ、歌声は歌詞つきの旋律) で WAV に書き出し、ピーク・最大 400ms の RMS・200Hz 以下の割合・レンダー時間 (実時間比) を表にする (フォルダの `presets.md` にも書く)。読み込んだプリセットが自分自身と認識されるかも見る。終了コードは無音・クリップ・認識漏れの数。プリセットを足したり音源の音量を変えたりしたら回す。
 - `carve-render --check-signal-path`（`tests/SignalPathChecks.cpp`）。テスト信号 (インパルス・サイン・ピンクノイズ・ノイズバースト) をオーディオクリップで流し、書き出しと同じレンダーを通して元の信号と比べる。見ているのはフェーダー / マスター / グループ / センドのゲイン (±0.02dB)、2 系統の加算、両パン則、サンプルレート変換 (歪み -100dB 以下・15kHz で ±0.1dB・遅延 0)、ピッチシフターの遅延補償、挿入直後の Saturation / Distortion の音量、Compressor と EQ が効くこと、新規 Slate の音色と立ち上がり。どれもかつて壊れていた箇所で、各ケースのコメントに経緯がある。終了コードは失敗した項目数。音声経路を触ったら回す。
 
 ## CLI
@@ -63,6 +64,7 @@ $BIN --write-demo demo.carve      # デモ曲を .carve として書き出し
 $BIN song.carve out.wav           # .carve をレンダリング
 $BIN --scan                       # VST3/AU をスキャン (GUI と設定を共有)
 $BIN --plugin-demo <名前> out.wav  # 名前でマッチした VSTi でデモ曲をレンダ
+$BIN --audition-presets out/      # 内蔵音源のファクトリープリセットを全部書き出して測る
 $BIN --rate 48000 song.carve out.wav  # レートを指定 (既定 44100)
 $BIN song.carve out.ogg           # 拡張子 .ogg なら Ogg Vorbis (192 kbps)
 $BIN --game-loop song.carve bgm.ogg  # 曲頭〜LOOP の終わり、LOOPSTART/LOOPLENGTH 付き
