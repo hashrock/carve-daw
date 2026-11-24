@@ -50,11 +50,6 @@ public:
 
     void restorePluginStateFromValueTree (const juce::ValueTree&) override;
 
-    // The factory sounds (BassModel.h). Setting one moves every knob, not undoably,
-    // like any parameter move in the app.
-    void setFactoryPreset (int index);
-    int getMatchingFactoryPreset() const;   // -1 if the knobs are not one
-
     juce::CachedValue<float> styleValue, pluckValue, pickupValue, heightValue, toneValue, actionValue,
                              sustainValue, brightValue, muteValue, slideValue, fretlessValue, legatoValue,
                              driveValue, ampValue, volumeValue;

@@ -96,6 +96,11 @@ public:
     bool isEnglish() const   { return englishValue.get(); }
     void setEnglish (bool);
 
+    // A character's knob positions, by property (and parameter) id -- the one
+    // list applyCharacter, findCurrentCharacter and the factory presets that
+    // start from a character all read.
+    static std::vector<std::pair<juce::Identifier, double>> getCharacterSettings (int index);
+
     // Sets every knob a character has, as one undoable change (message thread).
     void applyCharacter (int index);
 

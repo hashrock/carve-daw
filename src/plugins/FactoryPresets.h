@@ -17,10 +17,12 @@ namespace carve::plugins::presets
 // so a factory preset sounds the same whichever sound was loaded before it,
 // and a song saved after loading one stores nothing new.
 //
-// Two instruments keep their sounds in tables of their own, because the sound
-// is more than a list of numbers: the Kick Designer's patch (GabberKickDsp)
-// and the Modelled Bass's (BassModel). They are listed here all the same, so
-// the preset bar asks one place for every instrument.
+// The Kick Designer keeps its sounds in a table of its own (GabberKickDsp),
+// because its patch is more than a list of numbers -- its drive stages are a
+// JSON property -- and the DSP's tests render it without the engine. It is
+// listed here all the same, so the preset bar asks one place for every
+// instrument. The Modelled Bass's table (BassModel.h) is likewise the model's
+// own, but it is plain numbers, so it goes through the same code as the rest.
 
 // The preset names for this plugin, in menu order; empty for a plugin that
 // ships none (and for every external plugin, whose programs are its own).

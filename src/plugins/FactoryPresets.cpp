@@ -23,7 +23,7 @@ namespace
     // value the tree holds (the parameter's own units, not 0..1).
     struct Setting
     {
-        const char* id;
+        juce::Identifier id;
         double value;
     };
 
@@ -315,32 +315,68 @@ namespace
     }
 
     //==============================================================================
-    // Modelled Voice. What a preset leaves out reads as the Default
-    // character (VocalModelPlugin's defaults). The language and the live
-    // lyric are the part's, not the voice's: a preset leaves them.
+    // Modelled Bass: its own table (BassModel.h), which the model's tests play
+    // without the engine, written out as the plugin's properties. The legato
+    // setting is how the part is written, not the sound: a preset leaves it.
+    Bank bassModel()
+    {
+        Bank bank { BassModelPlugin::xmlTypeName, { "legato" }, {} };
+
+        for (int i = 0; i < bassmodel::numFactoryPresets; ++i)
+        {
+            const auto o = bassmodel::getFactoryPreset (i);
+            bank.presets.push_back ({ bassmodel::getFactoryPresetName (i), {
+                { "style", (double) o.style }, { "pluck", o.pluck }, { "pickup", o.pickup }, { "height", o.height },
+                { "tone", o.tone }, { "action", o.action }, { "sustain", o.sustain }, { "bright", o.bright },
+                { "mute", o.mute }, { "slide", o.slide }, { "fretless", o.fretless ? 1.0 : 0.0 },
+                { "drive", o.drive }, { "amp", o.amp }, { "volume", o.volume } } });
+        }
+
+        return bank;
+    }
+
+    //==============================================================================
+    // Modelled Voice. Most start from one of the singer's characters (the
+    // Character menu in its editor) and change a few knobs on top; what a
+    // preset leaves out reads as the plugin's default. The language and the
+    // live lyric are the part's, not the voice's: a preset leaves them.
+    std::vector<Setting> character (int index, std::vector<Setting> changes)
+    {
+        std::vector<Setting> settings;
+
+        for (const auto& [id, value] : VocalModelPlugin::getCharacterSettings (index))
+            settings.push_back ({ id, value });
+
+        for (const auto& change : changes)
+        {
+            auto existing = std::find_if (settings.begin(), settings.end(),
+                                          [&change] (const Setting& s) { return s.id == change.id; });
+
+            if (existing != settings.end())
+                existing->value = change.value;
+            else
+                settings.push_back (change);
+        }
+
+        return settings;
+    }
+
+    // vocal::getCharacter's order.
+    enum Character { defaultCharacter, woman, standard, genki, sweet, anime, mature, bell };
+
     Bank vocalModel()
     {
         return { VocalModelPlugin::xmlTypeName, { "english", "liveLyric" }, {
-            { "Pop Lead", {
-                // Woman, with the ring and air a lead needs to sit on top of a mix.
-                { "tractLength", 13.5 }, { "pharynx", 0.75 }, { "jitter", 0.8 }, { "shimmer", 2.5 },
-                { "fold", 0.75 }, { "throat", 0.64 }, { "nasal", 0.81 }, { "clarity", 0.84 },
-                { "vibrato", 1 }, { "register", 0.67 }, { "twang", 0.38 }, { "resonance", 1.22 },
-                { "ring", 3 }, { "air", 3 }, { "body", 1 }, { "reverb", 0.12 } } },
-            { "Bright Idol", {
-                // Genki, brighter and more forward.
-                { "tractLength", 11.6 }, { "pharynx", 0.75 }, { "jitter", 0.8 }, { "shimmer", 2.5 },
-                { "breath", 1 }, { "brightness", 0.8 }, { "throat", 0.9 }, { "nasal", 0.1 }, { "press", 0.5 },
-                { "clarity", 1.15 }, { "body", -1 }, { "ring", 5 }, { "vibrato", 0.8 }, { "register", 0 },
-                { "twang", 0.3 }, { "resonance", 1.2 }, { "air", 4 }, { "reverb", 0.14 } } },
-            { "Breathy Ballad", {
-                // Sweet, with more breath and a longer room.
-                { "tractLength", 12 }, { "pharynx", 0.75 }, { "jitter", 0.8 }, { "shimmer", 2.5 },
-                { "fold", 0.74 }, { "breath", 4.5 }, { "brightness", 0.35 }, { "throat", 1 }, { "nasal", 0.5 },
-                { "press", -0.15 }, { "clarity", 0.9 }, { "body", 2 }, { "vibrato", 1.4 }, { "register", 0.3 },
-                { "twang", 0 }, { "resonance", 1 }, { "air", 5 }, { "reverb", 0.3 }, { "volume", 1.1 } } },
+            // The ring and air a lead needs to sit on top of a mix.
+            { "Pop Lead", character (woman, {
+                { "ring", 3 }, { "air", 3 }, { "body", 1 }, { "reverb", 0.12 } }) },
+            { "Bright Idol", character (genki, {
+                { "ring", 5 }, { "air", 4 }, { "reverb", 0.14 } }) },
+            // More breath and a longer room.
+            { "Breathy Ballad", character (sweet, {
+                { "breath", 4.5 }, { "air", 5 }, { "vibrato", 1.4 }, { "reverb", 0.3 }, { "volume", 1.1 } }) },
+            // Pressed and twangy: the chest voice of a rock chorus.
             { "Power Belt", {
-                // Standard, pressed and twangy: the chest voice of a rock chorus.
                 { "tractLength", 12.5 }, { "pharynx", 0.8 }, { "jitter", 0.8 }, { "shimmer", 2.5 },
                 { "fold", 0.76 }, { "breath", 1.2 }, { "brightness", 0.6 }, { "throat", 1 }, { "nasal", 0 },
                 { "press", 0.6 }, { "clarity", 1.05 }, { "body", 3 }, { "ring", 6 }, { "vibrato", 1.2 },
@@ -354,9 +390,9 @@ namespace
             { "Whisper", {
                 { "breath", 6 }, { "press", -0.8 }, { "jitter", 1.5 }, { "shimmer", 5 },
                 { "vibrato", 0.3 }, { "air", 6 }, { "body", 1 }, { "reverb", 0.2 }, { "volume", 1.1 } } },
+            // Steady as a machine: no vibrato, drift or roughness, and a
+            // ringing, clear vowel.
             { "Synth Vox", {
-                // Steady as a machine: no vibrato, drift or roughness, and a
-                // ringing, clear vowel.
                 { "tractLength", 11.8 }, { "pharynx", 0.75 }, { "fold", 0.7 }, { "breath", 0.6 },
                 { "brightness", 0.7 }, { "nasal", 0.2 }, { "press", 0.3 }, { "clarity", 1.2 },
                 { "vibrato", 0 }, { "drift", 0 }, { "jitter", 0 }, { "shimmer", 0 },
@@ -367,7 +403,7 @@ namespace
 
     const std::vector<Bank>& getBanks()
     {
-        static const std::vector<Bank> banks { slate(), drumSynth(), piano(), electricBass(),
+        static const std::vector<Bank> banks { slate(), drumSynth(), piano(), electricBass(), bassModel(),
                                                acousticDrums(), drumModel(), vocalModel() };
         return banks;
     }
@@ -522,12 +558,7 @@ juce::StringArray getFactoryPresetNames (te::Plugin& plugin)
 {
     juce::StringArray names;
 
-    if (dynamic_cast<BassModelPlugin*> (&plugin) != nullptr)
-    {
-        for (int i = 0; i < bassmodel::numFactoryPresets; ++i)
-            names.add (bassmodel::getFactoryPresetName (i));
-    }
-    else if (dynamic_cast<GabberKickPlugin*> (&plugin) != nullptr)
+    if (dynamic_cast<GabberKickPlugin*> (&plugin) != nullptr)
     {
         for (int i = 0; i < gabber::numFactoryPresets; ++i)
             names.add (gabber::getFactoryPresetName (i));
@@ -548,15 +579,6 @@ bool hasFactoryPresets (te::Plugin& plugin)
 
 bool applyFactoryPreset (te::Plugin& plugin, int index)
 {
-    if (auto* bass = dynamic_cast<BassModelPlugin*> (&plugin))
-    {
-        if (! juce::isPositiveAndBelow (index, bassmodel::numFactoryPresets))
-            return false;
-
-        bass->setFactoryPreset (index);
-        return true;
-    }
-
     if (auto* kick = dynamic_cast<GabberKickPlugin*> (&plugin))
     {
         if (! juce::isPositiveAndBelow (index, gabber::numFactoryPresets))
@@ -585,9 +607,6 @@ int findMatchingFactoryPreset (te::Plugin& plugin)
     if (auto* kick = dynamic_cast<GabberKickPlugin*> (&plugin))
         return kick->getMatchingFactoryPreset();
 
-    if (auto* bass = dynamic_cast<BassModelPlugin*> (&plugin))
-        return bass->getMatchingFactoryPreset();
-
     auto* bank = findBank (plugin);
 
     if (bank == nullptr)
@@ -615,7 +634,7 @@ int findMatchingFactoryPreset (te::Plugin& plugin)
 
             if (isStructuralProperty (name) || keep.contains (name)
                  || std::any_of (settings.begin(), settings.end(),
-                                 [&name] (const Setting& s) { return name == juce::StringRef (s.id); }))
+                                 [&name] (const Setting& s) { return name == s.id; }))
                 continue;
 
             if (! isAtDefault (plugin, name))
