@@ -71,6 +71,10 @@ public:
     juce::StringArray recentSongNames();
     void openRecentSong (int index);
 
+    // Empties the list, for good: the menus' "Clear Menu". Nothing is
+    // deleted but the list itself, which lives only on this device.
+    void clearRecentSongs();
+
     // The songs that ship with the app (model::sampleSongNames()), opened by
     // their index in that list. Public for the same reason the recents are:
     // the menu bar, which is not part of this component, builds the list.
@@ -117,6 +121,7 @@ private:
     // Every song that reaches or comes off disk goes on the recent list, which
     // lives in the same properties file as the folder above.
     void rememberRecentSong (const juce::File& songFile);
+    void restoreRecentSongs();
     void openDemoSong();
     void openPluginManager();
     void openSettings();

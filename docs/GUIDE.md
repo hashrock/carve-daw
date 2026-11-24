@@ -4,7 +4,10 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
 
 ## 画面
 
-- **メイン**: 左上のロゴがファイルメニュー (Open Recent に直近 10 曲)。
+- **メイン**: 左上のロゴがファイルメニュー (Open Recent に直近 10 曲。
+  消えた・移動した曲は出ない。末尾の **Clear Menu** で一覧を空にする。一覧は
+  その端末にだけ保存され、iCloud などで同期はしない。iPad ではアプリを更新しても
+  Documents の曲は一覧に残る)。
   ツールバーは Orion 流に BPM /
   Pattern・Song / トランスポート / BAR / LOOP (Start・Length) / マスター。
   **Pattern** は各 Generator で最後に選んだパターンを全部同時にループ再生
