@@ -265,7 +265,9 @@ Stage makeStage (Shape shape)
 
 const char* getFactoryPresetName (int index)
 {
-    static const char* names[numFactoryPresets] { "Oldschool Gabber", "Industrial", "Modern Hardcore", "Raw / Folded" };
+    static const char* names[numFactoryPresets] { "Oldschool Gabber", "Industrial", "Modern Hardcore", "Raw / Folded",
+                                                  "Hardstyle Long Tail", "Techno Punch (clean)", "Frenchcore Tight",
+                                                  "Lo-Fi Crunch" };
     return names[juce::jlimit (0, numFactoryPresets - 1, index)];
 }
 
@@ -307,6 +309,68 @@ Patch getFactoryPreset (int index)
         second.mix = 0.55;
         p.stages = { makeStage (Shape::wavefold), second };
         p.stages[0].mix = 0.65;
+    }
+    else if (index == 4)
+    {
+        // A long, tonal tail: the pitch settles low and rings, a soft stage
+        // for the body and a gentle asymmetric one for the hardstyle buzz.
+        p.base = 50.0;
+        p.sweep = 220.0;
+        p.pitchDecay = 0.02;
+        p.duration = 0.9;
+        p.click = 0.35;
+        p.noise = 0.05;
+        auto body = makeStage();
+        body.drive = 14.0;
+        body.mix = 0.9;
+        auto buzz = makeStage (Shape::asymmetric);
+        buzz.startFreq = 150.0;
+        buzz.endFreq = 250.0;
+        buzz.startGain = 6.0;
+        buzz.endGain = 3.0;
+        buzz.drive = 6.0;
+        buzz.mix = 0.6;
+        p.stages = { body, buzz };
+    }
+    else if (index == 5)
+    {
+        // Hardly distorted at all: a short, round kick for four-to-the-floor.
+        p.base = 52.0;
+        p.sweep = 150.0;
+        p.pitchDecay = 0.01;
+        p.duration = 0.45;
+        p.click = 0.3;
+        p.noise = 0.05;
+        auto stage = makeStage();
+        stage.drive = 6.0;
+        stage.mix = 0.6;
+        stage.startGain = 6.0;
+        stage.endGain = 0.0;
+        p.stages = { stage };
+    }
+    else if (index == 6)
+    {
+        p.base = 58.0;
+        p.sweep = 300.0;
+        p.duration = 0.3;
+        p.click = 0.6;
+        p.stages[1].drive = 15.0;
+    }
+    else if (index == 7)
+    {
+        // Dirty and short of top: a rectifier half-mixed in, a lot of noise.
+        p.base = 55.0;
+        p.noise = 0.35;
+        p.click = 0.1;
+        p.duration = 0.55;
+        auto crunch = makeStage (Shape::rectifier);
+        crunch.mix = 0.4;
+        crunch.startFreq = 300.0;
+        crunch.endFreq = 500.0;
+        auto soft = makeStage();
+        soft.drive = 8.0;
+        soft.mix = 0.7;
+        p.stages = { crunch, soft };
     }
 
     return p;

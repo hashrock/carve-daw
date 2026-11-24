@@ -9,6 +9,7 @@
 #include "sync/RenderPreroll.h"
 #include "NoteOffPlayback.h"
 #include "SignalPathChecks.h"
+#include "PresetAudition.h"
 
 namespace
 {
@@ -55,6 +56,9 @@ void printUsage()
                  "        exits with the number of notes left ringing (see tests/NoteOffPlayback.cpp)\n"
                  "  carve-render --check-signal-path       render test signals through the mixer, resamplers\n"
                  "        and effects; exits with the number of failed checks (see tests/SignalPathChecks.cpp)\n"
+                 "  carve-render --audition-presets <folder> [filter]\n"
+                 "        render every built-in instrument's factory presets, one WAV each, and print\n"
+                 "        their peak, RMS, low end and CPU time (see tests/PresetAudition.cpp)\n"
                  "\n"
                  "Options:\n"
                  "  --rate <hz>    sample rate of the rendered file (default 44100)\n"
@@ -419,6 +423,7 @@ int main (int argc, char* argv[])
     const int expectedArgs = args[0] == "--scan" || args[0] == "--check-note-offs"
                               || args[0] == "--check-signal-path"                   ? 1
                            : args[0] == "--plugin-demo" || args[0] == "--sample"     ? 3
+                           : args[0] == "--audition-presets"                        ? juce::jlimit (2, 3, args.size())
                                                                                     : 2;
 
     // --sample on its own lists what there is to ask for, rather than being
@@ -457,6 +462,20 @@ int main (int argc, char* argv[])
             const juce::ScopedValueSetter<double> rate (renderSampleRate, sampleRate);
             return renderSongToWav (engine, song, file) == 0;
         });
+
+    if (args[0] == "--audition-presets")
+    {
+        // The instrument as it is, not what the master's limiter makes of it:
+        // a preset that clips should be seen clipping.
+        renderMastering = false;
+
+        return carve::test::runPresetAudition (engine, [&engine] (const carve::model::Song& song, const juce::File& file,
+                                                                  double sampleRate)
+        {
+            const juce::ScopedValueSetter<double> rate (renderSampleRate, sampleRate);
+            return renderSongToWav (engine, song, file) == 0;
+        }, resolveFile (args[1]), args[2]);
+    }
 
     if (args[0] == "--plugin-demo")
         return renderPluginDemo (engine, args[1], resolveFile (args[2]));

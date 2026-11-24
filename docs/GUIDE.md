@@ -41,6 +41,17 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
 ## 機能
 
 - **Generator** (楽器)。内蔵音源とプラグインのパッチは `.carve` に入る
+  - どの音源も Inst タブ上端の **Presets** メニューで音色を保存・呼び出しできる
+    (Save Preset As... / Overwrite / Delete)。内蔵音源には **Factory Presets** も
+    並ぶ: Slate Synth 12 種 (Fat Saw Bass / Sub Bass / Reese Bass / Acid Squelch /
+    Supersaw Lead / Square Lead / Chip Lead / Soft Pluck / Brass Stab / Warm Pad /
+    Organ / Glass Keys)、Drum Synth 8 種、Kick Designer 8 種、Acoustic Drums 7 種、
+    Modelled Drums 6 種、Electric Bass 8 種、Modelled Bass 12 種、Modelled Piano 6 種、
+    Modelled Voice 7 種。ファクトリープリセットを選ぶと、その音色が触らない
+    つまみは既定値に戻る。ただし演奏の仕方にあたる設定 (Electric Bass の Left Hand
+    と Mono、Modelled Bass のつなぎ方、ピアノの Pedal、歌声の言語とライブ歌詞) は
+    そのまま残る。いまの音がファクトリープリセットのどれかと同じなら、メニューに
+    チェックが付き、名前が表示される
   - **Slate Synth**: 内蔵シンセ。エンジンの 4OSC を音源に、専用のパネルをかぶせたもの。
     帯域制限ウェーブテーブル・ボイスごとのフィルタ・パラメータのスムージング・
     指数 AMP エンベロープはエンジン側の作りをそのまま使う。パネルは OSC1・OSC2 /
@@ -154,9 +165,9 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
     **Pickups** (Neck/Bridge: 2 つのピックアップの混ぜ具合 / Height: 弦との
     近さ。近いほど大きく、唸る / Tone: コイルの共振)、**Amp** (DI/Amp:
     アンプとキャビネットを通す量 / Drive: 歪み / Volume)。プリセットのメニューに
-    工場出荷の音色 9 種 (Jazz Bass, Fingers / Vintage Flats / Bridge Growl /
+    工場出荷の音色 12 種 (Jazz Bass, Fingers / Vintage Flats / Bridge Growl /
     Pick Rock / Pick, Palm Muted / Slap & Pop / Dub / Ballad, Slow Slides /
-    Fuzz) がある。つなぎ方は曲の書き方なので、プリセットでは変わらない。下の
+    Fuzz / Thick Round / Muted Pick Punch / Thumb, Deep) がある。つなぎ方は曲の書き方なので、プリセットでは変わらない。下の
     指板の図は 4 本の弦の実際の振れと押さえている所で、弦をクリックするとその
     フレットの音が鳴る
   - **Sampler** / **Drum Sampler** (旧 Drum Kit。16 パッド、GM 配列)
