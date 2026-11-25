@@ -187,13 +187,14 @@ check_app()
         || die "the icon has no 1024 x 1024 image"
 
     # The signature, and the entitlements: the sandbox, the files the user
-    # picks, bookmarks to them, and nothing else. No network, no audio input,
-    # no exception to library validation.
+    # picks, bookmarks to them, outgoing connections for the Sound Library,
+    # and nothing else. No incoming network, no audio input, no exception to
+    # library validation.
     codesign --verify --deep --strict "$app" || die "the signature does not verify"
     entitlements_of "$app" "$ent"
     [[ $(plist "$ent" com.apple.security.app-sandbox) == true ]] || die "the App Sandbox is not on"
 
-    local wanted="com.apple.security.app-sandbox com.apple.security.files.user-selected.read-write com.apple.security.files.bookmarks.app-scope"
+    local wanted="com.apple.security.app-sandbox com.apple.security.files.user-selected.read-write com.apple.security.files.bookmarks.app-scope com.apple.security.network.client"
     local signing="com.apple.application-identifier com.apple.developer.team-identifier"
 
     for key in $(plutil -convert json -o - "$ent" | /usr/bin/python3 -c 'import json, sys; print("\n".join(json.load(sys.stdin)))'); do
