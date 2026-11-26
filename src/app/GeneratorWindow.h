@@ -1098,6 +1098,9 @@ public:
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
         rollContent.setShowsLyrics (generator && generator->singsLyrics());
+        rollContent.setLyricReading (generator && generator->isEnglishVocalModel() ? voice::lyrics::Reading::english
+                                     : generator && generator->isVocalModel()      ? voice::lyrics::Reading::modelled
+                                                                                    : voice::lyrics::Reading::voicebank);
         rollContent.setShowsPlayModes (generator && generator->isBreak());
         rollContent.setShowsTechniques (generator && generator->isElectricBass());
         rollContent.setLaneKinds (generator ? lanes::kindsFor (*generator) : std::vector<lanes::Kind> { lanes::Kind::velocity });
@@ -1110,11 +1113,18 @@ public:
     // changes.
     PianoRollComponent::LyricCheck lyricCheckFor (const std::optional<model::Generator>& generator)
     {
-        // The modelled singer sings whatever reads as kana or romaji.
+        // The modelled singer sings whatever reads as kana or romaji; its
+        // English self, whatever reads as words, ARPAbet or "+".
         if (generator && generator->isVocalModel())
-            return [] (const juce::String& lyric, const juce::String&, int)
+            return [english = generator->isEnglishVocalModel()] (const juce::String& lyric, const juce::String&, int)
             {
-                return ! voice::vocal::parseLyrics (lyric.trim().toStdString()).empty();
+                // A note with no lyric arrives as the default, which the
+                // English singer sings as its own "ah".
+                if (english && lyric == model::Note::getDefaultLyric())
+                    return true;
+
+                const auto text = lyric.trim().toStdString();
+                return ! (english ? voice::vocal::parseEnglish (text) : voice::vocal::parseLyrics (text)).empty();
             };
 
         if (! generator || ! generator->isUtau())

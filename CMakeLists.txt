@@ -353,6 +353,8 @@ set(CARVE_CORE_SOURCES
     src/plugins/UtauPlugin.cpp
     src/voice/Voicebank.h
     src/voice/Voicebank.cpp
+    src/voice/LyricText.h
+    src/voice/LyricText.cpp
     src/voice/VoiceSynth.h
     src/voice/VoiceSynth.cpp
     src/voice/VocalModel.h
@@ -818,6 +820,7 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         src/model/SongModel.cpp
         src/model/Capture.cpp
         src/voice/Voicebank.cpp
+        src/voice/LyricText.cpp
         src/plugins/BreakAnalysis.cpp
         src/plugins/GabberKickDsp.cpp
         src/plugins/PianoModel.cpp
@@ -837,6 +840,7 @@ if(CARVE_BUILD_TESTS AND NOT CARVE_IOS)
         tests/CaptureProperties.cpp
         tests/ControllerCurveTests.cpp
         tests/VoicebankTests.cpp
+        tests/LyricTextTests.cpp
         tests/VocalModelTests.cpp
         tests/VorbisCommentTests.cpp
         tests/NoteGestureProperties.cpp

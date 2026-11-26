@@ -11,6 +11,7 @@
 #include "SelectionModifiers.h"
 #include "TimeSigSupport.h"
 #include "model/SongModel.h"
+#include "voice/LyricText.h"
 #include "NoteLanes.h"
 
 namespace carve::app
@@ -97,6 +98,33 @@ public:
     // sings. Unset, every note is taken to sing.
     using LyricCheck = std::function<bool (const juce::String& lyric, const juce::String& previousLyric, int pitch)>;
     void setLyricCheck (LyricCheck);
+
+    // How the singer reads its lyrics, which is how a line of them is cut
+    // into notes (see voice/LyricText.h).
+    void setLyricReading (voice::lyrics::Reading reading)  { lyricReading = reading; }
+    voice::lyrics::Reading getLyricReading() const          { return lyricReading; }
+
+    // Lyrics in bulk, for the Lyrics panel: a line of text poured over a run
+    // of notes, a lyric a note in singing order. The run is the selection when
+    // two or more notes are selected; from the one selected note to the end
+    // when one is; and every note when none is.
+    std::vector<juce::ValueTree> getLyricTargets() const;
+
+    // Those notes' lyrics as the panel opens on them: text that reads back as
+    // what they sing, a phrase a line.
+    juce::String getLyricText (const std::vector<juce::ValueTree>& notes) const;
+
+    // Drawn on the notes in place of their own until cleared, so the text
+    // being typed shows where it lands (and which of it has no recording)
+    // before anything is written.
+    void setLyricPreview (const std::vector<juce::ValueTree>& notes, const std::vector<juce::String>& lyrics);
+    void clearLyricPreview()  { setLyricPreview ({}, {}); }
+
+    // Writes the lyrics to the notes, as far as both go, as one undo step.
+    void applyLyrics (const std::vector<juce::ValueTree>& notes, const std::vector<juce::String>& lyrics);
+
+    // Cmd+L on a singer's roll: the owner opens the Lyrics panel.
+    std::function<void()> onLyricsRequested;
 
     // For a break slicer: each note shows how it plays (an arrow back for
     // reverse, a slope for a tape stop, a wedge for a fade, a saw for a
@@ -451,6 +479,12 @@ private:
     juce::ValueTree lyricNote;
     juce::String lyricNotePrevious;   // what the note being typed into follows on from
     LyricCheck lyricCheck;
+    voice::lyrics::Reading lyricReading = voice::lyrics::Reading::voicebank;
+    std::vector<std::pair<juce::ValueTree, juce::String>> lyricPreview;
+
+    // What a note is shown and checked as singing: the preview's lyric while
+    // there is one for it, else its own.
+    juce::String shownLyricOf (const model::Note&) const;
 
     // The notes the singer has nothing to sing with, by the rule above.
     std::vector<juce::ValueTree> findSilentNotes() const;
