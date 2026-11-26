@@ -226,7 +226,22 @@ FetchContent_Declare(tracktion
     # Keep tracktion's bundled examples (TestRunner etc.) out of the default
     # build: they compile with -Werror and fail on newer clang.
     EXCLUDE_FROM_ALL)
+
+# For iOS, JUCE builds juceaide (a host tool, for macOS) while configuring,
+# and hands it CMAKE_OSX_DEPLOYMENT_TARGET. From the second configure on,
+# that is the 10.13 tracktion's examples leave in the cache, and Xcode 27
+# builds nothing for macOS below 12.0. A macOS value while tracktion and
+# JUCE are added, then the cache's again: what the app is built for is left
+# as it was.
+if(CARVE_IOS)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
+endif()
+
 FetchContent_MakeAvailable(tracktion)
+
+if(CARVE_IOS)
+    unset(CMAKE_OSX_DEPLOYMENT_TARGET)
+endif()
 
 # TinySoundFont: the SF2 player behind the SoundFont generator. One header,
 # MIT, and no CMakeLists of its own, so making it available only fetches it;
