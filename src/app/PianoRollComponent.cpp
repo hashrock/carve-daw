@@ -568,18 +568,126 @@ std::vector<juce::ValueTree> PianoRollComponent::findSilentNotes() const
         return silent;
 
     const auto ordered = model::singing::inSingingOrder (pattern->getNotes());
+    const auto& defaultLyric = model::Note::getDefaultLyric();
 
+    // model::singing::previousLyricOf's rule, over the lyrics as shown: a
+    // preview's lyric is checked against the preview's lyric before it.
     for (size_t i = 0; i < ordered.size(); ++i)
     {
         const auto& note = ordered[i];
-        const auto lyric = note.getLyric();
+        const auto lyric = shownLyricOf (note);
+        juce::String previous;
 
-        if (! lyricCheck (lyric.isNotEmpty() ? lyric : model::Note::getDefaultLyric(),
-                          model::singing::previousLyricOf (ordered, i), note.getPitch()))
+        if (i > 0)
+        {
+            const auto& before = ordered[i - 1];
+
+            if (model::singing::followsOn (before.getStart(), before.getLength(), note.getStart()))
+            {
+                previous = shownLyricOf (before);
+
+                if (previous.isEmpty())
+                    previous = defaultLyric;
+            }
+        }
+
+        if (! lyricCheck (lyric.isNotEmpty() ? lyric : defaultLyric, previous, note.getPitch()))
             silent.push_back (note.state);
     }
 
     return silent;
+}
+
+juce::String PianoRollComponent::shownLyricOf (const model::Note& note) const
+{
+    for (const auto& [tree, lyric] : lyricPreview)
+        if (tree == note.state)
+            return lyric;
+
+    return note.getLyric();
+}
+
+std::vector<juce::ValueTree> PianoRollComponent::getLyricTargets() const
+{
+    std::vector<juce::ValueTree> targets;
+
+    if (! pattern)
+        return targets;
+
+    const auto ordered = model::singing::inSingingOrder (pattern->getNotes());
+    bool started = selectedNotes.size() != 1;
+
+    for (const auto& note : ordered)
+    {
+        if (selectedNotes.size() == 1 && note.state == selectedNotes.front())
+            started = true;
+
+        if (started && (selectedNotes.size() < 2 || isSelected (note.state)))
+            targets.push_back (note.state);
+    }
+
+    return targets;
+}
+
+juce::String PianoRollComponent::getLyricText (const std::vector<juce::ValueTree>& notes) const
+{
+    if (! pattern)
+        return {};
+
+    // Where the breaths are is the whole pattern's business: a note starts a
+    // phrase by the note before it in the song, chosen or not.
+    const auto ordered = model::singing::inSingingOrder (pattern->getNotes());
+    std::vector<voice::lyrics::Sung> sung;
+
+    for (const auto& tree : notes)
+        for (size_t i = 0; i < ordered.size(); ++i)
+            if (ordered[i].state == tree)
+            {
+                const auto breath = i == 0 || ! model::singing::followsOn (ordered[i - 1].getStart(),
+                                                                           ordered[i - 1].getLength(),
+                                                                           ordered[i].getStart());
+                sung.push_back ({ ordered[i].getLyric(), breath });
+                break;
+            }
+
+    return voice::lyrics::join (sung, lyricReading);
+}
+
+void PianoRollComponent::setLyricPreview (const std::vector<juce::ValueTree>& notes, const std::vector<juce::String>& lyrics)
+{
+    std::vector<std::pair<juce::ValueTree, juce::String>> preview;
+
+    for (size_t i = 0; i < juce::jmin (notes.size(), lyrics.size()); ++i)
+        preview.emplace_back (notes[i], lyrics[i]);
+
+    if (preview.empty() && lyricPreview.empty())
+        return;
+
+    lyricPreview = std::move (preview);
+    repaint();
+}
+
+void PianoRollComponent::applyLyrics (const std::vector<juce::ValueTree>& notes, const std::vector<juce::String>& lyrics)
+{
+    endLyricEdit (true);
+    clearLyricPreview();
+    undoManager.beginNewTransaction();
+
+    for (size_t i = 0; i < juce::jmin (notes.size(), lyrics.size()); ++i)
+    {
+        if (! notes[i].getParent().isValid())   // deleted while the panel was open
+            continue;
+
+        model::Note note (notes[i]);
+        const auto lyric = lyrics[i].trim();
+
+        // A note with no lyric already sings the default: writing it in
+        // would change the song for nothing.
+        if (lyric == note.getLyric() || (note.getLyric().isEmpty() && lyric == model::Note::getDefaultLyric()))
+            continue;
+
+        note.setLyric (lyric, &undoManager);
+    }
 }
 
 // Red while what is typed has no recording, so a lyric is found wanting
@@ -751,6 +859,7 @@ void PianoRollComponent::setPattern (std::optional<model::Pattern> newPattern)
 
     // A lyric half typed into the pattern being left still belongs to it.
     endLyricEdit (true);
+    lyricPreview.clear();
 
     pattern = std::move (newPattern);
     dragMode = DragMode::none;
@@ -1793,7 +1902,7 @@ void PianoRollComponent::paint (juce::Graphics& g)
             // still sings, and should say what.
             if (showsLyrics && r.getWidth() > 6.0f)
             {
-                const auto lyric = note.getLyric();
+                const auto lyric = shownLyricOf (note);
                 g.setFont (uiFont (fonts::small));
 
                 if (silent)
@@ -2287,6 +2396,14 @@ bool PianoRollComponent::keyPressed (const juce::KeyPress& key)
          || key == juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 0))
     {
         selectAllNotes();
+        return true;
+    }
+
+    if (key == juce::KeyPress ('l', juce::ModifierKeys::commandModifier, 0) && showsLyrics)
+    {
+        if (onLyricsRequested)
+            onLyricsRequested();
+
         return true;
     }
 

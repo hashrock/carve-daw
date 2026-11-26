@@ -113,6 +113,188 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QuantisePanel)
 };
 
+// Lyrics in bulk, in a call-out from the toolbar's Lyrics button (or Cmd+L):
+// a box of text poured over a run of notes, a lyric a note. It opens on what
+// those notes sing now, so the same box types a song in and rewrites one; as
+// it is typed, the notes show where it lands, and the ones with nothing to
+// sing it with show struck through, before anything is written. Apply (or
+// Cmd+Return) writes it as one undo step; Escape or a click away leaves the
+// notes as they were.
+class LyricsPanel : public juce::Component
+{
+public:
+    LyricsPanel (const juce::String& text, voice::lyrics::Reading readingToUse, int numNotesToFill,
+                 const juce::String& whichNotes)
+        : reading (readingToUse), numNotes (numNotesToFill)
+    {
+        header.setText ("Lyrics for " + whichNotes, juce::dontSendNotification);
+        header.setFont (uiFont (fonts::normal, juce::Font::bold));
+
+        hint.setText (reading == voice::lyrics::Reading::english
+                          ? "A note a syllable: a word, then + for each syllable after its first. "
+                            "Hyphens count them by hand (twin-kle); [ ] puts anything on one note."
+                          : reading == voice::lyrics::Reading::modelled
+                              ? juce::String (juce::CharPointer_UTF8 (
+                                    "A note a mora; \xe3\x81\xa3, \xe3\x82\x93 and \xe3\x83\xbc stay on the note before "
+                                    "unless a space parts them. [ ] puts anything on one note."))
+                              : juce::String (juce::CharPointer_UTF8 (
+                                    "A note a mora, \xe3\x81\xa3, \xe3\x82\x93 and \xe3\x83\xbc each their own. "
+                                    "Spaces part but are not notes; [ ] puts anything on one note.")),
+                      juce::dontSendNotification);
+        hint.setFont (uiFont (fonts::small));
+        hint.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+        hint.setJustificationType (juce::Justification::topLeft);
+
+        count.setFont (uiFont (fonts::small));
+
+        editor.setMultiLine (true, true);
+        editor.setReturnKeyStartsNewLine (true);
+        editor.setScrollbarsShown (true);
+        editor.setFont (uiFont (fonts::title));
+        editor.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xff1c1c20));
+        editor.setText (text, juce::dontSendNotification);
+        editor.onTextChange = [this] { textChanged(); };
+        editor.onEscapeKey = [this] { dismiss(); };
+        editor.onCommandReturn = [this] { apply(); };
+
+        applyButton.setTooltip ("Write the lyrics to the notes (Cmd+Return)");
+        applyButton.onClick = [this] { apply(); };
+        cancelButton.onClick = [this] { dismiss(); };
+
+        for (auto* c : std::initializer_list<juce::Component*> { &header, &editor, &hint, &count, &applyButton, &cancelButton })
+            addAndMakeVisible (c);
+
+        setSize (460, 260);
+    }
+
+    ~LyricsPanel() override
+    {
+        if (onClosed)
+            onClosed();
+    }
+
+    std::function<void (const std::vector<juce::String>&)> onPreview, onApply;
+    std::function<void()> onClosed;
+
+    // Once it is on screen, which is when it can take the keyboard: what is
+    // there is selected, so pasting a song over it replaces it whole.
+    void visibilityChanged() override
+    {
+        if (isShowing() && ! focused)
+        {
+            focused = true;
+
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<LyricsPanel> (this)]
+            {
+                if (safe != nullptr)
+                {
+                    safe->editor.grabKeyboardFocus();
+                    safe->editor.selectAll();
+                }
+            });
+        }
+    }
+
+    void parentHierarchyChanged() override  { visibilityChanged(); }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (10);
+        header.setBounds (area.removeFromTop (22));
+        area.removeFromTop (4);
+
+        auto footer = area.removeFromBottom (24);
+        applyButton.setBounds (footer.removeFromRight (72));
+        footer.removeFromRight (6);
+        cancelButton.setBounds (footer.removeFromRight (72));
+        footer.removeFromRight (6);
+        count.setBounds (footer);
+
+        area.removeFromBottom (4);
+        hint.setBounds (area.removeFromBottom (32));
+        area.removeFromBottom (4);
+        editor.setBounds (area);
+    }
+
+    // The first refresh: the count and the preview for the text it opened on.
+    void start()  { textChanged(); }
+
+private:
+    // Cmd+Return: TextEditor takes Return with any modifier as a new line.
+    struct Editor : juce::TextEditor
+    {
+        std::function<void()> onCommandReturn;
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress (juce::KeyPress::returnKey, juce::ModifierKeys::commandModifier, 0))
+            {
+                if (onCommandReturn)
+                    onCommandReturn();
+
+                return true;
+            }
+
+            return juce::TextEditor::keyPressed (key);
+        }
+    };
+
+    void textChanged()
+    {
+        lyrics = voice::lyrics::split (editor.getText(), reading);
+        const auto n = (int) lyrics.size();
+
+        auto plural = [] (int k, const char* one, const char* many) { return juce::String (k) + " " + (k == 1 ? one : many); };
+        juce::String text = plural (n, "lyric", "lyrics") + " for " + plural (numNotes, "note", "notes");
+        auto colour = juce::Colour (0xff8a8a94);
+
+        if (n > numNotes)
+        {
+            text << ": " << (n - numNotes) << " left over";
+            colour = juce::Colour (0xffe0a24f);
+        }
+        else if (n < numNotes && n > 0)
+        {
+            text << ": " << plural (numNotes - n, "note keeps its own", "notes keep their own");
+        }
+
+        count.setText (text, juce::dontSendNotification);
+        count.setColour (juce::Label::textColourId, colour);
+        applyButton.setEnabled (n > 0);
+
+        if (onPreview)
+            onPreview (lyrics);
+    }
+
+    void apply()
+    {
+        if (lyrics.empty())
+            return;
+
+        if (onApply)
+            onApply (lyrics);
+
+        dismiss();
+    }
+
+    void dismiss()
+    {
+        if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    }
+
+    voice::lyrics::Reading reading;
+    int numNotes = 0;
+    std::vector<juce::String> lyrics;
+    bool focused = false;
+
+    juce::Label header, hint, count;
+    Editor editor;
+    juce::TextButton applyButton { "Apply" }, cancelButton { "Cancel" };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LyricsPanel)
+};
+
 // Content of the pattern editor window: a toolbar over a scrolling piano roll,
 // with a velocity lane under it and a shortcut help bar along the bottom.
 //
@@ -800,6 +982,12 @@ public:
         quantiseButton.setWantsKeyboardFocus (false);
         quantiseButton.onClick = [this] { showQuantisePanel(); };
 
+        lyricsButton.setTooltip ("Lyrics (Cmd+L): type or paste a line of lyrics over the notes -- "
+                                 "the selected ones, or from the selected one on, or all of them");
+        lyricsButton.setWantsKeyboardFocus (false);
+        lyricsButton.onClick = [this] { showLyricsPanel(); };
+        pianoRoll.onLyricsRequested = [this] { showLyricsPanel(); };
+
         for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
                          &rowsShorterButton, &rowsTallerButton })
         {
@@ -957,6 +1145,8 @@ public:
                  &snapButton, &quantiseButton, &ruler, &viewport, &velocityLane, &shortcutBar })
             addAndMakeVisible (c);
 
+        addChildComponent (lyricsButton);
+
         if (isTouchUi)
         {
             noteBar = std::make_unique<NoteActionBar> (pianoRoll);
@@ -1009,6 +1199,17 @@ public:
     void setShowsLyrics (bool shouldShow)
     {
         pianoRoll.setShowsLyrics (shouldShow);
+
+        if (lyricsButton.isVisible() != shouldShow)
+        {
+            lyricsButton.setVisible (shouldShow);
+            resized();
+        }
+    }
+
+    void setLyricReading (voice::lyrics::Reading reading)
+    {
+        pianoRoll.setLyricReading (reading);
     }
 
     void setLyricCheck (PianoRollComponent::LyricCheck check)
@@ -1227,6 +1428,7 @@ public:
         place (gridBox, 74, 18);
         place (snapButton, 70, 12);
         place (quantiseButton, 74);
+        place (lyricsButton, 64);
     }
 
 private:
@@ -1292,6 +1494,55 @@ private:
         juce::CallOutBox::launchAsynchronously (std::move (panel), quantiseButton.getBounds(), this);
     }
 
+    // Opened from the toolbar button or Cmd+L, on the notes the roll says the
+    // lyrics are for -- picked now, so selecting while the box is open does not
+    // move them.
+    void showLyricsPanel()
+    {
+        if (! pattern || ! lyricsButton.isVisible())
+            return;
+
+        const auto targets = pianoRoll.getLyricTargets();
+
+        if (targets.empty())
+            return;
+
+        const auto numTargets = (int) targets.size();
+        const auto selected = pianoRoll.getNumSelectedNotes();
+        const auto notes = juce::String (numTargets) + (numTargets == 1 ? " note" : " notes");
+        const auto whichNotes = selected >= 2 ? "the " + notes + " selected"
+                              : selected == 1 ? notes + " from the selected one"
+                                              : "all " + notes;
+
+        auto panel = std::make_unique<LyricsPanel> (pianoRoll.getLyricText (targets), pianoRoll.getLyricReading(),
+                                                    numTargets, whichNotes);
+        const juce::Component::SafePointer<PianoRollContent> safe (this);
+
+        panel->onPreview = [safe, targets] (const std::vector<juce::String>& lyrics)
+        {
+            if (safe != nullptr)
+                safe->pianoRoll.setLyricPreview (targets, lyrics);
+        };
+
+        panel->onApply = [safe, targets] (const std::vector<juce::String>& lyrics)
+        {
+            if (safe != nullptr)
+                safe->pianoRoll.applyLyrics (targets, lyrics);
+        };
+
+        panel->onClosed = [safe]
+        {
+            if (safe != nullptr)
+            {
+                safe->pianoRoll.clearLyricPreview();
+                safe->pianoRoll.grabKeyboardFocus();
+            }
+        };
+
+        panel->start();
+        juce::CallOutBox::launchAsynchronously (std::move (panel), lyricsButton.getBounds(), this);
+    }
+
     // juce::Viewport only reports scrolling through this virtual, so the ruler
     // needs a subclass to hear about it.
     struct RollViewport : juce::Viewport
@@ -1347,6 +1598,7 @@ private:
         nameLabel.setEnabled (hasPattern);
         lengthSlider.setEnabled (hasPattern);
         quantiseButton.setEnabled (hasPattern);
+        lyricsButton.setEnabled (hasPattern);
         updateLengthUnit();
         updateShortcutBar();
 
@@ -1593,6 +1845,7 @@ private:
     IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
     IconButton rowsShorterButton { "", Icon::rowsShorter }, rowsTallerButton { "", Icon::rowsTaller };
     juce::TextButton quantiseButton { "Quantise" };
+    juce::TextButton lyricsButton { "Lyrics" };
     RollViewport viewport;
     PianoRollComponent pianoRoll;
     PianoRollRuler ruler { pianoRoll };
