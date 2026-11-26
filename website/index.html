@@ -344,6 +344,262 @@ nav a:hover,
   flex: 1;
 }
 
+/* Try it: the playable mock (mock.js) */
+.try-stage {
+  padding: clamp(14px, 3vw, 40px);
+  display: block;
+}
+
+.dm-scroll {
+  position: relative;
+  z-index: 1;
+  overflow-x: auto;
+  border-radius: 12px;
+  box-shadow: 0 26px 64px rgba(26, 36, 54, 0.22), 0 2px 10px rgba(26, 36, 54, 0.1);
+}
+
+.dm {
+  position: relative;
+  min-width: 600px;
+  background: #1b1b1f;
+  color: #d8d8dc;
+  border-radius: 12px;
+  overflow: hidden;
+  font: 12px/1.25 -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+
+.dm:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(224, 138, 60, 0.7);
+}
+
+.dm canvas {
+  display: block;
+  width: 100%;
+  touch-action: none;
+}
+
+.dm-title {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: #fff;
+  color: #2a2a2e;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.dm-lights i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.dm-lights i:nth-child(2) { background: #febc2e; }
+.dm-lights i:nth-child(3) { background: #28c840; }
+
+.dm-bar,
+.dm-prbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #1b1b1f;
+  white-space: nowrap;
+}
+
+.dm-bar {
+  border-bottom: 1px solid #2f2f36;
+}
+
+.dm-prbar {
+  border-top: 1px solid #3a3a40;
+  border-bottom: 1px solid #2f2f36;
+  overflow: hidden;
+}
+
+.dm-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: #232327;
+  border: 1px solid #303036;
+  border-radius: 6px;
+}
+
+.dm-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  background: #2b2b31;
+  color: #e6e6ea;
+  border: 1px solid #45454d;
+  border-radius: 5px;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.dm-btn:hover {
+  background: #36363d;
+}
+
+.dm-btn svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.dm-btn.on {
+  background: #e08a3c;
+  border-color: #e08a3c;
+  color: #1b1b1f;
+}
+
+.dm-play.on {
+  background: #2f4a33;
+  border-color: #4f8f5a;
+  color: #9be3a4;
+}
+
+.dm-sq {
+  padding: 2px 6px;
+}
+
+.dm-k {
+  margin-right: 2px;
+  color: #8a8a94;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.dm-v {
+  padding: 2px 6px;
+  background: #101014;
+  color: #7cc4ff;
+  border-radius: 4px;
+  font: 700 12px/1.3 ui-monospace, Menlo, monospace;
+}
+
+.dm-crumb {
+  margin-left: 6px;
+  color: #b8b8c0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dm-prname {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.dm-prname i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.dm-pats {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dm-len {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #b8b8c0;
+}
+
+.dm-lv {
+  min-width: 18px;
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dm-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 29px;
+  padding: 6px 8px;
+  background: #1c1c20;
+  border-top: 1px solid #3a3a40;
+  color: #9a9aa4;
+  font-size: 11px;
+}
+
+.dm-help b {
+  margin-right: 5px;
+  padding: 1px 5px;
+  background: #35353d;
+  color: #d8d8dc;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.dm-menu {
+  position: absolute;
+  z-index: 5;
+  min-width: 170px;
+  padding: 4px 0;
+  background: #2c3438;
+  border: 1px solid #4a5458;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dm-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 14px 5px 26px;
+  background: none;
+  border: 0;
+  color: #e6e6ea;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dm-menu button:hover {
+  background: #3d4a50;
+}
+
+.dm-menu .cur {
+  position: relative;
+}
+
+.dm-menu .cur::before {
+  content: "✓";
+  position: absolute;
+  left: 10px;
+}
+
+.try-note {
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
 /* Specs */
 .specs {
   max-width: 1060px;
@@ -535,6 +791,7 @@ footer .powered img {
       Carve DAW
     </a>
     <nav aria-label="Main navigation">
+      <a href="#try" data-i18n="navTry">Try it</a>
       <a href="#specs" data-i18n="navSpecs">Specs</a>
       <a href="https://github.com/hashrock/carve-daw">GitHub ↗</a>
       <button type="button" class="lang-toggle" id="lang-toggle" aria-label="Switch language">日本語</button>
@@ -563,6 +820,18 @@ footer .powered img {
 
 <main>
   <section class="features" aria-label="Screenshots">
+    <article class="feat" id="try">
+      <div class="feat-head">
+        <h2 data-i18n="fTryTitle">Try it in your browser</h2>
+        <p data-i18n="fTryDesc">The playlist and piano roll, with the Neon Streets sample song. Paint clips, edit a pattern, and every copy of it changes.</p>
+      </div>
+      <div class="shot-stage try-stage flip-y">
+        <div class="dm-scroll">
+          <div id="daw-mock" class="dm" tabindex="0" role="application" aria-label="Interactive mock of the Carve DAW playlist and piano roll"></div>
+        </div>
+      </div>
+      <p class="try-note" data-i18n="tryNote">A mock for getting the feel of it. The sounds are simple stand-ins for the app's instruments.</p>
+    </article>
     <article class="feat">
       <div class="feat-head">
         <h2 data-i18n="fPlaylistTitle">Playlist</h2>
@@ -708,6 +977,10 @@ footer .powered img {
       toggle: "日本語",
       toggleLabel: "日本語に切り替え",
       navSpecs: "Specs",
+      navTry: "Try it",
+      fTryTitle: "Try it in your browser",
+      fTryDesc: "The playlist and piano roll, with the Neon Streets sample song. Paint clips, edit a pattern, and every copy of it changes.",
+      tryNote: "A mock for getting the feel of it. The sounds are simple stand-ins for the app's instruments.",
       headlineA: "Pattern-based DAW",
       headlineB: "for Mac and iPad.",
       sub: "Free, open source, no AI.",
@@ -755,6 +1028,10 @@ footer .powered img {
       toggle: "EN",
       toggleLabel: "Switch to English",
       navSpecs: "仕様",
+      navTry: "触ってみる",
+      fTryTitle: "ブラウザで触ってみる",
+      fTryDesc: "プレイリストとピアノロールを、サンプル曲 Neon Streets で。クリップを描き、パターンを直すと、すべての配置が一緒に変わります。",
+      tryNote: "操作感を試すためのモックです。音はアプリの音源を簡易に置き換えたものです。",
       headlineA: "Mac・iPad 向けの",
       headlineB: "パターンベース DAW。",
       sub: "無料・オープンソース・AI 機能なし。",
@@ -840,5 +1117,6 @@ footer .powered img {
   apply(current);
 })();
 </script>
+<script src="mock.js" defer></script>
 </body>
 </html>
