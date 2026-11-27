@@ -2517,7 +2517,8 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
 
     // New and Clone are ids of their own above the patterns', so one callback
     // can tell "the third pattern" from them.
-    enum { newPatternId = 1000, clonePatternId, patternFromClipId, clipFromPatternId };
+    enum { newPatternId = 1000, clonePatternId, patternFromClipId, clipFromPatternId,
+           bounceToSlicerId, bounceToFileId };
 
     juce::PopupMenu menu;
     for (int i = 0; i < (int) patterns.size(); ++i)
@@ -2541,6 +2542,25 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
         menu.addSeparator();
         menu.addItem (patternFromClipId, "Set Pattern Length to This Clip", differs);
         menu.addItem (clipFromPatternId, "Fit Clip to Pattern Length", differs);
+
+        if (onBounceClip)
+        {
+            // Headed by the bars it covers, so what goes into the file is
+            // never a guess.
+            const auto start = clip.getStart();
+            const auto end = start + clip.getLength (patternLength);
+            const auto firstBar = song.toBarsAndBeats (start).bar + 1;
+            const auto lastBar = song.toBarsAndBeats (juce::jmax (start, end - beatTolerance)).bar + 1;
+
+            juce::PopupMenu bounceMenu;
+            bounceMenu.addSectionHeader (firstBar == lastBar ? "Bar " + juce::String (firstBar)
+                                                             : "Bars " + juce::String (firstBar) + "-" + juce::String (lastBar));
+            bounceMenu.addItem (bounceToSlicerId, "To New Slicer");
+            bounceMenu.addItem (bounceToFileId, "To File");
+
+            menu.addSeparator();
+            menu.addSubMenu ("Bounce Clip", bounceMenu);
+        }
     }
 
     const auto options = juce::PopupMenu::Options()
@@ -2560,6 +2580,14 @@ void PlaylistComponent::showPatternMenu (const model::PlaylistClip& clip,
         if (result == newPatternId || result == clonePatternId)
         {
             safeThis->makePatternForClip (clipState, result == clonePatternId);
+            return;
+        }
+
+        if (result == bounceToSlicerId || result == bounceToFileId)
+        {
+            if (clipState.isAChildOf (safeThis->song.getPlaylist().state) && safeThis->onBounceClip)
+                safeThis->onBounceClip (model::PlaylistClip (clipState), result == bounceToSlicerId);
+
             return;
         }
 

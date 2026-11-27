@@ -371,11 +371,40 @@ public:
     void setGainDb (float db, juce::UndoManager* um)  { state.setProperty (ids::gainDb, juce::jlimit (-48.0f, 48.0f, db), um); }
     void setPan (float p, juce::UndoManager* um)      { state.setProperty (ids::pan, juce::jlimit (-1.0f, 1.0f, p), um); }
 
-    // Source excerpt in seconds; zero preserves whole-file playback for old songs.
+    // The stretch of the file this sound is: from getStartSeconds, for
+    // getSpanSeconds (0 = on to the end of the file). Both zero -- the whole
+    // file -- for anything but a slice taken from a break. Stored only when set.
+    double getStartSeconds() const  { return juce::jmax (0.0, (double) state.getProperty (ids::start, 0.0)); }
+    double getSpanSeconds() const   { return juce::jmax (0.0, (double) state.getProperty (ids::span, 0.0)); }
+
+    void setRegion (double startSeconds, double spanSeconds, juce::UndoManager* um)
+    {
+        if (startSeconds > 0.0) state.setProperty (ids::start, startSeconds, um);
+        else                    state.removeProperty (ids::start, um);
+
+        if (spanSeconds > 0.0)  state.setProperty (ids::span, spanSeconds, um);
+        else                    state.removeProperty (ids::span, um);
+    }
+
+    // How much of that stretch plays, in seconds; zero plays all of it, which
+    // is what old songs (and a just-assigned sample) do.
     double getLengthSeconds() const { return state.getProperty (ids::length, 0.0); }
     void setLengthSeconds (double seconds, juce::UndoManager* um)
     {
         state.setProperty (ids::length, juce::jlimit (0.0, 36000.0, seconds), um);
+    }
+
+    // What the sampler is to play, in seconds from getStartSeconds: the
+    // length when one is set, else the span, else 0 for the rest of the file.
+    double getPlayedSeconds() const
+    {
+        const auto length = getLengthSeconds();
+        const auto span = getSpanSeconds();
+
+        if (length > 0.0)
+            return span > 0.0 ? juce::jmin (length, span) : length;
+
+        return span;
     }
 
     juce::ValueTree state;

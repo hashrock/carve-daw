@@ -195,6 +195,8 @@ public:
     std::function<void (int index)> onBreakCutRemoved;
     std::function<void (int bars)> onBreakBarsChanged;
     std::function<void (bool)> onBreakRepitchChanged;
+    std::function<std::vector<std::pair<juce::String, juce::String>>()> getDrumKits;
+    std::function<void (const std::vector<int>& slices, const juce::String& kitId)> onSendBreakSlicesToKit;
 
     // The song's bar length, which the slicer turns its bars into a tempo
     // with. The view has no song of its own to ask.
@@ -336,7 +338,7 @@ public:
             addChildComponent (slider);
             addChildComponent (padLabels[(size_t) i]);
         }
-        padControls[2].setTooltip ("Percentage of the source sample to play. 100% plays the whole file. Double-click to reset.");
+        padControls[2].setTooltip ("Percentage of the sample to play. 100% plays all of it (the whole slice, for one sent from the Break Slicer). Double-click to reset.");
         addChildComponent (padTitle);
 
         loadSampleButton.onClick = [this]
@@ -603,6 +605,15 @@ public:
                 breakEditor->onCutRemoved = [this] (int index) { if (onBreakCutRemoved) onBreakCutRemoved (index); };
                 breakEditor->onBarsChanged = [this] (int bars) { if (onBreakBarsChanged) onBreakBarsChanged (bars); };
                 breakEditor->onRepitchChanged = [this] (bool on) { if (onBreakRepitchChanged) onBreakRepitchChanged (on); };
+                breakEditor->getDrumKits = [this]
+                {
+                    return getDrumKits ? getDrumKits() : std::vector<std::pair<juce::String, juce::String>>();
+                };
+                breakEditor->onSendSlicesToKit = [this] (const std::vector<int>& chosen, const juce::String& kitId)
+                {
+                    if (onSendBreakSlicesToKit)
+                        onSendBreakSlicesToKit (chosen, kitId);
+                };
 
                 if (getRecentMedia)
                     breakEditor->setRecentItems (getRecentMedia (MediaKind::breakLoop));
@@ -936,8 +947,13 @@ private:
         {
             padSourceFile = file;
             padSourceStamp = stamp;
-            padSourceSeconds = model::readAudioFileLengthSeconds (file);
+            padFileSeconds = model::readAudioFileLengthSeconds (file);
         }
+        // The knob's 100% is the sound's own stretch of the file: all of it
+        // for a plain sample, the slice for one taken from a break.
+        padSourceSeconds = ! sound ? 0.0
+                         : sound->getSpanSeconds() > 0.0 ? sound->getSpanSeconds()
+                                                         : juce::jmax (0.0, padFileSeconds - sound->getStartSeconds());
         padControls[2].setEnabled (sound.has_value() && padSourceSeconds > 0.0);
         const auto length = sound ? sound->getLengthSeconds() : 0.0;
         padControls[2].setValue (length > 0.0 && padSourceSeconds > 0.0
@@ -948,6 +964,7 @@ private:
     juce::Rectangle<int> padPanelBounds;
     juce::File padSourceFile;
     juce::Time padSourceStamp;
+    double padFileSeconds = 0.0;
     double padSourceSeconds = 0.0;
     int selectedPad = 0;
     std::optional<model::Generator> currentGenerator;

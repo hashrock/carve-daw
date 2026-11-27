@@ -112,6 +112,17 @@ public:
     // save is only in the plugin until this runs.
     std::function<void()> onCaptureLivePluginState;
 
+    // The generator menu's Bounce submenu: render this generator's track,
+    // then make a slicer of it (toSlicer) or just keep the file. The owner
+    // holds the Edit, so the owner does the render -- and says what it would
+    // render, which heads the submenu: a bounce whose range is not shown is a
+    // bounce of who knows what.
+    std::function<void (const juce::String& generatorId, bool toSlicer)> onBounceRequested;
+
+    // What a bounce of this generator would cover, in words ("Bars 5-8
+    // (Loop)"), or empty with whyNot set when there is nothing to bounce.
+    std::function<juce::String (const juce::String& generatorId, juce::String& whyNot)> describeBounce;
+
     // A generator's own menu -- rename, duplicate, replace its instrument,
     // delete -- hung off screenArea, which is its row label on the playlist.
     void showGeneratorMenu (const juce::String& generatorId, juce::Rectangle<int> screenArea);
@@ -162,6 +173,26 @@ public:
     void removeBreakCutForSelected (int index);
     void setBreakBarsForSelected (int bars);
     void setBreakRepitchForSelected (bool repitch);
+
+    // The slicer's right-click: slices of the selected slicer put on a drum
+    // kit's empty pads, in order -- each pad that stretch of the loop, not a
+    // file of its own (SamplerSound::setRegion). An empty kitId makes a new
+    // kit named after the slicer. One undo step; the slicer stays selected.
+    // Returns how many slices found a pad.
+    int sendBreakSlicesToKit (const std::vector<int>& slices, const juce::String& kitId);
+
+    // Every drum kit in the song, as { id, name }, for that menu.
+    std::vector<std::pair<juce::String, juce::String>> getDrumKits() const;
+
+    // A bounce's other half: a new slicer playing `loop`, which is exactly
+    // lengthBeats of the song, cut on its sixteenths (at most
+    // Generator::maxBreakSlices of them), with a pattern that plays it back
+    // as rendered. Selected, like anything added.
+    void addSlicerFromBounce (const juce::File& loop, double lengthBeats, const juce::String& name);
+
+    // A bounced file into the slicer's and the sampler's Recent lists, so it
+    // is one click from being loaded into either.
+    void rememberBounce (const juce::File&);
 
     // One of the singer's voice knobs, let go of: one undo step.
     void setVoiceStyleValueForSelected (const juce::Identifier&, double value);

@@ -1744,3 +1744,39 @@ TEST_CASE ("Pad settings survive save and undo independently", "[song][state][sa
     REQUIRE (undo.redo());
     REQUIRE (first.getLengthSeconds() == 0.25);
 }
+
+TEST_CASE ("A pad taken from a break slice keeps its stretch of the file", "[song][state][sampler]")
+{
+    auto song = Song::create ("Kit");
+    auto kit = song.addGenerator ("Drums", Generator::drumKitType, nullptr);
+    auto pad = kit.addSound (juce::File ("/tmp/amen.wav"), nullptr);
+
+    // A plain sample: the whole file, nothing stored.
+    REQUIRE (pad.getStartSeconds() == 0.0);
+    REQUIRE (pad.getSpanSeconds() == 0.0);
+    REQUIRE (pad.getPlayedSeconds() == 0.0);
+    REQUIRE_FALSE (pad.state.hasProperty (ids::start));
+
+    juce::UndoManager undo;
+    undo.beginNewTransaction();
+    pad.setRegion (1.5, 0.25, &undo);
+
+    REQUIRE (pad.getStartSeconds() == 1.5);
+    REQUIRE (pad.getPlayedSeconds() == 0.25);   // all of the slice
+
+    // The length knob shortens within the slice, never past its end.
+    pad.setLengthSeconds (0.1, &undo);
+    REQUIRE (pad.getPlayedSeconds() == 0.1);
+    pad.setLengthSeconds (3.0, &undo);
+    REQUIRE (pad.getPlayedSeconds() == 0.25);
+
+    auto loaded = Song::fromXml (song.toXmlString());
+    REQUIRE (loaded.has_value());
+    auto restored = loaded->findGenerator (kit.getId())->getSounds().front();
+    REQUIRE (restored.getStartSeconds() == 1.5);
+    REQUIRE (restored.getSpanSeconds() == 0.25);
+
+    REQUIRE (undo.undo());
+    REQUIRE (pad.getStartSeconds() == 0.0);
+    REQUIRE_FALSE (pad.state.hasProperty (ids::span));
+}

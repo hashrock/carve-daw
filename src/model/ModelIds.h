@@ -37,7 +37,11 @@
 // │     ├─ INSTRUMENT                        for the three internal instruments: holds the
 // │     │  └─ PLUGIN {...}                   tracktion plugin's own state tree, as an effect does
 // │     ├─ SOUNDS                           sampler and soundfont types only
-// │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan, length}
+// │     │  └─ SOUND {id, name, file, relPath, rootNote, minNote, maxNote, gainDb, pan, length,
+// │     │             start, span}
+// │     │        start/span: the stretch of the file the sound is (seconds;
+// │     │        span 0 = to the end of the file), as for a break slice sent
+// │     │        to a drum pad. length is how much of that stretch plays.
 // │     │        file: absolute path to the sample. relPath: the same file
 // │     │        relative to the .carve's folder, rewritten on every save.
 // │     │        Loading prefers relPath when it resolves to a file that
@@ -210,6 +214,7 @@ CARVE_DECLARE_ID (syncType)
 CARVE_DECLARE_ID (bipolar)
 CARVE_DECLARE_ID (phase)
 CARVE_DECLARE_ID (offset)
+CARVE_DECLARE_ID (span)
 CARVE_DECLARE_ID (amount)
 CARVE_DECLARE_ID (param)
 CARVE_DECLARE_ID (beat)

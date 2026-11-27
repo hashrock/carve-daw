@@ -633,6 +633,10 @@ target_sources(carve PRIVATE
     src/app/EffectSlotList.cpp
     src/app/ExportComponent.h
     src/app/ExportComponent.cpp
+    src/app/RenderThread.h
+    src/app/TrackBouncer.h
+    src/app/TrackBouncer.cpp
+    src/app/BounceProgressWindow.h
     src/app/ExportWindow.h
     src/app/FactoryContent.h
     src/app/FaderLookAndFeel.h

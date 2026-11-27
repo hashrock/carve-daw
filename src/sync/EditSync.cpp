@@ -302,14 +302,19 @@ namespace
         // those files off disk again for no reason.
         std::vector<bool> claimed ((size_t) sampler.getNumSounds(), false);
 
-        auto claimExisting = [&] (const juce::String& path) -> int
+        // Slices of one break sent to several pads share a path; the one
+        // already starting where this sound does is the one to keep, so
+        // clearing a pad does not shuffle the others' excerpts around.
+        auto claimExisting = [&] (const juce::String& path, double start) -> int
         {
-            for (int i = 0; i < sampler.getNumSounds(); ++i)
-                if (! claimed[(size_t) i] && getSoundSource (sampler, i) == path)
-                {
-                    claimed[(size_t) i] = true;
-                    return i;
-                }
+            for (int pass = 0; pass < 2; ++pass)
+                for (int i = 0; i < sampler.getNumSounds(); ++i)
+                    if (! claimed[(size_t) i] && getSoundSource (sampler, i) == path
+                         && (pass == 1 || std::abs (sampler.getSoundStartTime (i) - start) < 0.000001))
+                    {
+                        claimed[(size_t) i] = true;
+                        return i;
+                    }
 
             return -1;
         };
@@ -317,14 +322,15 @@ namespace
         for (const auto& sound : sounds)
         {
             const auto path = sound.getFile().getFullPathName();
-            auto index = claimExisting (path);
+            auto index = claimExisting (path, sound.getStartSeconds());
 
             if (index < 0)
             {
-                // Start at the beginning, with zero length meaning the whole file.
-                // A non-empty return
+                // From the sound's start, with zero length meaning on to the
+                // end of the file. A non-empty return
                 // means the sampler is full, and so are we.
-                if (sampler.addSound (path, sound.getName(), 0.0, sound.getLengthSeconds(), sound.getGainDb()).isNotEmpty())
+                if (sampler.addSound (path, sound.getName(), sound.getStartSeconds(), sound.getPlayedSeconds(),
+                                      sound.getGainDb()).isNotEmpty())
                     break;
 
                 index = sampler.getNumSounds() - 1;
@@ -338,8 +344,9 @@ namespace
             for (auto engineSound : sampler.state)
                 if (engineSound.hasType (te::IDs::SOUND) && soundIndex++ == index)
                 {
-                    if (std::abs ((double) engineSound[te::IDs::length] - sound.getLengthSeconds()) > 0.000001)
-                        sampler.setSoundExcerpt (index, 0.0, sound.getLengthSeconds());
+                    if (std::abs ((double) engineSound[te::IDs::length] - sound.getPlayedSeconds()) > 0.000001
+                         || std::abs ((double) engineSound[te::IDs::startTime] - sound.getStartSeconds()) > 0.000001)
+                        sampler.setSoundExcerpt (index, sound.getStartSeconds(), sound.getPlayedSeconds());
                     break;
                 }
 

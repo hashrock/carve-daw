@@ -91,6 +91,20 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     // Before a generator is copied: the copy is made from the song, and the
     // knobs turned since the last save are only in the live plugins. Not an
     // edit of its own -- the copy that follows is.
+    generatorController->onBounceRequested = [this] (const juce::String& generatorId, bool toSlicer)
+    {
+        bounceGenerator (generatorId, toSlicer);
+    };
+    generatorController->describeBounce = [this] (const juce::String& generatorId, juce::String& whyNot)
+    {
+        const auto range = bounceRangeFor (generatorId, whyNot);
+        return range ? range->description : juce::String();
+    };
+    playlist.onBounceClip = [this] (const model::PlaylistClip& clip, bool toSlicer)
+    {
+        bounceClip (clip, toSlicer);
+    };
+
     generatorController->onCaptureLivePluginState = [this]
     {
         if (editSync != nullptr)
@@ -297,6 +311,13 @@ MainComponent::~MainComponent()
 void MainComponent::loadSong (model::Song newSong, juce::File sourceFile)
 {
     edit->getTransport().stop (false, false);
+
+    // Its result would land in the song that replaces this one.
+    if (bouncer != nullptr)
+        bouncer->cancel();
+
+    bounceWindow.reset();
+
     generatorWindow.reset();
     mixerWindow.reset();
     exportWindow.reset();
@@ -456,6 +477,10 @@ void MainComponent::updateAudition()
     // song otherwise -- through an export too, which plays the song but is
     // over in a moment, and the view should not flicker for it.
     playlist.setRack (patternMode, current, sync::auditionLengthBeats (song, audition));
+
+    // A bounce renders whatever the Edit held when it started.
+    if (bouncing)
+        return;
 
     // An export in progress holds the Edit on the song, and a pattern picked
     // meanwhile must not swap the patterns back in under the render.
@@ -661,6 +686,25 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->setBreakRepitchForSelected (repitch);
         };
+        inst.getDrumKits = [safe = juce::Component::SafePointer (this)]
+        {
+            return safe != nullptr ? safe->generatorController->getDrumKits()
+                                   : std::vector<std::pair<juce::String, juce::String>>();
+        };
+        inst.onSendBreakSlicesToKit = [safe = juce::Component::SafePointer (this)] (const std::vector<int>& slices,
+                                                                                   const juce::String& kitId)
+        {
+            if (safe == nullptr)
+                return;
+
+            const auto sent = safe->generatorController->sendBreakSlicesToKit (slices, kitId);
+
+            if (sent < (int) slices.size())
+                juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Send to Drum Kit",
+                    sent == 0 ? juce::String ("The kit has no empty pads.")
+                              : juce::String (sent) + " of " + juce::String ((int) slices.size())
+                                    + " slices sent - the kit ran out of empty pads.");
+        };
         inst.getBeatsPerBar = [safe = juce::Component::SafePointer (this)]
         {
             return safe != nullptr ? safe->song.getTimeSigAt (0.0).getBeatsPerBar() : 4.0;
@@ -733,6 +777,228 @@ void MainComponent::previewNote (int pitch, int velocity)
         tracks[i]->playGuideNote (pitch, te::MidiChannel (1), velocity, true, false, true);
         return;
     }
+}
+
+namespace
+{
+    juce::String describeBars (const model::Song& song, double startBeat, double endBeat)
+    {
+        const auto first = song.toBarsAndBeats (startBeat).bar + 1;
+        const auto last = song.toBarsAndBeats (juce::jmax (startBeat, endBeat - 1.0e-9)).bar + 1;
+
+        return first == last ? "Bar " + juce::String (first)
+                             : "Bars " + juce::String (first) + "-" + juce::String (last);
+    }
+}
+
+std::optional<MainComponent::BounceRange> MainComponent::bounceRangeFor (const juce::String& generatorId,
+                                                                        juce::String& whyNot) const
+{
+    const auto generator = song.findGenerator (generatorId);
+
+    if (! generator || editSync == nullptr)
+        return std::nullopt;
+
+    BounceRange range;
+
+    if (patternMode)
+    {
+        // Each auditioned pattern starts at beat zero, so its one time round
+        // is what the Edit plays for it.
+        if (const auto& audition = editSync->getAudition())
+            if (const auto* entry = audition->findEntry (generatorId))
+                if (const auto pattern = generator->findPattern (entry->patternId))
+                {
+                    range.endBeat = pattern->getLengthBeats();
+
+                    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
+                    const auto bars = range.endBeat / beatsPerBar;
+                    const auto length = std::abs (bars - std::round (bars)) < 1.0e-6
+                                            ? juce::String ((int) std::round (bars)) + (std::round (bars) == 1.0 ? " bar" : " bars")
+                                            : juce::String (range.endBeat, 2) + " beats";
+
+                    range.description = "Pattern \"" + pattern->getName() + "\" (" + length + ")";
+                }
+
+        if (range.endBeat <= 0.0)
+        {
+            whyNot = "No pattern to bounce";
+            return std::nullopt;
+        }
+
+        return range;
+    }
+
+    range.fromSong = true;
+
+    if (song.hasLoopRange())
+    {
+        range.startBeat = song.getLoopStart();
+        range.endBeat = song.getLoopEnd();
+        range.description = describeBars (song, range.startBeat, range.endBeat) + " (Loop)";
+    }
+    else
+    {
+        range.endBeat = song.getLengthBeats();
+        range.description = "Whole Song (" + describeBars (song, 0.0, range.endBeat) + ")";
+    }
+
+    if (range.endBeat <= range.startBeat)
+    {
+        whyNot = "The song is empty";
+        return std::nullopt;
+    }
+
+    return range;
+}
+
+void MainComponent::bounceGenerator (const juce::String& generatorId, bool toSlicer)
+{
+    juce::String whyNot;
+
+    if (const auto range = bounceRangeFor (generatorId, whyNot))
+        startBounce (generatorId, *range, toSlicer);
+    else if (whyNot.isNotEmpty())
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Bounce", whyNot + ".");
+}
+
+void MainComponent::bounceClip (const model::PlaylistClip& clip, bool toSlicer)
+{
+    const auto generator = song.findGenerator (clip.getGeneratorId());
+    const auto pattern = generator ? generator->findPattern (clip.getPatternId()) : std::nullopt;
+
+    if (! pattern)
+        return;
+
+    // The clip where it sits in the song, whatever mode the transport is in.
+    BounceRange range;
+    range.startBeat = clip.getStart();
+    range.endBeat = range.startBeat + clip.getLength (pattern->getLengthBeats());
+    range.fromSong = true;
+    range.description = describeBars (song, range.startBeat, range.endBeat);
+
+    startBounce (generator->getId(), range, toSlicer);
+}
+
+void MainComponent::startBounce (const juce::String& generatorId, const BounceRange& bounceRange, bool toSlicer)
+{
+    auto fail = [] (const juce::String& message)
+    {
+        juce::NativeMessageBox::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Bounce", message);
+    };
+
+    const auto generator = song.findGenerator (generatorId);
+
+    if (! generator || editSync == nullptr)
+        return;
+
+    if ((bouncer != nullptr && bouncer->isBouncing()) || exportingSong)
+        return fail ("A render is already running.");
+
+    // The generator's track: the non-bus tracks are the generators, in order.
+    te::AudioTrack* track = nullptr;
+    {
+        const auto generators = song.getGenerators();
+        int index = 0;
+
+        for (auto candidate : te::getAudioTracks (*edit))
+        {
+            if (sync::isBusTrack (*candidate))
+                continue;
+
+            if (index < (int) generators.size() && generators[(size_t) index].getId() == generatorId)
+                track = candidate;
+
+            ++index;
+        }
+    }
+
+    if (track == nullptr)
+        return;
+
+    const auto startBeat = bounceRange.startBeat, endBeat = bounceRange.endBeat;
+
+    if (endBeat <= startBeat)
+        return fail ("Nothing to bounce.");
+
+    const auto range = edit->tempoSequence.toTime (te::BeatRange (te::BeatPosition::fromBeats (startBeat),
+                                                                  te::BeatPosition::fromBeats (endBeat)));
+
+    // Rendered from the song: in Pattern mode the Edit is holding the
+    // patterns instead, so it is switched over for the render's length.
+    bounceFromSong = bounceRange.fromSong;
+
+    auto folder = appfiles::exports().getChildFile ("Bounces");
+    const auto name = generator->getName() + " Bounce";
+    const auto file = appfiles::freshChild (folder, name, ".wav");
+
+    if (bouncer == nullptr)
+    {
+        bouncer = std::make_unique<TrackBouncer> (*edit);
+        bouncer->onRenderingChanged = [safe = juce::Component::SafePointer (this)] (bool rendering)
+        {
+            if (safe == nullptr)
+                return;
+
+            safe->bouncing = rendering;
+
+            if (rendering && safe->bounceFromSong && safe->editSync != nullptr)
+                safe->editSync->setAudition (std::nullopt);   // synchronous: the render sees the song
+
+            if (! rendering)
+                safe->updateAudition();
+        };
+    }
+
+    const auto lengthBeats = endBeat - startBeat;
+
+    const auto error = bouncer->start (*track, range, file,
+        [safe = juce::Component::SafePointer (this), file, folder, toSlicer, lengthBeats, name, fail]
+        (const juce::String& renderError)
+        {
+            if (safe == nullptr)
+                return;
+
+            // Called from the bouncer's timer, not from the window.
+            safe->bounceWindow.reset();
+
+            if (renderError.isNotEmpty())
+                return fail ("The bounce failed: " + renderError);
+
+            safe->generatorController->rememberBounce (file);
+
+            if (toSlicer)
+                safe->generatorController->addSlicerFromBounce (file, lengthBeats, name);
+            else
+            {
+                safe->setBrowserShown (true);
+                safe->browser.setFolder (folder);
+            }
+        });
+
+    if (error.isNotEmpty())
+        return fail (error);
+
+    bounceWindow = std::make_unique<BounceProgressWindow> (generator->getName(),
+        [safe = juce::Component::SafePointer (this)]
+        {
+            return safe != nullptr && safe->bouncer != nullptr ? safe->bouncer->getProgress() : 0.0f;
+        },
+        [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe == nullptr)
+                return;
+
+            if (safe->bouncer != nullptr)
+                safe->bouncer->cancel();
+
+            // From the window's own button: it goes once its click is done.
+            juce::MessageManager::callAsync ([safe]
+            {
+                if (safe != nullptr)
+                    safe->bounceWindow.reset();
+            });
+        });
 }
 
 void MainComponent::openExport()
