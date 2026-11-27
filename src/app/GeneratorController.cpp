@@ -1102,6 +1102,128 @@ void GeneratorController::padFilesDropped (int startPad, const juce::StringArray
     refresh();
 }
 
+int GeneratorController::sendBreakSlicesToKit (const std::vector<int>& slices, const juce::String& kitId)
+{
+    auto slicer = getSelectedGenerator();
+
+    if (! slicer || ! slicer->isBreak() || slices.empty())
+        return 0;
+
+    const auto loop = slicer->getBreakFile();
+    const auto loopSeconds = getBreakLoopSeconds (*slicer);
+    const auto cuts = slicer->getBreakSlices();
+
+    if (loopSeconds <= 0.0 || cuts.empty())
+        return 0;
+
+    const auto slicerId = slicer->getId();
+    const auto slicerPatternId = selectedPatternId;
+    const auto stem = slicer->getName();
+
+    std::optional<model::Generator> kit;
+
+    if (kitId.isEmpty())
+    {
+        // addGenerator is its own transaction, and the pads go into it.
+        kit = addGenerator (stem + " Kit", model::Generator::drumKitType, nullptr);
+    }
+    else
+    {
+        kit = song.findGenerator (kitId);
+
+        if (! kit || ! kit->isDrumKit())
+            return 0;
+
+        undoManager.beginNewTransaction();
+    }
+
+    int sent = 0, pad = 0;
+
+    for (const auto slice : slices)
+    {
+        if (slice < 0 || slice >= (int) cuts.size())
+            continue;
+
+        while (pad < drumkit::numPads && drumkit::findSoundForPad (*kit, pad))
+            ++pad;
+
+        if (pad >= drumkit::numPads)
+            break;
+
+        const auto start = cuts[(size_t) slice];
+        const auto end = slice + 1 < (int) cuts.size() ? cuts[(size_t) slice + 1] : loopSeconds;
+
+        setPadSound (*kit, pad, loop);
+
+        if (auto sound = drumkit::findSoundForPad (*kit, pad))
+        {
+            sound->setRegion (start, end - start, &undoManager);
+            sound->setName (stem + " #" + juce::String (slice + 1), &undoManager);
+        }
+
+        ++sent;
+    }
+
+    // Back on the slicer, so the next slice can be picked out without
+    // going looking for it again.
+    selectedGeneratorId = slicerId;
+    selectedPatternId = slicerPatternId;
+    refresh();
+    fireSelectionChanged();
+    return sent;
+}
+
+void GeneratorController::rememberBounce (const juce::File& file)
+{
+    rememberMedia (MediaKind::breakLoop, file);
+    rememberMedia (MediaKind::sample, file);
+}
+
+std::vector<std::pair<juce::String, juce::String>> GeneratorController::getDrumKits() const
+{
+    std::vector<std::pair<juce::String, juce::String>> kits;
+
+    for (const auto& generator : song.getGenerators())
+        if (generator.isDrumKit())
+            kits.emplace_back (generator.getId(), generator.getName());
+
+    return kits;
+}
+
+void GeneratorController::addSlicerFromBounce (const juce::File& loop, double lengthBeats, const juce::String& name)
+{
+    const auto seconds = model::readAudioFileLengthSeconds (loop);
+
+    if (seconds <= 0.0 || lengthBeats <= 0.0)
+        return;
+
+    const auto beatsPerBar = song.getTimeSigAt (0.0).getBeatsPerBar();
+    auto slicer = addGenerator (name, model::Generator::breakType, nullptr);
+
+    // Into addGenerator's transaction: one undo takes the whole bounce back.
+    // The bars are known rather than guessed -- the render is exactly this
+    // long -- and the cuts fall on the grid it was rendered from.
+    slicer.setBreakFile (loop, seconds, beatsPerBar, &undoManager);
+    slicer.setBreakBars (juce::jmax (1, (int) std::lround (lengthBeats / beatsPerBar)), &undoManager);
+
+    const auto count = juce::jlimit (1, model::Generator::maxBreakSlices, (int) std::lround (lengthBeats * 4.0));
+    std::vector<double> starts;
+
+    for (int i = 0; i < count; ++i)
+        starts.push_back (seconds * i / count);
+
+    slicer.setBreakSlices (std::move (starts), seconds, &undoManager);
+    rememberMedia (MediaKind::breakLoop, loop);
+
+    // The pattern addGenerator made, filled with the loop as rendered.
+    for (auto pattern : slicer.getPatterns())
+        if (pattern.getId() == selectedPatternId)
+            slicer.fillBreakAsRecorded (pattern, seconds, beatsPerBar, &undoManager);
+
+    refresh();
+    fireSelectionChanged();
+}
+
 //==============================================================================
 // Selection
 
@@ -1363,6 +1485,28 @@ void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
         menu.addSubMenu ("Replace Instrument", replaceMenu);
     }
 
+    // A part rendered to a loop: to chop up again, or to keep. A reference
+    // row is someone else's record, not a part.
+    if (! generator->isReference() && onBounceRequested)
+    {
+        juce::String whyNot;
+        const auto range = describeBounce ? describeBounce (generatorId, whyNot) : juce::String();
+
+        juce::PopupMenu bounceMenu;
+
+        if (range.isNotEmpty())
+        {
+            bounceMenu.addSectionHeader (range);
+            bounceMenu.addItem (4, "To New Slicer");
+            bounceMenu.addItem (5, "To File");
+        }
+        else
+            bounceMenu.addItem (-1, whyNot.isNotEmpty() ? whyNot : juce::String ("Nothing to bounce"), false);
+
+        menu.addSeparator();
+        menu.addSubMenu ("Bounce", bounceMenu);
+    }
+
     menu.addSeparator();
     menu.addItem (2, "Delete");
 
@@ -1371,7 +1515,9 @@ void GeneratorController::showGeneratorMenu (const juce::String& generatorId,
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
                         [this, generatorId, instruments] (int result)
     {
-        if (result == 1)
+        if ((result == 4 || result == 5) && onBounceRequested)
+            onBounceRequested (generatorId, result == 4);
+        else if (result == 1)
             renameGenerator (generatorId);
         else if (result == 2)
             deleteGenerator (generatorId);

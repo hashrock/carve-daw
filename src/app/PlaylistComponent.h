@@ -95,6 +95,11 @@ public:
     // with the label's screen area to hang it off.
     std::function<void (const juce::String& generatorId, juce::Rectangle<int>)> onGeneratorMenu;
 
+    // A clip's pattern menu, Bounce Clip: the clip's stretch of the song,
+    // its generator's track only, rendered and made a slicer of (toSlicer)
+    // or kept as a file.
+    std::function<void (const model::PlaylistClip&, bool toSlicer)> onBounceClip;
+
     // A click on the ruler asked for the transport to move to this beat (a
     // drag still sets the loop range; a right click clears it).
     std::function<void (double beat)> onSeek;

@@ -9,6 +9,8 @@
 #include "ClipPropertiesPanel.h"
 #include "MissingMediaWindow.h"
 #include "ExportWindow.h"
+#include "TrackBouncer.h"
+#include "BounceProgressWindow.h"
 #include "MidiInputController.h"
 #include "SettingsWindow.h"
 #include "SoundLibrary.h"
@@ -146,6 +148,23 @@ private:
     void retargetGeneratorWindow();
     void openMixer();
     void openExport();
+
+    // Bounce: one generator's track rendered on its own into
+    // Exports/Bounces, then made a new slicer of (toSlicer) or shown in the
+    // browser. From the generator menu it covers what bounceRangeFor says --
+    // in Pattern mode the current pattern once, in Song mode the loop range
+    // or else the whole song; from a clip's menu, that clip in the song.
+    struct BounceRange
+    {
+        double startBeat = 0.0, endBeat = 0.0;
+        bool fromSong = false;       // the song, even in Pattern mode
+        juce::String description;    // for the menu: "Bars 5-8 (Loop)"
+    };
+
+    std::optional<BounceRange> bounceRangeFor (const juce::String& generatorId, juce::String& whyNot) const;
+    void bounceGenerator (const juce::String& generatorId, bool toSlicer);
+    void bounceClip (const model::PlaylistClip&, bool toSlicer);
+    void startBounce (const juce::String& generatorId, const BounceRange&, bool toSlicer);
     void previewNote (int pitch, int velocity);
 
     // The sample browser down the left of the playlist, shown or not; the
@@ -254,6 +273,13 @@ private:
     std::unique_ptr<GeneratorWindow> generatorWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<ExportWindow> exportWindow;
+    std::unique_ptr<TrackBouncer> bouncer;   // after the Edit it renders, so it goes first
+    std::unique_ptr<BounceProgressWindow> bounceWindow;   // while one runs
+
+    // While a bounce renders: the Edit is left as it was when it started,
+    // whatever pattern is picked meanwhile.
+    bool bouncing = false;
+    bool bounceFromSong = false;   // and the Edit was switched to the song for it
     std::unique_ptr<SettingsWindow> settingsWindow;
 
     // The downloadable voicebanks and SoundFonts. Made at start-up, which

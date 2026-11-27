@@ -9,6 +9,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "model/SongModel.h"
+#include "RenderThread.h"
 #include "sync/RenderPreroll.h"
 
 namespace te = tracktion;
@@ -89,10 +90,6 @@ public:
     void resized() override;
 
 private:
-    // Runs RenderTask::runJob until it says it is finished. Nothing else
-    // touches the task while this is alive.
-    class RenderThread;
-
     enum class Content { mixdown = 1, stems = 2 };
     enum class Format { wav = 1, ogg = 2 };
 

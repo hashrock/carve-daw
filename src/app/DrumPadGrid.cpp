@@ -14,6 +14,12 @@ namespace
     constexpr int padRowHeight = 48;
     constexpr int padGap = 3;
 
+    // The A-D tabs above the pads, and the gap under them.
+    constexpr int bankRowHeight = 20;
+    constexpr int bankTabWidth = 34;
+    constexpr int bankRowGap = 5;
+    constexpr int padsTop = bankRowHeight + bankRowGap;
+
     // How often the note monitor is looked at, and the least a pad stays lit
     // once hit. A tick of ~33ms with a 100ms flash is three frames: enough
     // to be seen, short enough that a hat roll still flickers per hit.
@@ -73,7 +79,7 @@ DrumPadGrid::~DrumPadGrid()
 
 int DrumPadGrid::getPreferredHeight()
 {
-    return drumkit::numRows * padRowHeight + (drumkit::numRows - 1) * padGap;
+    return padsTop + drumkit::numRows * padRowHeight + (drumkit::numRows - 1) * padGap;
 }
 
 void DrumPadGrid::clearPads()
@@ -164,27 +170,53 @@ void DrumPadGrid::timerCallback()
         repaint();
 }
 
+void DrumPadGrid::setBank (int newBank)
+{
+    newBank = juce::jlimit (0, drumkit::numBanks - 1, newBank);
+
+    if (newBank != bank)
+    {
+        bank = newBank;
+        repaint();
+    }
+}
+
+juce::Rectangle<int> DrumPadGrid::getBankTabBounds (int tab) const
+{
+    return { tab * (bankTabWidth + padGap), 0, bankTabWidth, bankRowHeight };
+}
+
+std::optional<int> DrumPadGrid::getBankTabAt (juce::Point<int> position) const
+{
+    for (int tab = 0; tab < drumkit::numBanks; ++tab)
+        if (getBankTabBounds (tab).contains (position))
+            return tab;
+
+    return std::nullopt;
+}
+
 juce::Rectangle<int> DrumPadGrid::getPadBounds (int pad) const
 {
-    if (pad < 0 || pad >= drumkit::numPads)
+    if (pad < 0 || pad >= drumkit::numPads || drumkit::getBankForPad (pad) != bank)
         return {};
 
-    const int column = pad % drumkit::numColumns;
+    const int slot = pad % drumkit::padsPerBank;
+    const int column = slot % drumkit::numColumns;
 
     // Pad 0 is bottom-left, so the lowest row is drawn last.
-    const int row = drumkit::numRows - 1 - pad / drumkit::numColumns;
+    const int row = drumkit::numRows - 1 - slot / drumkit::numColumns;
 
     const int usable = getWidth() - (drumkit::numColumns - 1) * padGap;
     const int cellWidth = juce::jmax (16, usable / drumkit::numColumns);
 
-    return { column * (cellWidth + padGap), row * (padRowHeight + padGap),
+    return { column * (cellWidth + padGap), padsTop + row * (padRowHeight + padGap),
              cellWidth, padRowHeight };
 }
 
 std::optional<int> DrumPadGrid::getPadAt (juce::Point<int> position) const
 {
-    for (int pad = 0; pad < drumkit::numPads; ++pad)
-        if (getPadBounds (pad).contains (position))
+    for (int slot = 0; slot < drumkit::padsPerBank; ++slot)
+        if (const int pad = bank * drumkit::padsPerBank + slot; getPadBounds (pad).contains (position))
             return pad;
 
     return std::nullopt;
@@ -192,8 +224,47 @@ std::optional<int> DrumPadGrid::getPadAt (juce::Point<int> position) const
 
 void DrumPadGrid::paint (juce::Graphics& g)
 {
-    for (int pad = 0; pad < drumkit::numPads; ++pad)
+    // The bank tabs: the one on show filled, a bank with samples on it
+    // marked with a dot, and one with a pad sounding lit, so a pattern
+    // playing bank C is seen to while A is on show.
+    for (int tab = 0; tab < drumkit::numBanks; ++tab)
     {
+        bool filled = false, lit = false;
+
+        for (int slot = 0; slot < drumkit::padsPerBank; ++slot)
+        {
+            const auto& state = pads[(size_t) (tab * drumkit::padsPerBank + slot)];
+            filled = filled || state.info.sampleName.isNotEmpty();
+            lit = lit || state.lit;
+        }
+
+        const auto bounds = getBankTabBounds (tab).toFloat();
+        const bool shown = tab == bank;
+
+        g.setColour (shown ? juce::Colour (0xff4a525c) : juce::Colour (0xff2b2b30));
+        g.fillRoundedRectangle (bounds, 3.0f);
+
+        if (lit && ! shown)
+        {
+            g.setColour (juce::Colour (0xffe0a24f));
+            g.drawRoundedRectangle (bounds.reduced (0.75f), 3.0f, 1.5f);
+        }
+
+        g.setFont (uiFont (fonts::small));
+        g.setColour (shown ? juce::Colour (0xffe8e8ee) : juce::Colour (0xff8a8a94));
+        g.drawText (drumkit::getBankName (tab), bounds.withTrimmedRight (filled ? 8.0f : 0.0f),
+                    juce::Justification::centred);
+
+        if (filled)
+        {
+            g.setColour (lit ? juce::Colour (0xffe0a24f) : juce::Colour (0xff8a8a94));
+            g.fillEllipse (bounds.getRight() - 10.0f, bounds.getCentreY() - 2.0f, 4.0f, 4.0f);
+        }
+    }
+
+    for (int slot = 0; slot < drumkit::padsPerBank; ++slot)
+    {
+        const int pad = bank * drumkit::padsPerBank + slot;
         const auto& state = pads[(size_t) pad];
         const auto bounds = getPadBounds (pad);
         const bool isFilled = state.info.sampleName.isNotEmpty();
@@ -238,6 +309,12 @@ void DrumPadGrid::paint (juce::Graphics& g)
 
 void DrumPadGrid::mouseDown (const juce::MouseEvent& e)
 {
+    if (const auto tab = getBankTabAt (e.getPosition()))
+    {
+        setBank (*tab);
+        return;
+    }
+
     auto pad = getPadAt (e.getPosition());
 
     if (! pad)
@@ -283,6 +360,11 @@ void DrumPadGrid::fileDragEnter (const juce::StringArray&, int x, int y)
 
 void DrumPadGrid::fileDragMove (const juce::StringArray&, int x, int y)
 {
+    // Held over a tab, the drag goes to that bank, so a kit's later banks can
+    // be filled by drag and drop too.
+    if (const auto tab = getBankTabAt ({ x, y }))
+        setBank (*tab);
+
     setDragTarget (getPadAt ({ x, y }));
 }
 
@@ -305,8 +387,8 @@ void DrumPadGrid::filesDropped (const juce::StringArray& files, int x, int y)
         const int usable = getWidth() - (drumkit::numColumns - 1) * padGap;
         const int cellWidth = juce::jmax (16, usable / drumkit::numColumns);
         const int column = juce::jlimit (0, drumkit::numColumns - 1, x / juce::jmax (1, cellWidth + padGap));
-        const int row = juce::jlimit (0, drumkit::numRows - 1, y / (padRowHeight + padGap));
-        pad = (drumkit::numRows - 1 - row) * drumkit::numColumns + column;
+        const int row = juce::jlimit (0, drumkit::numRows - 1, (y - padsTop) / (padRowHeight + padGap));
+        pad = bank * drumkit::padsPerBank + (drumkit::numRows - 1 - row) * drumkit::numColumns + column;
     }
 
     if (onFilesDropped)

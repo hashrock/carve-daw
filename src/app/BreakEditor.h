@@ -53,6 +53,11 @@ public:
     std::function<void (int slice)> onSliceClicked;
     std::function<void()> onViewChanged;
 
+    // The right-click on a slice: it, or every slice, onto a drum kit's
+    // empty pads. kitId is one of getDrumKits' ids, or empty for a new kit.
+    std::function<std::vector<std::pair<juce::String, juce::String>>()> getDrumKits;
+    std::function<void (const std::vector<int>& slices, const juce::String& kitId)> onSendSlicesToKit;
+
     void setAudio (std::shared_ptr<const plugins::BreakPlugin::Audio> newAudio)
     {
         if (newAudio == audio)
@@ -226,6 +231,12 @@ public:
 
         if (e.mods.isPopupMenu())
         {
+            if (cut < 0)
+            {
+                showSliceMenu (sliceAt (secondsFor (e.position.x)));
+                return;
+            }
+
             if (cut >= 0 && cuts.size() > 1)
             {
                 juce::PopupMenu menu;
@@ -300,6 +311,60 @@ public:
     }
 
 private:
+    void showSliceMenu (int slice)
+    {
+        if (! onSendSlicesToKit || cuts.empty())
+            return;
+
+        const auto kits = getDrumKits ? getDrumKits() : std::vector<std::pair<juce::String, juce::String>>();
+
+        // Item ids: 1 + kit index (0 = a new kit), offset by which slices.
+        constexpr int allOffset = 1000;
+
+        auto kitMenu = [&kits] (int offset)
+        {
+            juce::PopupMenu menu;
+            menu.addItem (offset + 1, "New Drum Kit");
+
+            if (! kits.empty())
+                menu.addSeparator();
+
+            for (int i = 0; i < (int) kits.size(); ++i)
+                menu.addItem (offset + 2 + i, kits[(size_t) i].second);
+
+            return menu;
+        };
+
+        juce::PopupMenu menu;
+
+        if (slice >= 0)
+            menu.addSubMenu ("Send Slice " + juce::String (slice + 1) + " to", kitMenu (0));
+
+        menu.addSubMenu ("Send All Slices to", kitMenu (allOffset));
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                            [safe = juce::Component::SafePointer<BreakSliceView> (this), slice, kits,
+                             count = (int) cuts.size()] (int result)
+        {
+            if (result <= 0 || safe == nullptr || ! safe->onSendSlicesToKit)
+                return;
+
+            const bool all = result > allOffset;
+            const int kit = (all ? result - allOffset : result) - 2;
+            const auto kitId = kit >= 0 && kit < (int) kits.size() ? kits[(size_t) kit].first : juce::String();
+
+            std::vector<int> slices;
+
+            if (all)
+                for (int i = 0; i < count; ++i)
+                    slices.push_back (i);
+            else
+                slices.push_back (slice);
+
+            safe->onSendSlicesToKit (slices, kitId);
+        });
+    }
+
     static constexpr int numberRowHeight = 18;
     static constexpr int scrollBarHeight = 10;
     static constexpr double minGap = 0.005;   // Generator::minBreakSliceSeconds
@@ -509,6 +574,8 @@ public:
     std::function<void (int bars)> onBarsChanged;
     std::function<void (bool)> onRepitchChanged;
     std::function<void (int note, int velocity)> onPreviewNote;
+    std::function<std::vector<std::pair<juce::String, juce::String>>()> getDrumKits;
+    std::function<void (const std::vector<int>& slices, const juce::String& kitId)> onSendSlicesToKit;
 
     void setRecentItems (std::vector<RecentMediaList::Item> items)  { recent.setItems (std::move (items)); }
 
@@ -598,6 +665,15 @@ public:
         slices.onCutMoved = [this] (int index, double seconds) { if (onCutMoved) onCutMoved (index, seconds); };
         slices.onCutAdded = [this] (double seconds) { if (onCutAdded) onCutAdded (seconds); };
         slices.onCutRemoved = [this] (int index) { if (onCutRemoved) onCutRemoved (index); };
+        slices.getDrumKits = [this]
+        {
+            return getDrumKits ? getDrumKits() : std::vector<std::pair<juce::String, juce::String>>();
+        };
+        slices.onSendSlicesToKit = [this] (const std::vector<int>& chosen, const juce::String& kitId)
+        {
+            if (onSendSlicesToKit)
+                onSendSlicesToKit (chosen, kitId);
+        };
         slices.onSliceClicked = [this] (int slice)
         {
             if (onPreviewNote)

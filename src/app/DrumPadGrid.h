@@ -20,12 +20,22 @@ namespace carve::app
 // Pad 0 is the bottom-left one and the notes ascend left to right, row by row
 // upwards -- the MPC layout, and the one that matches the piano roll, where
 // higher notes are drawn higher up.
+//
+// Sixty-four pads in four banks of sixteen, A to D, the grid showing one bank
+// at a time -- enough for every slice a break slicer can cut, and as many
+// sounds as the sampler underneath will hold. Bank B carries on from where
+// A stops: pad 16 is note 52, and so on up to 99.
 namespace drumkit
 {
     constexpr int numColumns = 4;
     constexpr int numRows = 4;
-    constexpr int numPads = numColumns * numRows;
+    constexpr int padsPerBank = numColumns * numRows;
+    constexpr int numBanks = 4;
+    constexpr int numPads = padsPerBank * numBanks;
     constexpr int firstNote = 36;                       // GM kick
+
+    inline int getBankForPad (int pad)            { return pad / padsPerBank; }
+    inline juce::String getBankName (int bank)    { return juce::String::charToString ((juce::juce_wchar) ('A' + bank)); }
 
     // How hard a pad clicked for preview is struck. Drum samples are recorded
     // hot, so this is a firm hit rather than a full-scale one.
@@ -46,7 +56,7 @@ namespace drumkit
     juce::String getNoteName (int midiNote);
 } // namespace drumkit
 
-// The 4x4 pad grid a drum-kit generator gets in place of a plain sampler's
+// The 4x4 pad grid (and its bank tabs) a drum-kit generator gets in place of a plain sampler's
 // single sample. It holds no model state: the generator window pushes a state
 // per pad on every refresh, so the grid never has to look at the tree or
 // worry about it changing under it.
@@ -105,15 +115,22 @@ public:
     void clearPads();
     void setSelectedPad (int pad) { selectedPad = pad; repaint(); }
 
+    // Which bank of sixteen is on show. The tabs above the pads switch it,
+    // and so does dragging files over a tab.
+    int getBank() const  { return bank; }
+    void setBank (int newBank);
+
     // Where the pads' note-ons are seen: the monitor EditSync keeps in front
     // of the kit's sampler. Null stops the lights. Polled, and held weakly --
     // the plugin can go with its track while the grid is up.
     void setActivitySource (plugins::NoteMonitorPlugin*);
 
-    // Height needed for four rows of pads; the pads take whatever width there is.
+    // Height needed for the bank tabs and four rows of pads; the pads take
+    // whatever width there is.
     static int getPreferredHeight();
 
     // In this component's coordinates, so the panel can hang a menu off a pad.
+    // Empty for a pad in a bank that is not on show.
     juce::Rectangle<int> getPadBounds (int pad) const;
 
     void paint (juce::Graphics&) override;
@@ -138,11 +155,14 @@ private:
     };
 
     std::optional<int> getPadAt (juce::Point<int>) const;
+    std::optional<int> getBankTabAt (juce::Point<int>) const;
+    juce::Rectangle<int> getBankTabBounds (int bank) const;
     void setDragTarget (std::optional<int> pad);
     void timerCallback() override;
 
     std::array<PadState, (size_t) drumkit::numPads> pads;
     int selectedPad = 0;
+    int bank = 0;
     std::optional<int> dragTargetPad;
     te::SafeSelectable<plugins::NoteMonitorPlugin> monitor;
 };
