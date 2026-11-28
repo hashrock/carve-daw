@@ -4,7 +4,7 @@
 Synapse Audio の **Orion** を参考にした、Generator 中心・パターンベースの作り。
 **パターンが第一級**で、パターンを直せば曲中の全配置に反映される。
 
-**[ダウンロード (macOS 11 以降、署名・公証済み)](https://github.com/hashrock/carve-daw/releases/latest)**
+**[ダウンロード (macOS 12 以降、署名・公証済み)](https://github.com/hashrock/carve-daw/releases/latest)**
 ・ [紹介ページ](https://hashrock.github.io/carve-daw/)
 
 ## 機能
