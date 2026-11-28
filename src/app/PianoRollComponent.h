@@ -593,6 +593,12 @@ private:
     // remove the note and needs no ids in the model.
     std::vector<juce::ValueTree> selectedNotes;
 
+    // The selection is only the note the draw tool just made. A tap on
+    // empty grid draws the next note then; with any other selection, on a
+    // touch screen, it lets go of the selection instead -- there is no
+    // empty click there that does not draw.
+    bool selectionIsJustDrawn = false;
+
     // Move drag: where the whole selection started, so every move is measured
     // from the beginning of the gesture rather than from the last event.
     std::vector<double> dragOriginStarts;    // parallel to selectedNotes

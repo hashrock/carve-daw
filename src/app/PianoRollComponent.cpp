@@ -1145,6 +1145,7 @@ void PianoRollComponent::setSelection (std::vector<juce::ValueTree> newSelection
         return;
 
     selectedNotes = std::move (newSelection);
+    selectionIsJustDrawn = false;
     notifyShortcutContext();
     repaint();
 }
@@ -2224,6 +2225,12 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    if (isTouchUi && ! selectedNotes.empty() && ! selectionIsJustDrawn)
+    {
+        clearSelection();
+        return;
+    }
+
     const auto minLength = minLengthBeats (e.mods);
     const auto maxStart = juce::jmax (0.0, pattern->getLengthBeats() - minLength);
     const auto start = juce::jlimit (0.0, maxStart, snapDown (xToBeat (e.position.x), e.mods));
@@ -2247,6 +2254,7 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
     // The new note becomes the selection, so that the drag that follows moves
     // only it and Backspace takes it away again.
     setSelection ({ draggedNote->state });
+    selectionIsJustDrawn = true;
 
     dragMode = DragMode::move;
     grabOffsetBeats = xToBeat (e.position.x) - start;
