@@ -643,7 +643,10 @@ private:
     double pixelsPerBeat = defaultPixelsPerBeat;
 
     Tool tool = Tool::paint;
-    IconButton paintToolButton { "Paint", Icon::pencil }, selectToolButton { "Select", Icon::select };
+    // Symbols alone, as in the piano roll: the toolbar shares its line with
+    // the transport, and the tooltips and the help bar name them.
+    IconButton paintToolButton { "", Icon::pencil }, selectToolButton { "", Icon::select };
+    static constexpr int iconToolWidth = 30;
     IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
     IconButton addTrackButton { "Generator", Icon::plus };
 

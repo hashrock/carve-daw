@@ -321,6 +321,14 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
                      &keyboardButton, &undoButton, &redoButton })
         b->setFlat (true);
 
+    // The transport is what the hand goes to most: symbols to match, rather
+    // than the toolbar size the button height would give them.
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
+                     &keyboardButton })
+        b->setIconSize (13.5f);
+
+    playButton.setIconSize (15.0f);
+
     captureButton.setEnabled (false);
     keyboardButton.setColour (juce::TextButton::textColourOnId, accent);
 
@@ -759,7 +767,7 @@ namespace
     constexpr int stripHeight = toolStrip::height;
     constexpr int stripButtonHeight = toolStrip::buttonHeight;
     constexpr int playModeWidth = 116;
-    constexpr int transportButtonWidth = 28;
+    constexpr int transportButtonWidth = 30;
     constexpr int numTransportButtons = 7;
     constexpr int stripGap = 10;
     constexpr int captionWidth = 34;    // "BPM", "BAR"

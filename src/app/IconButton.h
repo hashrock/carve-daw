@@ -449,6 +449,14 @@ public:
         repaint();
     }
 
+    // A symbol this big rather than one sized from the button: for buttons
+    // that are only their symbol and are aimed at all the time -- play, stop.
+    void setIconSize (float size)
+    {
+        fixedIconSize = size;
+        repaint();
+    }
+
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         auto& lf = getLookAndFeel();
@@ -475,7 +483,8 @@ public:
 
         // The symbol is sized from the button, so a toolbar button and a
         // transport button each get one in proportion.
-        const auto iconSize = juce::jlimit (9.0f, 13.0f, (float) getHeight() * 0.42f);
+        const auto iconSize = fixedIconSize > 0.0f ? fixedIconSize
+                                                   : juce::jlimit (9.0f, 13.0f, (float) getHeight() * 0.42f);
         const auto gap = label.isEmpty() ? 0.0f : iconGap;
 
         // Icon and word are centred as one block, so a button whose word
@@ -503,6 +512,7 @@ private:
 
     Icon icon;
     bool flat = false;
+    float fixedIconSize = 0.0f;   // 0: sized from the button
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IconButton)
 };

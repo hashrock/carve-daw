@@ -1986,7 +1986,7 @@ void MainComponent::resized()
     auto& strip = transportBar->getTransportStrip();
     const auto stripWidth = transportBar->getTransportStripWidth();
     constexpr int clipPanelWidth = 210;
-    constexpr int playlistToolsWidth = 220;   // Paint, Select and zoom
+    constexpr int playlistToolsWidth = 140;   // Paint, Select and zoom
     const auto playlistWidth = area.getWidth() - clipPanelWidth
                                - (browser.isVisible() ? SampleBrowser::preferredWidth : 0);
     const bool inToolbar = playlistWidth >= stripWidth + playlistToolsWidth;
