@@ -476,7 +476,7 @@ SampleBrowser::SampleBrowser (te::Engine& engineToUse)
     for (auto* viewport : { &favouritesViewport, &folderViewport })
     {
         viewport->setScrollBarsShown (true, false);
-        viewport->setScrollBarThickness (8);
+        viewport->setScrollBarThickness (scrollBarThickness (8));
         addAndMakeVisible (viewport);
     }
 

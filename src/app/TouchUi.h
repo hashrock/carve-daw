@@ -16,6 +16,19 @@ inline constexpr bool isTouchUi = true;
 inline constexpr bool isTouchUi = false;
 #endif
 
+// How thick a scroll bar is on a touch screen: something a finger can hold.
+// JUCE's 8px is a mouse's target, and on the iPad it is a line to aim at. It
+// is the default for every viewport and list (see CarveLookAndFeel), and the
+// few that set their own thickness ask scrollBarThickness() for it.
+inline constexpr int touchScrollBarThickness = 20;
+
+// A scroll bar's thickness: what the desktop build asks for, or the touch
+// one's.
+constexpr int scrollBarThickness (int onDesktop)
+{
+    return isTouchUi ? touchScrollBarThickness : onDesktop;
+}
+
 // The part of the display a window may use: inside the status bar, the home
 // indicator and the rounded corners.
 inline juce::Rectangle<int> usableScreenArea()
@@ -141,15 +154,14 @@ inline void leaveDragsToContent (juce::Viewport& viewport)
 }
 
 // A viewport whose content is all controls -- knobs, pads, envelopes -- and
-// has no two-finger scroll of its own: the scroll bars do it, widened to be
-// something a finger can hold.
+// has no two-finger scroll of its own: the scroll bars do it, which on a
+// touch screen are already wide enough for a finger.
 inline void scrollByBarsOnly (juce::Viewport& viewport)
 {
     if (! isTouchUi)
         return;
 
     leaveDragsToContent (viewport);
-    viewport.setScrollBarThickness (20);
 }
 
 struct BarScrolledViewport : juce::Viewport
