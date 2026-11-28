@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CarveDAW VERSION 0.23.0 LANGUAGES C CXX)
+project(CarveDAW VERSION 0.24.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,7 +21,8 @@ elseif(APPLE)
     # nothing, and JUCE then filled it in with its own 10.13: the Intel half
     # of the app was being built for a macOS the app has never been run on,
     # while the website said 11. This shadows the cache for everything below.
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
+    # 12.0 because Xcode 27 builds nothing for macOS below it.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
 else()
     set(CARVE_IOS FALSE)
 endif()
