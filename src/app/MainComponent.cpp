@@ -285,6 +285,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
 
     addAndMakeVisible (playlistViewport);
+    addAndMakeVisible (transportBar->getTransportStrip());
     addAndMakeVisible (clipProperties);
     addChildComponent (browser);
     addAndMakeVisible (helpBar);
@@ -1352,20 +1353,68 @@ void MainComponent::openPluginManager()
 // only takes keys from its own fixed SettingID enum.
 static constexpr const char* lastSongDirectoryKey = "lastSongDirectory";
 
-// The iPad's Save As: a name, and the song goes into the app's Documents
-// folder under it (see AppFiles.h) -- a save panel there could only offer
-// places the song could not then be saved in.
-void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
+// The folder the iPad's Save As writes into: one the user chose in Files,
+// while the app still has it, else the app's own Documents.
+static constexpr const char* songSaveFolderKey = "songSaveFolder";
+
+juce::File MainComponent::songSaveFolder() const
+{
+    const juce::File chosen (engine.getPropertyStorage().getPropertiesFile().getValue (songSaveFolderKey));
+
+    if (chosen.isDirectory() && (appfiles::isInDocuments (chosen) || chosen == appfiles::documents()
+                                 || sandbox::isInsideGrantedFolder (chosen)))
+        return chosen;
+
+    return appfiles::documents();
+}
+
+// A folder picked in Files is one the app may write anything into, which a
+// picked file is not (see SandboxAccess.h): so the iPad saves songs where the
+// user likes by being handed the folder, once, and kept on it.
+void MainComponent::chooseSongFolder (std::function<void()> onChosen)
+{
+    fileChooser = std::make_shared<juce::FileChooser> ("Choose a folder for songs", appfiles::documents());
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectDirectories,
+                              [safe = juce::Component::SafePointer (this), done = std::move (onChosen)]
+                              (const juce::FileChooser& chooser)
+    {
+        if (safe == nullptr)
+            return;
+
+        const auto folder = sandbox::claimChosen (chooser.getURLResult());
+
+        if (folder.isDirectory())
+            safe->engine.getPropertyStorage().getPropertiesFile()
+                .setValue (songSaveFolderKey, folder.getFullPathName());
+
+        if (done)
+            done();
+    });
+}
+
+// The iPad's Save As: a name, and the song goes into the song folder under
+// it -- the one it is already in where the app may write there, else the
+// chosen one. A save panel could only offer places the song could not then
+// be saved in; "Choose Folder..." hands the app a new one instead.
+void MainComponent::saveSongIntoFolder (std::function<void (bool)> onDone, bool inChosenFolder)
 {
     const auto suggested = currentFile != juce::File() ? currentFile.getFileNameWithoutExtension()
                          : song.getName().isNotEmpty() ? song.getName()
                                                        : juce::String ("Untitled");
 
+    const auto ownFolder = currentFile.getParentDirectory();
+    const auto folder = ! inChosenFolder && currentFile != juce::File()
+                         && (appfiles::isInDocuments (currentFile) || sandbox::isInsideGrantedFolder (ownFolder))
+                          ? ownFolder
+                          : songSaveFolder();
+
     // Owned by the callback, so it goes when the box is answered.
-    auto prompt = std::make_shared<juce::AlertWindow> ("Save song", "In On My iPad > Carve DAW",
+    auto prompt = std::make_shared<juce::AlertWindow> ("Save song", "In " + appfiles::describe (folder),
                                                        juce::MessageBoxIconType::NoIcon, this);
     prompt->addTextEditor ("name", suggested);
     prompt->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    prompt->addButton ("Choose Folder...", 2);
     prompt->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
     // Above the floating windows, as the look and feel puts its own alerts:
@@ -1373,10 +1422,23 @@ void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
     prompt->setAlwaysOnTop (true);
 
     prompt->enterModalState (true, juce::ModalCallbackFunction::create (
-        [safe = juce::Component::SafePointer (this), prompt, done = std::move (onDone)] (int result)
+        [safe = juce::Component::SafePointer (this), prompt, folder, done = std::move (onDone)] (int result) mutable
     {
         if (safe == nullptr)
             return;
+
+        if (result == 2)
+        {
+            // Back to this box once a folder is picked (or the picker is
+            // backed out of), now saying where it will go.
+            safe->chooseSongFolder ([self = safe, then = std::move (done)]() mutable
+            {
+                if (self != nullptr)
+                    self->saveSongIntoFolder (std::move (then), true);
+            });
+
+            return;
+        }
 
         const auto name = juce::File::createLegalFileName (prompt->getTextEditorContents ("name").trim());
 
@@ -1390,10 +1452,10 @@ void MainComponent::saveSongIntoDocuments (std::function<void (bool)> onDone)
 
         // The song's own file again is a save; any other song of that name
         // is kept, and this one numbered beside it.
-        auto file = appfiles::documents().getChildFile (name + ".carve");
+        auto file = folder.getChildFile (name + ".carve");
 
         if (file.exists() && file != safe->currentFile)
-            file = appfiles::freshChild (appfiles::documents(), name, ".carve");
+            file = appfiles::freshChild (folder, name, ".carve");
 
         const bool saved = safe->writeSongTo (file);
 
@@ -1507,8 +1569,10 @@ void MainComponent::openRecentSong (int index)
 void MainComponent::saveSong (std::function<void (bool)> onDone)
 {
     // On the iPad a song opened from elsewhere in Files can be read but not
-    // saved over (see AppFiles.h), so saving it means naming a copy.
-    const bool canSaveInPlace = ! appfiles::writesIntoDocuments || appfiles::isInDocuments (currentFile);
+    // saved over (see AppFiles.h) -- unless it sits in a folder the user
+    // handed over -- so saving it means naming a copy.
+    const bool canSaveInPlace = ! appfiles::writesIntoDocuments || appfiles::isInDocuments (currentFile)
+                                 || sandbox::isInsideGrantedFolder (currentFile.getParentDirectory());
 
     if (currentFile != juce::File() && canSaveInPlace)
     {
@@ -1527,7 +1591,7 @@ void MainComponent::saveSongAs (std::function<void (bool)> onDone)
 {
     if (appfiles::writesIntoDocuments)
     {
-        saveSongIntoDocuments (std::move (onDone));
+        saveSongIntoFolder (std::move (onDone));
         return;
     }
 
@@ -1906,12 +1970,33 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     transportBar->setBounds (area.removeFromTop (transportBar->getHeightForWidth (area.getWidth())));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
-    clipProperties.setBounds (area.removeFromRight (210));
+
+    // The transport strip goes at the head of the playlist's toolbar, over
+    // the view it plays. Where the playlist is too narrow for both -- an iPad
+    // held upright, the browser open on a small window -- it takes a line of
+    // its own across the window instead, above the browser and the panel.
+    auto& strip = transportBar->getTransportStrip();
+    const auto stripWidth = transportBar->getTransportStripWidth();
+    constexpr int clipPanelWidth = 210;
+    constexpr int playlistToolsWidth = 220;   // Paint, Select and zoom
+    const auto playlistWidth = area.getWidth() - clipPanelWidth
+                               - (browser.isVisible() ? SampleBrowser::preferredWidth : 0);
+    const bool inToolbar = playlistWidth >= stripWidth + playlistToolsWidth;
+
+    if (! inToolbar)
+        strip.setBounds (area.removeFromTop (toolStrip::height));
+
+    clipProperties.setBounds (area.removeFromRight (clipPanelWidth));
 
     if (browser.isVisible())
         browser.setBounds (area.removeFromLeft (SampleBrowser::preferredWidth));
 
+    if (inToolbar)
+        strip.setBounds (area.getX(), area.getY(), stripWidth, toolStrip::height);
+
+    playlist.setToolbarInset (inToolbar ? stripWidth : 0);
     playlistViewport.setBounds (area);
+    strip.toFront (false);
     playlist.hostViewportResized();   // its minimum width is the viewport's
 }
 

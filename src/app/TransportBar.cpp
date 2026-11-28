@@ -195,38 +195,34 @@ void PlayModeSwitch::setPatternMode (bool shouldBePattern, juce::NotificationTyp
 
 void PlayModeSwitch::paint (juce::Graphics& g)
 {
-    auto area = getLocalBounds();
-    const int rowHeight = area.getHeight() / 2;
+    const auto area = getLocalBounds().toFloat().reduced (0.5f);
+    const auto half = area.getWidth() * 0.5f;
 
-    auto drawRow = [&] (juce::Rectangle<int> row, const juce::String& text, bool lit)
+    g.setColour (panelFill);
+    g.fillRoundedRectangle (area, 5.0f);
+
+    // The lit half is a filled segment, as a tool that is chosen is.
+    const auto lit = patternMode ? area.withWidth (half) : area.withTrimmedLeft (half);
+    g.setColour (accent);
+    g.fillRoundedRectangle (lit, 5.0f);
+
+    g.setColour (panelEdge.brighter (0.2f));
+    g.drawRoundedRectangle (area, 5.0f, 1.0f);
+
+    auto drawHalf = [&] (juce::Rectangle<float> r, const juce::String& text, bool on)
     {
-        const auto lamp = row.removeFromLeft (14).toFloat().withSizeKeepingCentre (7.0f, 7.0f);
-
-        if (lit)
-        {
-            g.setColour (accent.withAlpha (0.35f));
-            g.fillEllipse (lamp.expanded (2.5f));
-            g.setColour (accent);
-        }
-        else
-        {
-            g.setColour (juce::Colour (0xff3a3a40));
-        }
-
-        g.fillEllipse (lamp);
-
-        g.setColour (lit ? juce::Colour (0xffe6e6ea) : captionColour);
-        g.setFont (uiFont (fonts::small, lit ? juce::Font::bold : juce::Font::plain));
-        g.drawText (text, row.withTrimmedLeft (2), juce::Justification::centredLeft);
+        g.setColour (on ? juce::Colours::black : juce::Colour (0xffb8b8c0));
+        g.setFont (uiFont (fonts::small, juce::Font::bold));
+        g.drawText (text, r, juce::Justification::centred, false);
     };
 
-    drawRow (area.removeFromTop (rowHeight), "Pattern", patternMode);
-    drawRow (area, "Song", ! patternMode);
+    drawHalf (area.withWidth (half), "Pattern", patternMode);
+    drawHalf (area.withTrimmedLeft (half), "Song", ! patternMode);
 }
 
 void PlayModeSwitch::mouseDown (const juce::MouseEvent& e)
 {
-    setPatternMode (e.getPosition().y < getHeight() / 2, juce::sendNotification);
+    setPatternMode (e.getPosition().x < getWidth() / 2, juce::sendNotification);
 }
 
 std::unique_ptr<juce::AccessibilityHandler> PlayModeSwitch::createAccessibilityHandler()
@@ -375,30 +371,28 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     // Save, on the bar next to the document's name: Cmd-S is there too, but
     // the state it acts on is what the name shows, so the button sits by it.
-    addAndMakeVisible (saveButton);
     saveButton.onClick = [this] { if (onSave) onSave(); };
 
-    masterKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     masterKnob.setRange (0.0, 1.0);
     masterKnob.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (model::MasterBus::defaultVolumeDb));
-    masterKnob.setColour (juce::Slider::rotarySliderFillColourId, accent);
-    masterKnob.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff3a3a40));
-    masterKnob.setColour (juce::Slider::thumbColourId, juce::Colour (0xffe6e6ea));
     masterKnob.setTooltip ("Master level");
     masterKnob.onDragStart = [this] { undoManager.beginNewTransaction(); };
     masterKnob.onValueChange = [this] { setMasterVolumeFromKnob(); };
 
-    documentLabel.setJustificationType (juce::Justification::centredRight);
+    documentLabel.setJustificationType (juce::Justification::centredLeft);
+    documentLabel.setFont (uiFont (fonts::normal, juce::Font::bold));
     documentLabel.setMinimumHorizontalScale (1.0f);   // ellipsis, not squashed text
-    documentLabel.setColour (juce::Label::textColourId, juce::Colour (0xffb8b8c0));
+    documentLabel.setColour (juce::Label::textColourId, juce::Colour (0xfff0f0f4));
 
     for (auto* c : std::initializer_list<juce::Component*> {
-             &logoButton, &bpmDisplay, &playMode,
-             &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
-             &keyboardButton, &barDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay,
-             &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter, &documentLabel })
+             &logoButton, &undoButton, &redoButton, &browserButton, &mixerButton, &masterKnob, &masterMeter,
+             &documentLabel, &saveButton })
         addAndMakeVisible (c);
+
+    for (auto* c : std::initializer_list<juce::Component*> {
+             &playMode, &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
+             &keyboardButton, &barDisplay, &bpmDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay })
+        strip.addAndMakeVisible (c);
 
     startTimerHz (30);
 }
@@ -515,8 +509,14 @@ void TransportBar::setBrowserShown (bool shown)
 void TransportBar::setDocumentState (const juce::String& documentName, bool hasUnsavedChanges)
 {
     // Same "edited" marker the window title carries.
-    documentLabel.setText (documentName + (hasUnsavedChanges ? " *" : ""),
-                           juce::dontSendNotification);
+    documentLabel.setText (documentName, juce::dontSendNotification);
+    documentLabel.setTooltip (hasUnsavedChanges ? documentName + " (unsaved changes)" : documentName);
+
+    if (unsaved != hasUnsavedChanges)
+    {
+        unsaved = hasUnsavedChanges;
+        repaint (documentPanel);
+    }
 }
 
 double TransportBar::getSongLengthBeats() const
@@ -730,178 +730,178 @@ void TransportBar::timerCallback()
 }
 
 //==============================================================================
+namespace
+{
+    void paintPanels (juce::Graphics& g, const std::vector<juce::Rectangle<int>>& panels,
+                      const std::vector<std::pair<juce::Rectangle<int>, juce::String>>& captions)
+    {
+        for (const auto& panel : panels)
+        {
+            g.setColour (panelFill);
+            g.fillRoundedRectangle (panel.toFloat(), 5.0f);
+            g.setColour (panelEdge);
+            g.drawRoundedRectangle (panel.toFloat().reduced (0.5f), 5.0f, 1.0f);
+        }
+
+        g.setFont (uiFont (fonts::small, juce::Font::bold));
+
+        for (const auto& [area, text] : captions)
+        {
+            g.setColour (captionColour);
+            g.drawText (text, area, juce::Justification::centredLeft);
+        }
+    }
+
+    // The strip's measurements: the playlist toolbar's height, with the same
+    // padding as its buttons.
+    constexpr int stripHeight = toolStrip::height;
+    constexpr int stripButtonHeight = toolStrip::buttonHeight;
+    constexpr int playModeWidth = 116;
+    constexpr int transportButtonWidth = 28;
+    constexpr int numTransportButtons = 7;
+    constexpr int stripGap = 10;
+    constexpr int captionWidth = 34;    // "BPM", "BAR"
+    constexpr int loopCheckWidth = 64;
+
+    // "for", between the loop's start and length: measured, since the
+    // touch build's fonts are larger than the desktop's.
+    int forWidth()
+    {
+        return juce::GlyphArrangement::getStringWidthInt (uiFont (fonts::small, juce::Font::bold), "for") + 10;
+    }
+}
+
 void TransportBar::paint (juce::Graphics& g)
 {
     g.fillAll (barBackground);
 
-    for (const auto& panel : panels)
+    // The document: its name in a panel of its own, with a lamp lit while
+    // there are unsaved changes, and Save beside it.
+    if (! documentPanel.isEmpty())
     {
-        g.setColour (panelFill);
-        g.fillRoundedRectangle (panel.toFloat(), 5.0f);
-        g.setColour (panelEdge);
-        g.drawRoundedRectangle (panel.toFloat().reduced (0.5f), 5.0f, 1.0f);
-    }
+        paintPanels (g, { documentPanel }, {});
 
-    g.setFont (uiFont (fonts::small, juce::Font::bold));
-    for (const auto& [area, text] : captions)
-    {
-        g.setColour (captionColour);
-        g.drawText (text, area, juce::Justification::centredLeft);
+        const auto lamp = juce::Rectangle<float> (8.0f, 8.0f)
+                              .withCentre ({ (float) documentPanel.getX() + 12.0f, (float) documentPanel.getCentreY() });
+        g.setColour (unsaved ? accent : juce::Colour (0xff3a3a40));
+        g.fillEllipse (lamp);
     }
 
     g.setColour (juce::Colour (0xff17171a));
     g.fillRect (0, getHeight() - 1, getWidth(), 1);
 }
 
+void TransportBar::Strip::paint (juce::Graphics& g)
+{
+    g.fillAll (juce::Colour (0xff1b1b1f));   // the playlist toolbar's
+    paintPanels (g, panels, captions);
+}
+
 void TransportBar::resized()
 {
-    // One row where it fits, at its full spacing or a little tighter. Where
-    // it does not -- a narrow window, an 11-inch iPad -- it becomes two rows
-    // rather than a row with things missing: the transport on top, and undo,
-    // the panels' buttons, the master level and the document below.
-    twoRows = ! (layOut (12, false) || layOut (8, false));
+    constexpr int meterWidth = 96;
+    constexpr int saveWidth = 70;
 
-    if (twoRows)
-        layOut (12, true);
+    auto area = getLocalBounds().reduced (6, 5);
+    const int h = area.getHeight();
+
+    logoButton.setBounds (area.removeFromLeft (52).withSizeKeepingCentre (52, h));
+    area.removeFromLeft (10);
+
+    // The right-hand group first, so whatever is left is the document's.
+    masterMeter.setVisible (area.getWidth() > 600);
+
+    if (masterMeter.isVisible())
+    {
+        masterMeter.setBounds (area.removeFromRight (meterWidth).withSizeKeepingCentre (meterWidth, 14));
+        area.removeFromRight (6);
+    }
+
+    masterKnob.setBounds (area.removeFromRight (34).withSizeKeepingCentre (34, 34));
+    area.removeFromRight (12);
+    mixerButton.setBounds (area.removeFromRight (76).withSizeKeepingCentre (76, 28));
+    area.removeFromRight (6);
+    browserButton.setBounds (area.removeFromRight (90).withSizeKeepingCentre (90, 28));
+    area.removeFromRight (16);
+
+    // Undo and redo stay by the document they undo.
+    auto left = area;
+    const int docWidth = juce::jlimit (160, 460, left.getWidth() - 2 * 28 - 12);
+    documentPanel = left.removeFromLeft (docWidth).withSizeKeepingCentre (docWidth, 32);
+    left.removeFromLeft (8);
+    undoButton.setBounds (left.removeFromLeft (28).withSizeKeepingCentre (28, 28));
+    left.removeFromLeft (2);
+    redoButton.setBounds (left.removeFromLeft (28).withSizeKeepingCentre (28, 28));
+
+    auto doc = documentPanel.reduced (4, 2);
+    doc.removeFromLeft (16);   // the unsaved lamp
+    saveButton.setBounds (doc.removeFromRight (saveWidth).withSizeKeepingCentre (saveWidth, 26));
+    doc.removeFromRight (6);
+    documentLabel.setBounds (doc);
 
     repaint();
 }
 
-int TransportBar::getHeightForWidth (int width)
+int TransportBar::getTransportStripWidth() const
 {
-    // The layout is what knows; it only depends on the width.
-    if (width != getWidth())
-        setSize (width, getHeight());
-
-    return twoRows ? 2 * preferredHeight - 10 + rowGap : preferredHeight;
+    return 6 + playModeWidth + stripGap
+           + numTransportButtons * transportButtonWidth + stripGap
+           + (6 + captionWidth + barDisplay.getWidth() + 6) + 6
+           + (6 + captionWidth + bpmDisplay.getWidth() + 6) + 6
+           + (6 + loopCheckWidth + loopStartDisplay.getWidth() + forWidth() + loopLengthDisplay.getWidth() + 6)
+           + 6;
 }
 
-bool TransportBar::layOut (int gapWidth, bool inTwoRows)
+void TransportBar::layOutStrip()
 {
-    constexpr int meterWidth = 110;
-
+    auto& panels = strip.panels;
+    auto& captions = strip.captions;
     panels.clear();
     captions.clear();
 
-    auto rows = getLocalBounds().reduced (6, 5);
-    const int h = preferredHeight - 10;
-    auto area = rows.removeFromTop (h);
-    const int available = area.getWidth();
-    int used = 0;
-    bool fits = true;
+    auto area = strip.getLocalBounds().withSizeKeepingCentre (strip.getWidth(), stripHeight).withTrimmedLeft (6);
+    const auto row = [&area] (int width) { return area.removeFromLeft (width); };
+    const auto centred = [] (juce::Rectangle<int> r, int w, int h) { return r.withSizeKeepingCentre (w, h); };
 
-    // Wide enough for the caption at the app's minimum font size: these cells
-    // used to be cut to whatever 10.5pt bold needed.
-    constexpr int captionWidth = 36;        // "BPM", "BAR"
-    constexpr int wideCaptionWidth = 54;    // "Start", "Length"
+    playMode.setBounds (centred (row (playModeWidth), playModeWidth, stripButtonHeight));
+    area.removeFromLeft (stripGap);
 
-    auto take = [&area, &used] (int width, int gap = 0)
-    {
-        used += width + gap;
-        auto r = area.removeFromLeft (width);
-        area.removeFromLeft (gap);
-        return r;
-    };
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton,
+                     &forwardButton, &keyboardButton })
+        b->setBounds (centred (row (transportButtonWidth), transportButtonWidth, stripButtonHeight + 2));
 
-    // The space that used to carry a bevelled line between two groups. The
-    // panels are already drawn as panels, so the line was saying a second time
-    // what the gap and the two edges say once.
-    auto gap = [&] { used += gapWidth; area.removeFromLeft (gapWidth); };
+    area.removeFromLeft (stripGap);
 
     auto panel = [&] (int width)
     {
-        auto r = take (width);
-        panels.push_back (r);
+        auto r = row (width);
+        panels.push_back (centred (r, width, stripButtonHeight + 2));
+        area.removeFromLeft (6);
         return r.reduced (6, 0);
     };
 
-    logoButton.setBounds (take (52, 6));
-    gap();
-
-    // BPM
-    {
-        auto p = panel (6 + captionWidth + bpmDisplay.getWidth() + 6);
-        captions.emplace_back (p.removeFromLeft (captionWidth), "BPM");
-        bpmDisplay.setBounds (p.withSizeKeepingCentre (bpmDisplay.getWidth(), 22));
-    }
-    gap();
-
-    playMode.setBounds (take (66));
-    gap();
-
-    // Transport
-    {
-        const auto buttons = { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton,
-                               &forwardButton, &keyboardButton };
-        auto p = panel (6 + (int) buttons.size() * 32 + 6);
-        for (auto* b : buttons)
-            b->setBounds (p.removeFromLeft (32).withSizeKeepingCentre (32, 28));
-    }
-    gap();
-
-    // Bar
     {
         auto p = panel (6 + captionWidth + barDisplay.getWidth() + 6);
         captions.emplace_back (p.removeFromLeft (captionWidth), "BAR");
-        barDisplay.setBounds (p.withSizeKeepingCentre (barDisplay.getWidth(), 22));
+        barDisplay.setBounds (centred (p, barDisplay.getWidth(), 20));
     }
-    gap();
 
-    // Loop: the checkbox, then start over length in two rows
     {
-        // The word LOOP ends close to the right of the checkbox it belongs to,
-        // so the two rows of captions beside it need more than a hairline to
-        // read as a separate thing.
-        constexpr int afterLoopLabel = 8;
-
-        const int fieldWidth = loopStartDisplay.getWidth();
-        auto p = panel (6 + 60 + afterLoopLabel + wideCaptionWidth + fieldWidth + 6);
-        loopCheck.setBounds (p.removeFromLeft (60));
-        p.removeFromLeft (afterLoopLabel);
-
-        const int rowHeight = (h - 2) / 2;
-        auto top = p.removeFromTop (rowHeight);
-        auto bottom = p.removeFromBottom (rowHeight);
-        captions.emplace_back (top.removeFromLeft (wideCaptionWidth), "Start");
-        captions.emplace_back (bottom.removeFromLeft (wideCaptionWidth), "Length");
-        loopStartDisplay.setBounds (top.withSizeKeepingCentre (fieldWidth, 17));
-        loopLengthDisplay.setBounds (bottom.withSizeKeepingCentre (fieldWidth, 17));
+        auto p = panel (6 + captionWidth + bpmDisplay.getWidth() + 6);
+        captions.emplace_back (p.removeFromLeft (captionWidth), "BPM");
+        bpmDisplay.setBounds (centred (p, bpmDisplay.getWidth(), 20));
     }
 
-    if (inTwoRows)
+    // LOOP 001 for 002: from bar 1, two bars long.
     {
-        fits = used <= available;
-        rows.removeFromTop (rowGap);
-        area = rows.removeFromTop (h);
-        used = 0;
-    }
-    else
-    {
-        gap();
+        auto p = panel (6 + loopCheckWidth + loopStartDisplay.getWidth() + forWidth() + loopLengthDisplay.getWidth() + 6);
+        loopCheck.setBounds (p.removeFromLeft (loopCheckWidth));
+        loopStartDisplay.setBounds (centred (p.removeFromLeft (loopStartDisplay.getWidth()), loopStartDisplay.getWidth(), 20));
+        captions.emplace_back (p.removeFromLeft (forWidth()).withTrimmedLeft (4), "for");
+        loopLengthDisplay.setBounds (centred (p.removeFromLeft (loopLengthDisplay.getWidth()), loopLengthDisplay.getWidth(), 20));
     }
 
-    undoButton.setBounds (take (28, 2).withSizeKeepingCentre (28, 28));
-    redoButton.setBounds (take (28).withSizeKeepingCentre (28, 28));
-    gap();
-
-    browserButton.setBounds (take (90, 6).withSizeKeepingCentre (90, 28));
-    // Mastering mode is shift-cmd-M, or the switch on the mixer's master strip.
-    mixerButton.setBounds (take (76, 10).withSizeKeepingCentre (76, 28));
-
-    // Master: knob and a lying-down meter
-    masterKnob.setBounds (take (34, 6).withSizeKeepingCentre (34, 34));
-    masterMeter.setVisible (meterWidth > 0);
-
-    if (meterWidth > 0)
-        masterMeter.setBounds (take (meterWidth, 12).withSizeKeepingCentre (meterWidth, 14));
-
-    // Save at the far right, then whatever is left goes to the document name
-    constexpr int saveWidth = 70;
-    saveButton.setBounds (area.removeFromRight (saveWidth).withSizeKeepingCentre (saveWidth, 28));
-    area.removeFromRight (8);
-    documentLabel.setBounds (area);
-
-    return fits && used + saveWidth <= available;
+    strip.repaint();
 }
 
 } // namespace carve::app

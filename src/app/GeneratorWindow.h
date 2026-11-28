@@ -67,8 +67,15 @@ public:
                 onPatternMenu (localAreaToGlobal (menuButton.getBounds()));
         };
 
+        newButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+        cloneButton.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+        menuButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+
         for (auto* child : std::initializer_list<juce::Component*> { &patterns, &newButton, &cloneButton, &menuButton })
+        {
+            child->setWantsKeyboardFocus (false);
             addAndMakeVisible (child);
+        }
     }
 
     std::function<void (const juce::String& patternId)> onPatternPicked;
@@ -114,30 +121,25 @@ public:
         menuButton.setEnabled (hasSelection);
     }
 
-    void paint (juce::Graphics& g) override
-    {
-        g.fillAll (juce::Colour (0xff1c1c20));
-    }
+    // It sits at the head of the piano roll's toolbar, at this width.
+    static constexpr int preferredWidth = 190 + 4 + 3 * 26;
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (6, 3);
+        auto area = getLocalBounds();
 
-        // The buttons keep their width and the list takes the rest, so a long
-        // pattern name gets the room and Clone never moves out from under the
-        // pointer.
-        menuButton.setBounds (area.removeFromRight (28));
+        // The buttons keep their width and the list takes the rest, so Clone
+        // never moves out from under the pointer.
+        menuButton.setBounds (area.removeFromRight (26));
+        cloneButton.setBounds (area.removeFromRight (26));
+        newButton.setBounds (area.removeFromRight (26));
         area.removeFromRight (4);
-        cloneButton.setBounds (area.removeFromRight (74));
-        area.removeFromRight (4);
-        newButton.setBounds (area.removeFromRight (64));
-        area.removeFromRight (8);
-        patterns.setBounds (area.removeFromLeft (juce::jmin (area.getWidth(), 220)));
+        patterns.setBounds (area);
     }
 
 private:
     juce::ComboBox patterns;
-    IconButton newButton { "New", Icon::plus }, cloneButton { "Clone", Icon::clone },
+    IconButton newButton { "", Icon::plus }, cloneButton { "", Icon::clone },
                menuButton { "", Icon::menu };
     juce::StringArray patternIds;   // parallel to the combo's items
 
@@ -1021,6 +1023,7 @@ public:
           rollContent (engine, um)
     {
         rollContent.onPatternRenamed = [this] (const juce::String& name) { updateTitle (name); };
+        rollContent.setToolbarLead (&patternPicker, PatternPicker::preferredWidth);
 
         rollContent.onSeekPatternBeat = [this] (double beat)
         {
@@ -1055,7 +1058,7 @@ public:
         showTab (Tab::pianoRoll);
     }
 
-    PatternPicker& getPatternPicker()    { return content.header.patterns; }
+    PatternPicker& getPatternPicker()    { return patternPicker; }
     InstrumentView& getInstrumentView()  { return instrumentView; }
 
     // The roll's ruler asked for the transport to move to this pattern beat;
@@ -1111,7 +1114,7 @@ public:
     void updatePatterns (const std::optional<model::Generator>& generator,
                          const juce::String& selectedPatternId)
     {
-        content.header.patterns.setFromGenerator (generator, selectedPatternId);
+        patternPicker.setFromGenerator (generator, selectedPatternId);
         instrumentView.refresh (generator, selectedPatternId);
         rollContent.setDrumMap (buildDrumMap (generator));
         rollContent.setShowsLyrics (generator && generator->singsLyrics());
@@ -1258,8 +1261,8 @@ public:
     }
 
 private:
-    static constexpr int tabRowHeight = 26;
-    static constexpr int headerHeight = tabRowHeight + PatternPicker::preferredHeight;
+    static constexpr int tabRowHeight = 30;
+    static constexpr int headerHeight = tabRowHeight;
 
     // Narrower than this and the header's tabs and picker would not fit,
     // however small the plugin's editor is.
@@ -1311,6 +1314,58 @@ private:
         setBoundsConstrained (getBounds());
     }
 
+    // A tab: the chosen one is cut from the same cloth as the view under it
+    // and joins it, the others sit back in the header.
+    struct TabButton : juce::Button
+    {
+        TabButton (const juce::String& name, Icon iconToShow) : juce::Button (name), icon (iconToShow)
+        {
+            setWantsKeyboardFocus (false);
+        }
+
+        void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+        {
+            const auto selected = getToggleState();
+            auto area = getLocalBounds().toFloat();
+
+            if (selected || highlighted || down)
+            {
+                juce::Path shape;
+                shape.addRoundedRectangle (area.getX(), area.getY(), area.getWidth(), area.getHeight() + 4.0f,
+                                           6.0f, 6.0f, true, true, false, false);
+                g.setColour (selected ? tabFill : juce::Colours::white.withAlpha (down ? 0.1f : 0.05f));
+                g.fillPath (shape);
+
+                if (selected)
+                {
+                    g.setColour (juce::Colour (0xff4a4a54));
+                    g.strokePath (shape, juce::PathStrokeType (1.0f));
+                    g.setColour (tabFill);
+                    g.fillRect (area.getX() + 1.0f, area.getBottom() - 1.0f, area.getWidth() - 2.0f, 2.0f);
+                    g.setColour (juce::Colour (0xffe08a3c));
+                    g.fillRoundedRectangle (area.getX() + 10.0f, area.getY() + 1.0f, area.getWidth() - 20.0f, 2.0f, 1.0f);
+                }
+            }
+
+            const auto text = selected ? juce::Colour (0xfff0f0f4) : juce::Colour (highlighted ? 0xffc8c8d0 : 0xff8a8a94);
+            const auto font = uiFont (fonts::normal, selected ? juce::Font::bold : juce::Font::plain);
+            const auto label = getButtonText();
+            const auto textWidth = juce::GlyphArrangement::getStringWidth (font, label);
+            constexpr float iconSize = 12.0f, gap = 6.0f;
+            const auto x = area.getCentreX() - (iconSize + gap + textWidth) * 0.5f;
+            const auto cy = area.getCentreY() + 1.0f;
+
+            g.setColour (text);
+            g.fillPath (icons::make (icon, { x, cy - iconSize * 0.5f, iconSize, iconSize }));
+            g.setFont (font);
+            g.drawText (label, juce::Rectangle<float> (x + iconSize + gap, area.getY(), textWidth + 2.0f, area.getHeight()).translated (0.0f, 1.0f),
+                        juce::Justification::centredLeft, false);
+        }
+
+        static inline const juce::Colour tabFill { 0xff2a2a2f };   // the roll's toolbar
+        Icon icon;
+    };
+
     struct Header : public juce::Component
     {
         Header()
@@ -1318,30 +1373,26 @@ private:
             for (auto* tab : { &instTab, &rollTab })
             {
                 tab->setClickingTogglesState (false);
-                tab->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff35608a));
                 addAndMakeVisible (tab);
             }
-
-            addAndMakeVisible (patterns);
         }
 
         void resized() override
         {
-            auto area = getLocalBounds();
-            auto tabRow = area.removeFromTop (tabRowHeight).reduced (4, 2);
-            instTab.setBounds (tabRow.removeFromLeft (84));
-            tabRow.removeFromLeft (4);
-            rollTab.setBounds (tabRow.removeFromLeft (108));
-            patterns.setBounds (area);
+            auto tabRow = getLocalBounds().withTrimmedTop (5).withTrimmedLeft (8);
+            instTab.setBounds (tabRow.removeFromLeft (92));
+            tabRow.removeFromLeft (2);
+            rollTab.setBounds (tabRow.removeFromLeft (122));
         }
 
         void paint (juce::Graphics& g) override
         {
-            g.fillAll (juce::Colour (0xff26262c));
+            g.fillAll (juce::Colour (0xff1c1c20));
+            g.setColour (juce::Colour (0xff4a4a54));
+            g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
         }
 
-        IconButton instTab { "Inst", Icon::instrument }, rollTab { "Pianoroll", Icon::pianoRoll };
-        PatternPicker patterns;
+        TabButton instTab { "Inst", Icon::instrument }, rollTab { "Pianoroll", Icon::pianoRoll };
     };
 
     struct Content : public juce::Component
@@ -1376,6 +1427,7 @@ private:
     juce::Point<int> rollContentSize;
     bool fitting = false;   // a resize of our own doing, not the user's
 
+    PatternPicker patternPicker;   // shown at the head of the roll's toolbar
     Content content;
     InstrumentView instrumentView;
     PianoRollContent rollContent;

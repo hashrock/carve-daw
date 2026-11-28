@@ -51,7 +51,21 @@ inline bool isInDocuments (const juce::File& file)
 inline juce::String describe (const juce::File& file)
 {
     if (writesIntoDocuments && isInDocuments (file))
-        return "On My iPad > Carve DAW > " + file.getRelativePathFrom (documents()).replace ("/", " > ");
+        return ("On My iPad > Carve DAW > " + file.getRelativePathFrom (documents()).replace ("/", " > "))
+                   .trimCharactersAtEnd ("> ").trimEnd();
+
+    if (writesIntoDocuments)
+    {
+        // iCloud Drive's folders live under a container path no one has seen.
+        const auto path = file.getFullPathName();
+        const juce::String iCloud ("/Mobile Documents/com~apple~CloudDocs");
+
+        if (const auto at = path.indexOf (iCloud); at >= 0)
+            return ("iCloud Drive" + path.substring (at + iCloud.length()).replace ("/", " > ")).trimEnd();
+
+        // Another provider's: its own name for the folder is all there is.
+        return file.getFileName();
+    }
 
     return file.getFullPathName();
 }

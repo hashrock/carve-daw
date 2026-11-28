@@ -2763,12 +2763,34 @@ EditSync::EditSync (model::Song songToWatch, te::Edit& targetEdit)
 EditSync::~EditSync()
 {
     cancelPendingUpdate();
+    stopTimer();
     song.state.removeListener (this);
+}
+
+void EditSync::scheduleResync()
+{
+    if (! edit.getTransport().isPlaying())
+    {
+        triggerAsyncUpdate();
+        return;
+    }
+
+    if (isTimerRunning() || isUpdatePending())
+        return;
+
+    const auto sinceLast = juce::Time::getMillisecondCounter() - lastResyncMs;
+
+    if (sinceLast >= (juce::uint32) playingResyncIntervalMs)
+        triggerAsyncUpdate();
+    else
+        startTimer (playingResyncIntervalMs - (int) sinceLast);
 }
 
 void EditSync::resyncNow()
 {
     cancelPendingUpdate();
+    stopTimer();
+    lastResyncMs = juce::Time::getMillisecondCounter();
     syncSongToEdit (song, edit, std::exchange (firstSync, false), audition ? &*audition : nullptr);
 
     if (onSynced)
@@ -2840,7 +2862,7 @@ void EditSync::applyTempoOnly()
         // either.
         if (generator.singsLyrics() || generator.isBreak())
         {
-            triggerAsyncUpdate();
+            scheduleResync();
             return;
         }
 
@@ -2848,7 +2870,7 @@ void EditSync::applyTempoOnly()
         {
             // The clips are not what this path assumed, so fall back rather
             // than leave them where the old tempo put them.
-            triggerAsyncUpdate();
+            scheduleResync();
             return;
         }
 

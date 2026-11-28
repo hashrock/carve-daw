@@ -7,6 +7,7 @@
 
 #include "CarveLogo.h"
 #include "IconButton.h"
+#include "KnobPanel.h"
 #include "LevelMeterView.h"
 #include "model/SongModel.h"
 
@@ -115,8 +116,8 @@ private:
 };
 
 //==============================================================================
-// Pattern / Song: two rows with a lamp each, one lit. Pattern plays the
-// pattern being edited on its own, looped; Song plays the playlist.
+// Pattern / Song: a pair of segments, the chosen one lit. Pattern plays
+// every generator's current pattern, looped; Song plays the playlist.
 class PlayModeSwitch : public juce::Component
 {
 public:
@@ -138,11 +139,18 @@ private:
 };
 
 //==============================================================================
-// Orion's toolbar, in Carve's clothes: the logo menu, tempo, Pattern / Song,
-// the transport group, the bar counter, the loop with its start and length,
-// undo / redo, the mixer, and the master level with a meter. Groups are drawn
-// as recessed panels with a gap between them, which is what makes a row of
-// this many controls readable at a glance.
+// The bar along the top of the window and the transport strip, which are one
+// object because they share the transport's state, but two components:
+//
+//   the bar      the logo menu, the document's name with Save, undo / redo,
+//                the Browser and Mixer buttons, and the master level
+//   the strip    Pattern / Song, the transport buttons, the bar counter, the
+//                tempo and the loop -- what plays, and where. The owner puts
+//                it at the head of the playlist's toolbar, over the view that
+//                Pattern / Song switches and the transport plays.
+//
+// Groups are drawn as recessed panels with a gap between them, which is
+// what makes a row of this many controls readable at a glance.
 class TransportBar : public juce::Component,
                      private juce::Timer
 {
@@ -227,8 +235,12 @@ public:
 
     bool isPatternMode() const  { return playMode.isPatternMode(); }
 
-    static constexpr int preferredHeight = 48;   // of one row
-    static constexpr int rowGap = 4;
+    static constexpr int preferredHeight = 44;
+
+    // The transport strip, for the owner to place (see the class comment),
+    // and the width it wants; its height is the playlist toolbar's.
+    juce::Component& getTransportStrip()  { return strip; }
+    int getTransportStripWidth() const;
 
     void setSong (model::Song newSong);
 
@@ -242,12 +254,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // The bar is one row or two depending on how wide it is; this is how
-    // tall it wants to be at that width.
-    int getHeightForWidth (int width);
-
-    // One pass of the layout at this spacing. False if it did not fit.
-    bool layOut (int gapWidth, bool inTwoRows);
+    int getHeightForWidth (int)  { return preferredHeight; }
 
 private:
     void timerCallback() override;
@@ -291,7 +298,24 @@ private:
     model::Song song;
     juce::UndoManager& undoManager;
 
-    bool twoRows = false;
+    // The strip draws its own panels; the bar lays it out, as it owns the
+    // controls in it.
+    struct Strip : juce::Component
+    {
+        explicit Strip (TransportBar& b) : bar (b) {}
+        void paint (juce::Graphics&) override;
+        void resized() override  { bar.layOutStrip(); }
+
+        TransportBar& bar;
+        std::vector<juce::Rectangle<int>> panels;
+        std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
+    };
+
+    void layOutStrip();
+
+    Strip strip { *this };
+    bool unsaved = false;
+    juce::Rectangle<int> documentPanel;
 
     // What the recorder says it is doing, not what this bar asked for.
     bool recording = false;
@@ -318,7 +342,7 @@ private:
 
     IconButton saveButton { "Save", Icon::save };
     IconButton browserButton { "Browser", Icon::folder };
-    juce::Slider masterKnob;
+    RotaryDial masterKnob;   // the same dial as every synth's, not the look and feel's
     // A click on the meter opens the analyzer. Declared before the meter, so
     // it outlives it.
     struct MeterClick : juce::MouseListener
@@ -331,10 +355,7 @@ private:
     LevelMeterView masterMeter { LevelMeterView::Orientation::horizontal };
     juce::Label documentLabel;
 
-    // Laid out by resized(), drawn by paint(): the recessed group panels and
-    // the small captions inside them.
-    std::vector<juce::Rectangle<int>> panels;
-    std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
+
 };
 
 } // namespace carve::app

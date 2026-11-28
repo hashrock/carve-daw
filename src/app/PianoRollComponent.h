@@ -110,6 +110,10 @@ public:
     // when one is; and every note when none is.
     std::vector<juce::ValueTree> getLyricTargets() const;
 
+    // Every note, in singing order, whatever is selected: what the lyrics
+    // strip reads back as the pattern's whole text.
+    std::vector<juce::ValueTree> getAllNotesInSingingOrder() const;
+
     // Those notes' lyrics as the panel opens on them: text that reads back as
     // what they sing, a phrase a line.
     juce::String getLyricText (const std::vector<juce::ValueTree>& notes) const;
@@ -656,18 +660,36 @@ public:
     // pattern is placed, so all it reports is the beat.
     std::function<void (double patternBeat)> onSeek;
 
+    // The pattern's end carries a handle: dragging it sets the length, in
+    // whole bars. Started fires once per drag (one undo step a drag), then
+    // Dragged with each new length the pointer asks for.
+    std::function<void()> onLengthDragStarted;
+    std::function<void (double lengthBeats)> onLengthDragged;
+
+    // What the handle says, e.g. "2 bars  8 beats": the owner knows the song,
+    // and so whether its bars vary.
+    void setLengthLabel (const juce::String&);
+
     // x coordinate of the roll that sits at this component's left edge
     void setScrollOffset (int offsetX);
 
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+    static constexpr double maxBars = 256.0;
 
 private:
     void seekTo (float x);
+    juce::Rectangle<float> lengthHandleBounds() const;
+    bool isOverLengthHandle (juce::Point<float>) const;
 
     const PianoRollComponent& roll;
     int scrollOffset = 0;
+    juce::String lengthLabel;
+    bool draggingLength = false;
 };
 
 // The lane drawn under the roll. By default the notes' velocities, one bar
