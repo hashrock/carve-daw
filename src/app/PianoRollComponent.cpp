@@ -968,8 +968,18 @@ void PianoRollComponent::setPlayheadBeat (std::optional<double> beat)
     if (playheadBeat.has_value() != beat.has_value()
          || (beat.has_value() && std::abs (*playheadBeat - *beat) > 1.0e-3))
     {
+        // Only the columns the line leaves and reaches: this arrives thirty
+        // times a second while playing, and repainting the whole roll each
+        // time is what made editing during playback lag on the iPad.
+        auto column = [this] (const std::optional<double>& b)
+        {
+            return b ? juce::Rectangle<int> ((int) std::floor (beatToX (*b)) - 2, 0, 5, getHeight())
+                     : juce::Rectangle<int>();
+        };
+
+        repaint (column (playheadBeat));
         playheadBeat = beat;
-        repaint();
+        repaint (column (playheadBeat));
     }
 }
 int PianoRollComponent::yToPitch (float y) const       { return highestPitch - (int) (y / (float) getRowHeight()); }

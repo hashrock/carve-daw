@@ -97,7 +97,8 @@ bool waitForVoiceRenders (te::Edit& edit, int timeoutMs);
 // song tree triggers a debounced (coalesced per message-loop tick) full
 // resync. Message thread only.
 class EditSync : private juce::ValueTree::Listener,
-                 private juce::AsyncUpdater
+                 private juce::AsyncUpdater,
+                 private juce::Timer
 {
 public:
     EditSync (model::Song songToWatch, te::Edit& targetEdit);
@@ -188,7 +189,7 @@ private:
              || (tree.hasType (model::ids::GROUP) && model::Group::isMixerProperty (property)))
             applyMixerStateOnly();
         else
-            triggerAsyncUpdate();
+            scheduleResync();
     }
 
     void valueTreeChildAdded (juce::ValueTree& parent, juce::ValueTree&) override       { childListChanged (parent); }
@@ -201,12 +202,25 @@ private:
         if (parent.hasType (model::ids::AUTOCURVE) || parent.hasType (model::ids::AUTOMATION))
             applyAutomationOnly();
         else
-            triggerAsyncUpdate();
+            scheduleResync();
     }
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { triggerAsyncUpdate(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { scheduleResync(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
 
     void handleAsyncUpdate() override  { resyncNow(); }
+
+    // A full resync while playing rebuilds the playback graph as well, and a
+    // note being dragged changes the song on every pointer move -- a hundred
+    // and twenty a second on an iPad -- so one resync a move left the roll
+    // trailing the finger. While the transport runs, resyncs are let through
+    // at most once per interval: the first at once, the rest gathered into
+    // one at the interval's end. Stopped, every change resyncs on the next
+    // message-loop tick as before.
+    void scheduleResync();
+    void timerCallback() override  { resyncNow(); }
+
+    static constexpr int playingResyncIntervalMs = 150;
+    juce::uint32 lastResyncMs = 0;
 
     void applyMixerStateOnly();
     void applyTempoOnly();

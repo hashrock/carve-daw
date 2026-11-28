@@ -243,8 +243,18 @@ void PlaylistComponent::setPlayheadBeats (double beats)
 {
     if (std::abs (beats - playheadBeats) > 1.0e-3)
     {
+        // Only the column the playhead leaves and the one it reaches: this
+        // arrives thirty times a second while playing, and repainting every
+        // clip each time is what made editing during playback lag on the
+        // iPad. The strip covers the line and the ruler's marker.
+        auto column = [this] (double beat)
+        {
+            return juce::Rectangle<int> ((int) std::floor (beatToX (beat)) - 6, 0, 13, getHeight());
+        };
+
+        repaint (column (playheadBeats));
         playheadBeats = beats;
-        repaint();
+        repaint (column (playheadBeats));
     }
 }
 
