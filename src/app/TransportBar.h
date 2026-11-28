@@ -198,11 +198,6 @@ public:
     std::function<void()> onCapture;
     void setCaptureAvailable (bool);
 
-    // The computer keyboard as a piano (see TypingKeyboard.h), switched by
-    // the button or Cmd+K; the owner says which it is.
-    std::function<void()> onToggleTypingKeyboard;
-    void setTypingKeyboardOn (bool);
-
     // The Browser button is a lit toggle showing whether the panel is up;
     // MainComponent owns the panel and tells the bar, so a cmd-B and a click
     // both land the same way.
@@ -328,7 +323,6 @@ private:
                stopButton   { "", Icon::stop },
                recordButton { "", Icon::record },
                captureButton { "", Icon::capture },
-               keyboardButton { "", Icon::keyboard },
                forwardButton { "", Icon::fastForward };
     NumberDisplay barDisplay { 3 };
     juce::ToggleButton loopCheck { "LOOP" };

@@ -76,7 +76,6 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
     transportBar->setRecordAvailable (midiInput->hasMidiInput());
     transportBar->onCapture = [this] { capturePlayed(); };
-    transportBar->onToggleTypingKeyboard = [this] { toggleTypingKeyboard(); };
 
     soundLibrary = std::make_unique<SoundLibrary>();
     generatorController = std::make_unique<GeneratorController> (engine, song, undoManager);
@@ -1071,7 +1070,6 @@ void MainComponent::toggleTypingKeyboard()
 {
     auto& typing = midiInput->getTypingKeyboard();
     typing.setEnabled (! typing.isEnabled());
-    transportBar->setTypingKeyboardOn (typing.isEnabled());
 }
 
 void MainComponent::openSettings()

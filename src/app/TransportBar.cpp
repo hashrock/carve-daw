@@ -296,8 +296,6 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     playButton.onClick = [this] { togglePlay(); };
     recordButton.onClick = [this] { toggleRecord(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
-    keyboardButton.onClick = [this] { if (onToggleTypingKeyboard) onToggleTypingKeyboard(); };
-    keyboardButton.setClickingTogglesState (false);   // MainComponent sets the state
     stopButton.onClick = [this]
     {
         auto& transport = edit.getTransport();
@@ -314,23 +312,20 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     playButton.setTooltip ("Play / pause (Space)");
     recordButton.setTooltip ("Record MIDI into the playing pattern (Cmd+R)");
     captureButton.setTooltip ("Capture: make a pattern of what you just played, recording or not (Shift+Cmd+R)");
-    keyboardButton.setTooltip ("Play with the computer keyboard: A-L white keys, W-P black keys, Z/X octave (Cmd+K)");
     stopButton.setTooltip ("Stop and return to the start");
 
     for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
-                     &keyboardButton, &undoButton, &redoButton })
+                     &undoButton, &redoButton })
         b->setFlat (true);
 
     // The transport is what the hand goes to most: symbols to match, rather
     // than the toolbar size the button height would give them.
-    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
-                     &keyboardButton })
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton })
         b->setIconSize (13.5f);
 
     playButton.setIconSize (15.0f);
 
     captureButton.setEnabled (false);
-    keyboardButton.setColour (juce::TextButton::textColourOnId, accent);
 
     // Play is lit while the song runs, the way the pattern lamp is.
     playButton.setColour (juce::TextButton::textColourOnId, accent);
@@ -400,7 +395,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &playMode, &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton,
-             &keyboardButton, &barDisplay, &bpmDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay })
+             &barDisplay, &bpmDisplay, &loopCheck, &loopStartDisplay, &loopLengthDisplay })
         strip.addAndMakeVisible (c);
 
     startTimerHz (30);
@@ -680,11 +675,6 @@ void TransportBar::setCaptureAvailable (bool available)
     captureButton.setEnabled (available);
 }
 
-void TransportBar::setTypingKeyboardOn (bool on)
-{
-    keyboardButton.setToggleState (on, juce::dontSendNotification);
-}
-
 te::BeatRange TransportBar::patternLoopRange() const
 {
     // Never shorter than a beat: a song with nothing to audition still needs
@@ -767,8 +757,8 @@ namespace
     constexpr int stripHeight = toolStrip::height;
     constexpr int stripButtonHeight = toolStrip::buttonHeight;
     constexpr int playModeWidth = 116;
-    constexpr int transportButtonWidth = 30;
-    constexpr int numTransportButtons = 7;
+    constexpr int transportButtonWidth = 38;   // room for a finger: a stop pressed for a record is a lost take
+    constexpr int numTransportButtons = 6;
     constexpr int stripGap = 10;
     constexpr int captionWidth = 34;    // "BPM", "BAR"
     constexpr int loopCheckWidth = 64;
@@ -876,8 +866,7 @@ void TransportBar::layOutStrip()
     playMode.setBounds (centred (row (playModeWidth), playModeWidth, stripButtonHeight));
     area.removeFromLeft (stripGap);
 
-    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton,
-                     &forwardButton, &keyboardButton })
+    for (auto* b : { &rewindButton, &playButton, &stopButton, &recordButton, &captureButton, &forwardButton })
         b->setBounds (centred (row (transportButtonWidth), transportButtonWidth, stripButtonHeight + 2));
 
     area.removeFromLeft (stripGap);
