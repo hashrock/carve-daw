@@ -868,8 +868,9 @@ private:
 // selected notes while there are any. Two of its buttons are handles -- press
 // and drag the four-way one and the selection moves with the finger, in time
 // and in pitch; drag the other one sideways and every selected note gets
-// longer or shorter -- and two are taps, duplicate and delete. Each drag or
-// tap is one step of undo. Only the touch build makes one (see
+// longer or shorter -- and three are taps: duplicate, delete, and a tick that
+// lets go of the selection (a tap on the grid would draw a note). Each drag
+// or edit is one step of undo. Only the touch build makes one (see
 // PianoRollContent).
 class NoteActionBar : public juce::Component
 {
@@ -896,20 +897,21 @@ public:
 
         duplicateButton.onTap = [this] { roll.duplicateSelection(); };
         deleteButton.onTap = [this] { roll.deleteSelectedNotes(); };
+        doneButton.onTap = [this] { roll.deselectAll(); };
 
-        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton })
+        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton, &doneButton })
             addAndMakeVisible (*c);
     }
 
     static constexpr int preferredHeight = 40;
-    static constexpr int preferredWidth = 4 * 40 + 2 * 3 + 8;
+    static constexpr int preferredWidth = 5 * 40 + 2 * 3 + 8;
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (4, 3);
-        const auto w = area.getWidth() / 4;
+        const auto w = area.getWidth() / 5;
 
-        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton })
+        for (auto* c : { &moveHandle, &stretchHandle, &duplicateButton, &deleteButton, &doneButton })
             c->setBounds (area.removeFromLeft (w));
     }
 
@@ -923,7 +925,7 @@ public:
     }
 
 private:
-    enum class Glyph { move, stretch, duplicate, remove };
+    enum class Glyph { move, stretch, duplicate, remove, done };
 
     // One square of the bar: a glyph, lit while the finger is on it. A handle
     // reports how far the finger has gone since it came down, in screen
@@ -1018,6 +1020,12 @@ private:
                     p.startNewSubPath (r.getX() + 2.0f, r.getY() + 2.0f);       p.lineTo (r.getRight() - 2.0f, r.getBottom() - 2.0f);
                     p.startNewSubPath (r.getRight() - 2.0f, r.getY() + 2.0f);   p.lineTo (r.getX() + 2.0f, r.getBottom() - 2.0f);
                     break;
+
+                case Glyph::done:   // a tick: finished with these, let them go
+                    p.startNewSubPath (r.getX() + 1.0f, c.y + 1.0f);
+                    p.lineTo (r.getX() + 6.5f, r.getBottom() - 2.0f);
+                    p.lineTo (r.getRight() - 1.0f, r.getY() + 3.0f);
+                    break;
             }
 
             g.setColour (colour);
@@ -1036,6 +1044,7 @@ private:
     Pad stretchHandle { Glyph::stretch, juce::Colour (0xffe8e8ee) };
     Pad duplicateButton { Glyph::duplicate, juce::Colour (0xffe8e8ee) };
     Pad deleteButton { Glyph::remove, juce::Colour (0xffff8a80) };
+    Pad doneButton { Glyph::done, juce::Colour (0xff8fd19e) };
 };
 
 class PianoRollContent : public juce::Component,
