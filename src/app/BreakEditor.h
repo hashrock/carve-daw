@@ -10,6 +10,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "RecentMediaList.h"
+#include "TouchUi.h"
 #include "plugins/BreakAnalysis.h"
 #include "plugins/BreakPlugin.h"
 
@@ -366,7 +367,7 @@ private:
     }
 
     static constexpr int numberRowHeight = 18;
-    static constexpr int scrollBarHeight = 10;
+    static constexpr int scrollBarHeight = scrollBarThickness (10);
     static constexpr double minGap = 0.005;   // Generator::minBreakSliceSeconds
 
     // As close as the view goes: a few hundred frames across, where single

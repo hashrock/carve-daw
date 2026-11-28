@@ -17,6 +17,11 @@ namespace carve::app
 
 namespace
 {
+    // A strip's effect list scrolls under a dragging finger already, and the
+    // strip is narrow enough that the full touch width would take a fifth of
+    // it from the slot names. So on the iPad the bar is doubled, not more.
+    constexpr int mixerSlotScrollBarThickness = isTouchUi ? 12 : 6;
+
     // Stamped on to the tracktion plugin by EditSync, and the only way back
     // from a model Effect to the live plugin that plays it. EditSync keeps its
     // own copy of the name; there is no shared header to put it in yet.
@@ -198,7 +203,7 @@ public:
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
         effectViewport.setScrollBarsShown (true, false);
-        effectViewport.setScrollBarThickness (6);
+        effectViewport.setScrollBarThickness (mixerSlotScrollBarThickness);
 
         groupButton.setButtonText ("- group -");
         groupButton.onClick = [this]
@@ -555,12 +560,12 @@ public:
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
         effectViewport.setScrollBarsShown (true, false);
-        effectViewport.setScrollBarThickness (6);
+        effectViewport.setScrollBarThickness (mixerSlotScrollBarThickness);
 
         masteringSlots.onPreferredHeightChanged = [this] { resized(); };
         masteringViewport.setViewedComponent (&masteringSlots, false);
         masteringViewport.setScrollBarsShown (true, false);
-        masteringViewport.setScrollBarThickness (6);
+        masteringViewport.setScrollBarThickness (mixerSlotScrollBarThickness);
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &effectViewport, &masteringButton, &masteringViewport,
@@ -790,7 +795,7 @@ public:
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
         effectViewport.setScrollBarsShown (true, false);
-        effectViewport.setScrollBarThickness (6);
+        effectViewport.setScrollBarThickness (mixerSlotScrollBarThickness);
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &effectViewport, &volumeSlider, &dbLabel,
@@ -959,7 +964,7 @@ public:
         effectSlots.onPreferredHeightChanged = [this] { resized(); };
         effectViewport.setViewedComponent (&effectSlots, false);
         effectViewport.setScrollBarsShown (true, false);
-        effectViewport.setScrollBarThickness (6);
+        effectViewport.setScrollBarThickness (mixerSlotScrollBarThickness);
 
         for (auto* c : std::initializer_list<juce::Component*> {
                  &nameLabel, &panSlider, &effectViewport, &meter, &volumeSlider, &dbLabel,
