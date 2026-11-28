@@ -51,4 +51,12 @@ void rememberAccess (const juce::File&);
 // restoreAccess claims the Mac's. Everywhere else it is the URL's file.
 juce::File claimChosen (juce::URL);
 
+// Whether `file` is a folder the user handed over -- picked as a folder in
+// Files on the iPad -- or somewhere inside one, with that access claimed in
+// this run. A folder grant covers what the app does when it writes: a
+// temporary file beside the real one, renamed over it, and new files. A
+// single picked file covers none of that, so only inside a folder can a
+// song be saved in place. Always false outside the iPad.
+bool isInsideGrantedFolder (const juce::File&);
+
 } // namespace carve::sandbox

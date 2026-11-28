@@ -108,7 +108,13 @@ private:
     // to throw the document away afterwards can stop instead.
     void saveSong (std::function<void (bool saved)> onDone = {});
     void saveSongAs (std::function<void (bool saved)> onDone = {});
-    void saveSongIntoDocuments (std::function<void (bool)> onDone);
+    // The iPad's Save As and the folder it saves into (see AppFiles.h): the
+    // app's Documents, or a folder the user handed over in Files.
+    // `inChosenFolder`: the chosen folder even where the song's own one could
+    // be written to -- the box comes back that way once a folder is picked.
+    void saveSongIntoFolder (std::function<void (bool)> onDone, bool inChosenFolder = false);
+    void chooseSongFolder (std::function<void()> onChosen);
+    juce::File songSaveFolder() const;
     bool writeSongTo (const juce::File& file);
     void newSong();
     void openSong();

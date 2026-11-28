@@ -249,6 +249,21 @@ void rememberAccess (const juce::File& file)
     save();
 }
 
+bool isInsideGrantedFolder (const juce::File& file)
+{
+   #if TARGET_OS_IPHONE
+    const auto path = file.getFullPathName();
+
+    for (const auto& entry : getState().entries)
+        if (entry.active && isCoveredBy (path, entry.path) && juce::File (entry.path).isDirectory())
+            return true;
+   #else
+    juce::ignoreUnused (file);
+   #endif
+
+    return false;
+}
+
 juce::File claimChosen (juce::URL chosen)
 {
     if (! chosen.isLocalFile())

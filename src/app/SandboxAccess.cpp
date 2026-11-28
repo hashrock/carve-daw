@@ -10,6 +10,8 @@ bool isSandboxed()                        { return false; }
 void restoreAccess (const juce::File&)    {}
 void rememberAccess (const juce::File&)   {}
 
+bool isInsideGrantedFolder (const juce::File&)  { return false; }
+
 juce::File claimChosen (juce::URL url)
 {
     return url.isLocalFile() ? url.getLocalFile() : juce::File();
