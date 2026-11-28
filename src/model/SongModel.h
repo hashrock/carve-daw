@@ -799,6 +799,9 @@ public:
         double breath = 50.0;       //    0..100: how much breath, 50 as recorded
         double brightness = 0.0;    // -100..100: tilt of the spectrum, 0 as recorded
         double modulation = 0.0;    //    0..100: how much of the recording's own pitch wobble is kept
+        double vibrato = 0.0;       //    0..100: depth of a vibrato that grows in on a held note
+        double vibratoRate = 5.5;   //    3..8 Hz: its speed
+        double portamento = 40.0;   //    0..200 ms: the glide into a note that follows on, either side of its start
 
         bool operator== (const VoiceStyle&) const = default;
     };

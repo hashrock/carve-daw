@@ -1,4 +1,5 @@
 #include "SoundLibraryWindow.h"
+#include "PerfProbe.h"
 
 #include "Fonts.h"
 #include "TouchUi.h"
@@ -59,6 +60,7 @@ SoundLibraryComponent::SoundLibraryComponent (SoundLibrary& libraryIn,
                                               std::function<void (SoundLibrary::Kind, const juce::File&)> onUseIn)
     : library (libraryIn), onUse (std::move (onUseIn))
 {
+    carve::perf::Scope perfProbe ("lib.component.ctor");
     style (listStateLabel, dimText, fonts::small);
     style (refreshButton);
     refreshButton.onClick = [this] { library.refreshList(); };
@@ -109,16 +111,8 @@ SoundLibraryComponent::SoundLibraryComponent (SoundLibrary& libraryIn,
             onUse (pack->kind, entry);
     };
 
-    terms.setMultiLine (true);
-    terms.setReadOnly (true);
-    terms.setScrollbarsShown (true);
-    terms.setCaretVisible (false);
     terms.setFont (juce::Font (uiFont (fonts::normal)));
-    terms.setIndents (8, 8);
-    terms.setColour (juce::TextEditor::backgroundColourId, panel);
-    terms.setColour (juce::TextEditor::textColourId, text);
-    terms.setColour (juce::TextEditor::outlineColourId, outline);
-    terms.setColour (juce::TextEditor::focusedOutlineColourId, outline);
+    terms.setColours (panel, text, outline);
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &listStateLabel, &refreshButton, &list, &nameLabel, &authorLabel, &homepageLink, &statusLabel,
@@ -157,6 +151,7 @@ void SoundLibraryComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void SoundLibraryComponent::rebuild()
 {
+    carve::perf::Scope perfProbe ("lib.rebuild");
     packs = library.getPacks();
 
     switch (library.getListState())
@@ -197,6 +192,7 @@ int SoundLibraryComponent::getNumRows()
 
 void SoundLibraryComponent::paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool selected)
 {
+    carve::perf::Scope perfProbe ("lib.paintRow");
     if (row < 0 || row >= (int) packs.size())
         return;
 
@@ -282,6 +278,7 @@ juce::String SoundLibraryComponent::describeStatus (const SoundLibrary::Pack& pa
 
 void SoundLibraryComponent::updateDetail()
 {
+    carve::perf::Scope perfProbe ("lib.updateDetail");
     const auto it = std::find_if (packs.begin(), packs.end(),
                                   [this] (const SoundLibrary::Pack& p) { return p.id == selectedId; });
 
@@ -360,18 +357,20 @@ void SoundLibraryComponent::loadTerms()
                         + "Terms in short\n  " + pack->licenseSummary + "\n\n"
                         + pack->description + "\n\n";
 
-    terms.setText (header + "Loading the author's full terms...", false);
+    {
+        carve::perf::Scope textProbe ("lib.setTermsHeader");
+        terms.setText (header + "Loading the author's full terms...");
+    }
 
     library.fetchReadme (selectedId, [this, weak = std::weak_ptr<bool> (alive), id = selectedId, header] (const juce::String& readme)
     {
         if (auto a = weak.lock(); a == nullptr || ! *a || id != selectedId)
             return;
 
+        carve::perf::Scope perfProbe ("lib.setReadme");
         terms.setText (readme.isNotEmpty() ? readme
                                            : header + "The full terms could not be loaded. They are at the "
-                                                      "author's site, and in README-Carve.txt once installed.",
-                       false);
-        terms.moveCaretToTop (false);
+                                                      "author's site, and in README-Carve.txt once installed.");
     });
 }
 
@@ -411,11 +410,13 @@ void SoundLibraryComponent::confirmDelete()
 //==============================================================================
 void SoundLibraryComponent::paint (juce::Graphics& g)
 {
+    carve::perf::Scope perfProbe ("lib.paint");
     g.fillAll (background);
 }
 
 void SoundLibraryComponent::resized()
 {
+    carve::perf::Scope perfProbe ("lib.resized");
     auto area = getLocalBounds().reduced (12);
 
     auto left = area.removeFromLeft (juce::jmin (listWidth, area.getWidth() / 2));

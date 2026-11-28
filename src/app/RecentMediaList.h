@@ -26,6 +26,7 @@ public:
     {
         juce::File file;
         juce::String title;   // a file's name, a voicebank's own name
+        bool fromLibrary = false;   // installed by the sound library
     };
 
     std::function<void (const juce::File&)> onChosen;

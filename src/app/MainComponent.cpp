@@ -638,6 +638,11 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->chooseVoicebankForSelected();
         };
+        inst.onOpenSoundLibrary = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->openSoundLibrary();
+        };
         inst.onVoicebankDropped = [safe = juce::Component::SafePointer (this)] (const juce::File& folder)
         {
             if (safe != nullptr)
@@ -1091,6 +1096,7 @@ void MainComponent::openSettings()
 
 void MainComponent::openSoundLibrary (const juce::String& packId)
 {
+    carve::perf::Scope perfProbe ("lib.open");
     if (soundLibraryWindow == nullptr)
     {
         auto onClose = [safe = juce::Component::SafePointer (this)]
@@ -1980,7 +1986,7 @@ void MainComponent::resized()
     auto& strip = transportBar->getTransportStrip();
     const auto stripWidth = transportBar->getTransportStripWidth();
     constexpr int clipPanelWidth = 210;
-    constexpr int playlistToolsWidth = 220;   // Paint, Select and zoom
+    constexpr int playlistToolsWidth = 140;   // Paint, Select and zoom
     const auto playlistWidth = area.getWidth() - clipPanelWidth
                                - (browser.isVisible() ? SampleBrowser::preferredWidth : 0);
     const bool inToolbar = playlistWidth >= stripWidth + playlistToolsWidth;

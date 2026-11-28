@@ -871,8 +871,15 @@ std::vector<RecentMediaList::Item> GeneratorController::getRecentMedia (MediaKin
                                                               : SoundLibrary::Kind::soundFont;
 
         for (const auto& [pack, entry] : soundLibrary->getInstalledEntries (libraryKind))
-            if (std::none_of (items.begin(), items.end(), [&e = entry] (const RecentMediaList::Item& i) { return i.file == e; }))
-                items.push_back ({ entry, pack.displayName() });
+        {
+            const auto listed = std::find_if (items.begin(), items.end(),
+                                              [&e = entry] (const RecentMediaList::Item& i) { return i.file == e; });
+
+            if (listed == items.end())
+                items.push_back ({ entry, pack.displayName(), true });
+            else
+                *listed = { entry, pack.displayName(), true };
+        }
     }
 
     return items;

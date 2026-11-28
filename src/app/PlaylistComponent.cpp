@@ -475,8 +475,8 @@ void PlaylistComponent::layOutToolStrip()
     const auto origin = visibleOrigin();
     const auto y = origin.y + toolStrip::verticalPadding;
     const auto h = toolStrip::buttonHeight;
-    paintToolButton.setBounds (origin.x + toolbarInset + 6, y, toolStrip::toolWidth, h);
-    selectToolButton.setBounds (paintToolButton.getRight(), y, toolStrip::toolWidth, h);
+    paintToolButton.setBounds (origin.x + toolbarInset + 6, y, iconToolWidth, h);
+    selectToolButton.setBounds (paintToolButton.getRight(), y, iconToolWidth, h);
 
     // The rack has no tools to pick, so zoom takes their place.
     zoomOutButton.setBounds (rackMode ? origin.x + toolbarInset + 6 : selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
@@ -1583,20 +1583,6 @@ void PlaylistComponent::paint (juce::Graphics& g)
     paintRuler (g);
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
-
-    const auto statusX = zoomInButton.getRight() + 16;
-    const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
-                                                  juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
-    g.setFont (uiFont (timelineTextHeight));
-
-    // what the paint tool is currently holding
-    if (auto generator = song.findGenerator (selectedGeneratorId))
-        if (auto pattern = patternForRow (*generator))
-        {
-            g.setColour (juce::Colour (0xff9a9aa4));
-            g.drawText (generator->getName() + " / " + pattern->getName(),
-                        statusArea, juce::Justification::centredLeft);
-        }
 }
 
 //==============================================================================
@@ -1775,31 +1761,9 @@ void PlaylistComponent::paintRack (juce::Graphics& g)
     g.setColour (juce::Colour (0xff3a3a40));
     g.drawHorizontalLine ((int) header.getBottom() - 1, 0.0f, (float) getWidth());
 
-    const auto statusX = zoomInButton.getRight() + 16;
-    const auto statusArea = juce::Rectangle<int> (statusX, (int) header.getY(),
-                                                  juce::jmax (0, getWidth() - statusX - 6), toolbarHeight);
-    // Bars that start inside the loop: the line at its end opens none.
-    const auto bars = [this]
-    {
-        int count = 0;
-        forEachBar (rackLoopBeats, [&count, this] (int, double start, double)
-        {
-            if (start < rackLoopBeats - beatTolerance)
-                ++count;
-        });
-        return count;
-    }();
-
-    juce::String status = "Loop " + juce::String (bars) + (bars == 1 ? " bar" : " bars");
-
-    // Where a played or captured phrase goes: the selected generator's
-    // current pattern, which is the row outlined in white.
-    if (auto generator = song.findGenerator (selectedGeneratorId))
-        if (auto pattern = rackPatternFor (*generator))
-            status << "   |   input -> " << generator->getName() << " / " << pattern->getName();
-
-    g.setColour (juce::Colour (0xff9a9aa4));
-    g.drawText (status, statusArea, juce::Justification::centredLeft);
+    // No status line: the loop's length is in the transport's LOOP fields,
+    // and which pattern takes input is the row outlined in white. The
+    // toolbar has no room to say either again.
 }
 
 void PlaylistComponent::rackMouseDown (const juce::MouseEvent& e)

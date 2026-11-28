@@ -251,6 +251,9 @@ UtauPlugin::Prepared UtauPlugin::prepare (const NoteContext& note)
     request.breath = style.breath;
     request.brightness = style.brightness;
     request.modulation = style.modulation;
+    request.vibrato = style.vibrato;
+    request.vibratoRate = style.vibratoRate;
+    request.portamentoMs = style.portamento;
 
     // Everything the audio depends on, so the same note in the same place
     // finds the snippet it already has.
@@ -261,7 +264,9 @@ UtauPlugin::Prepared UtauPlugin::prepare (const NoteContext& note)
                      + "|" + juce::String (note.velocity)
                      + "|" + juce::String (request.fadeInMs, 2) + "|" + juce::String (request.fadeOutMs, 2)
                      + "|" + juce::String (style.gender, 1) + "|" + juce::String (style.breath, 1)
-                     + "|" + juce::String (style.brightness, 1) + "|" + juce::String (style.modulation, 1);
+                     + "|" + juce::String (style.brightness, 1) + "|" + juce::String (style.modulation, 1)
+                     + "|" + juce::String (style.vibrato, 1) + "|" + juce::String (style.vibratoRate, 2)
+                     + "|" + juce::String (style.portamento, 1);
 
     if (const auto it = idsByKey.find (key); it != idsByKey.end())
     {

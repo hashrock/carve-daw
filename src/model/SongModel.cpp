@@ -721,6 +721,9 @@ Generator::VoiceStyle Generator::getVoiceStyle() const
     style.breath = juce::jlimit (0.0, 100.0, (double) state.getProperty (ids::voiceBreath, style.breath));
     style.brightness = juce::jlimit (-100.0, 100.0, (double) state.getProperty (ids::voiceBrightness, style.brightness));
     style.modulation = juce::jlimit (0.0, 100.0, (double) state.getProperty (ids::voiceModulation, style.modulation));
+    style.vibrato = juce::jlimit (0.0, 100.0, (double) state.getProperty (ids::voiceVibrato, style.vibrato));
+    style.vibratoRate = juce::jlimit (3.0, 8.0, (double) state.getProperty (ids::voiceVibratoRate, style.vibratoRate));
+    style.portamento = juce::jlimit (0.0, 200.0, (double) state.getProperty (ids::voicePortamento, style.portamento));
     return style;
 }
 
@@ -733,6 +736,9 @@ void Generator::setVoiceStyleValue (const juce::Identifier& id, double value, ju
     else if (id == ids::voiceBreath)      { fallback = defaults.breath; }
     else if (id == ids::voiceBrightness)  { low = -100.0; fallback = defaults.brightness; }
     else if (id == ids::voiceModulation)  { fallback = defaults.modulation; }
+    else if (id == ids::voiceVibrato)     { fallback = defaults.vibrato; }
+    else if (id == ids::voiceVibratoRate) { low = 3.0; high = 8.0; fallback = defaults.vibratoRate; }
+    else if (id == ids::voicePortamento)  { high = 200.0; fallback = defaults.portamento; }
     else { jassertfalse; return; }
 
     const auto clamped = juce::jlimit (low, high, value);
