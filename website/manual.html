@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1c1c20">
 <title>クイックスタート — Carve DAW</title>
-<meta name="description" content="Carve DAW で 1 曲作って書き出すまでの手順。Generator を作り、パターンを打ち込み、並べて、歌わせて、書き出す。">
+<meta name="description" content="Carve DAW で 1 曲作って書き出すまでの 5 ステップ。音源の追加、フレーズ打ち込み、曲の組み立て、歌詞入力まで。">
 <link rel="icon" href="img/favicon.png">
 <script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
 <style>
@@ -71,53 +71,53 @@ footer a:hover{text-decoration:underline}
 
 <div class="intro">
   <h1>クイックスタート</h1>
-  <p class="lead">音源を置き、フレーズを打ち込み、曲に並べて、歌わせて、WAV に書き出すまで。ひととおり触れば Carve DAW の流れがつかめます。</p>
-  <p>アプリを起動すると、空の曲 (Untitled) が開きます。ファイルや曲の操作は、左上のロゴのメニューにまとまっています。</p>
+  <p class="lead">音源を追加し、フレーズを打ち込んで曲に組み立て、歌わせて書き出すまで。この手順に沿ってひととおり触れば、Carve DAW の基本的な流れがつかめます。</p>
+  <p>アプリを起動すると、空の曲 (Untitled) が開きます。ファイル操作や曲の管理メニューは、左上のロゴにまとまっています。</p>
 
   <ol class="toc">
-    <li><a href="#generator">Generator を作ろう</a></li>
-    <li><a href="#pattern">パターンを編集しよう</a></li>
+    <li><a href="#generator">Generator を追加しよう</a></li>
+    <li><a href="#pattern">パターンを打ち込もう</a></li>
     <li><a href="#song">パターンを並べよう</a></li>
     <li><a href="#lyrics">歌詞を入力しよう</a></li>
-    <li><a href="#render">レンダリング</a></li>
+    <li><a href="#render">曲を書き出そう</a></li>
   </ol>
 </div>
 
 <section id="generator">
   <p class="step">STEP 1</p>
-  <h2>Generator を作ろう</h2>
-  <p>Carve DAW では、音を出すもの (シンセ、ドラム、歌声、サンプラーなど) を <strong>Generator</strong> と呼びます。1 つの Generator が、曲の 1 パートになります。</p>
+  <h2>Generator を追加しよう</h2>
+  <p>Carve DAW では、シンセやドラム、歌声、サンプラーなど「音を鳴らす音源」を <strong>Generator</strong> と呼びます。1 つの Generator が曲の 1 パートを担当します。</p>
 
   <figure>
     <video src="video/step1.mp4" poster="video/step1.webp" muted loop playsinline preload="metadata" aria-label="+ Generator のメニューから Drums の Drum Synth を選び、できた行の名前をダブルクリックして Generator ウィンドウを開く操作" style="aspect-ratio:960/540"></video>
     <figcaption>Generator を追加して、ウィンドウを開くまで</figcaption>
   </figure>
   <ol class="do">
-    <li>メイン画面の左の列の、いちばん下にある <span class="ui">+ Generator</span> をクリックします。</li>
-    <li>種類別のサブメニューから音源を選びます。まずはドラムなら <span class="ui">Drums › Drum Synth</span>、ベースやコードなら <span class="ui">Synth &amp; Keys › Slate Synth</span> が手軽です。</li>
-    <li>左の列に新しい行が増えます。これがその Generator です。</li>
+    <li>メイン画面の左列、いちばん下にある <span class="ui">+ Generator</span> をクリックします。</li>
+    <li>種類別のメニューから音源を選びます。まずはドラムなら <span class="ui">Drums › Drum Synth</span>、ベースやコードなら <span class="ui">Synth &amp; Keys › Slate Synth</span> が手軽でおすすめです。</li>
+    <li>左の列に新しい行が追加されます。これがその Generator のトラックです。</li>
   </ol>
 
-  <p>新しい Generator には、最初から空のパターンが 1 つ入っています。すぐに打ち込みを始められます。</p>
+  <p>新しく追加した Generator には、最初から空のパターンが 1 つ入っているので、すぐに打ち込みを始められます。</p>
 
   <h3>Generator ウィンドウ</h3>
-  <p>行の名前を<strong>ダブルクリック</strong>すると、Generator ウィンドウが開きます。上の 2 つのタブで中身を切り替えます。</p>
+  <p>行の名前を<strong>ダブルクリック</strong>すると、Generator ウィンドウが開きます。上部の 2 つのタブで表示を切り替えます。</p>
   <ul>
-    <li><span class="ui">Inst</span> … 音源のつまみ。上端の <span class="ui">Presets</span> から、用意された音色 (Factory Presets) を選べます。</li>
-    <li><span class="ui">Pianoroll</span> … パターンの打ち込み (次の STEP)。</li>
+    <li><span class="ui">Inst</span> … 音色やパラメーターを調整する画面。上端の <span class="ui">Presets</span> から、あらかじめ用意された音色 (Factory Presets) を選べます。</li>
+    <li><span class="ui">Pianoroll</span> … パターンを打ち込む画面 (次の STEP で使います)。</li>
   </ul>
 
   <div class="tip">
-    <p>行の名前を右クリックすると、名前の変更・複製・削除のメニューが出ます。行の <kbd>M</kbd> / <kbd>S</kbd> はミュートとソロです。</p>
+    <p>行の名前を右クリックすると、名前の変更・複製・削除のメニューが開きます。行にある <kbd>M</kbd> / <kbd>S</kbd> ボタンは、それぞれミュートとソロです。</p>
   </div>
 
-  <div class="next"><a href="#pattern">次へ: パターンを編集しよう ↓</a></div>
+  <div class="next"><a href="#pattern">次へ: パターンを打ち込もう ↓</a></div>
 </section>
 
 <section id="pattern">
   <p class="step">STEP 2</p>
-  <h2>パターンを編集しよう</h2>
-  <p><strong>パターン</strong>は、Generator が鳴らす数小節のフレーズです。1 つの Generator はパターンをいくつでも持てます (A メロ用、サビ用、など)。</p>
+  <h2>パターンを打ち込もう</h2>
+  <p><strong>パターン</strong>は、Generator が鳴らす数小節のフレーズのことです。A メロ用やサビ用など、1 つの Generator にいくつでもパターンを作れます。</p>
 
   <figure>
     <video src="video/step2.mp4" poster="video/step2.webp" muted loop playsinline preload="metadata" aria-label="Pianoroll タブでキック、スネア、ハイハットのノートをクリックで置き、Space で再生する操作" style="aspect-ratio:1000/746"></video>
@@ -126,19 +126,19 @@ footer a:hover{text-decoration:underline}
 
   <ol class="do">
     <li>Generator ウィンドウの <span class="ui">Pianoroll</span> タブを開きます。</li>
-    <li><span class="ui">Draw</span> ツール (<kbd>D</kbd>) で、グリッドをクリックするとノートが置かれます。ドラッグすると移動、ノートの右端をドラッグすると長さが変わります。</li>
-    <li>消すときはノートを右クリックします。<span class="ui">Select</span> ツール (<kbd>E</kbd>) で囲むと、まとめて選んで動かせます。</li>
-    <li>パターンの長さは <span class="ui">Bars of 4/4</span> の欄で、音符の細かさは <span class="ui">Grid</span> で変えます。</li>
+    <li><span class="ui">Draw</span> ツール (<kbd>D</kbd>) でグリッドをクリックすると、ノートを配置できます。ドラッグで移動、ノートの右端をドラッグすると長さを変えられます。</li>
+    <li>削除したいときはノートを右クリックします。<span class="ui">Select</span> ツール (<kbd>E</kbd>) でドラッグして囲めば、複数のノートをまとめて選んで動かせます。</li>
+    <li>パターンの長さは <span class="ui">Bars of 4/4</span> で、グリッドの細かさは <span class="ui">Grid</span> で設定します。</li>
   </ol>
 
   <h3>鳴らしてみる</h3>
-  <p>メイン画面の上のツールバーで <span class="ui">Pattern</span> が選ばれていることを確かめて、<kbd>Space</kbd> を押します。各 Generator がいま選んでいるパターンが、全部同時にループで鳴ります。打ち込みながら聴けます。</p>
+  <p>メイン画面上部のツールバーで <span class="ui">Pattern</span> が選ばれていることを確かめて、<kbd>Space</kbd> を押します。各 Generator で現在選ばれているパターンが同時にループ再生されるため、音を聴きながら打ち込めます。</p>
 
   <h3>パターンを増やす</h3>
-  <p>Pianoroll タブの右上の <span class="ui">+ New</span> で空のパターンを、<span class="ui">Clone</span> で今のパターンの複製を作れます。左上の欄からパターンを切り替え、名前を付けられます。</p>
+  <p>Pianoroll タブの右上にある <span class="ui">+ New</span> で空のパターンを、<span class="ui">Clone</span> で現在のパターンの複製を作れます。左上の欄からパターンの切り替えや名前の変更ができます。</p>
 
   <div class="tip">
-    <p>ドラムの Generator では、鍵盤の代わりにキックやスネアなどの音色の名前が縦に並びます。</p>
+    <p>ドラムの Generator では、鍵盤の代わりにキックやスネアなどの音色名が縦に並びます。</p>
   </div>
 
   <div class="next"><a href="#song">次へ: パターンを並べよう ↓</a></div>
@@ -147,24 +147,24 @@ footer a:hover{text-decoration:underline}
 <section id="song">
   <p class="step">STEP 3</p>
   <h2>パターンを並べよう</h2>
-  <p>パターンができたら、<strong>プレイリスト</strong>に並べて曲にします。</p>
+  <p>パターンができたら、<strong>プレイリスト</strong>に並べて 1 曲に組み立てます。</p>
 
   <figure>
     <video src="video/step3.mp4" poster="video/step3.webp" muted loop playsinline preload="metadata" aria-label="Song に切り替え、Paint ツールで Generator の行を 8 小節なぞってクリップを並べ、再生する操作" style="aspect-ratio:1050/400"></video>
-    <figcaption>行が Generator、色付きの箱 (クリップ) がパターン</figcaption>
+    <figcaption>行が Generator、色付きのブロック (クリップ) がパターン</figcaption>
   </figure>
 
   <ol class="do">
-    <li>ツールバーで <span class="ui">Song</span> に切り替えます。画面がプレイリストになります。</li>
-    <li><span class="ui">Paint</span> ツール (<kbd>B</kbd>) で、Generator の行をドラッグします。その Generator で選んでいるパターンが、なぞった小節にクリップとして置かれます。</li>
-    <li>クリップはドラッグで移動、右端のドラッグで長さを変えられます (パターンより長くすると繰り返します)。<kbd>⌘D</kbd> で複製、<kbd>Delete</kbd> か右クリックで削除です。</li>
-    <li>クリップの右上の <span class="ui">▾</span> をクリックすると、そのクリップのパターンを別のものに差し替えられます。</li>
-    <li><kbd>Space</kbd> で、曲を再生 / 停止します。</li>
+    <li>ツールバーで <span class="ui">Song</span> に切り替えます。画面がプレイリスト表示になります。</li>
+    <li><span class="ui">Paint</span> ツール (<kbd>B</kbd>) で、Generator の行をドラッグします。その Generator で現在選んでいるパターンが、なぞった小節にクリップとして置かれます。</li>
+    <li>クリップはドラッグで移動、右端のドラッグで長さを変えられます (元のパターンより長く伸ばすと繰り返し再生されます)。<kbd>⌘D</kbd> で複製、<kbd>Delete</kbd> キーまたは右クリックで削除できます。</li>
+    <li>クリップの右上にある <span class="ui">▾</span> をクリックすると、そのクリップのパターンを別のものに差し替えられます。</li>
+    <li><kbd>Space</kbd> で曲を再生・停止します。</li>
   </ol>
 
   <div class="tip">
-    <p>ツールバーの <span class="ui">LOOP</span> にチェックを入れると、Start と Length の範囲だけを繰り返し再生します。サビだけ詰めたいときに便利です。</p>
-    <p>テンポはツールバー左の <span class="ui">BPM</span> で変えます。</p>
+    <p>ツールバーの <span class="ui">LOOP</span> にチェックを入れると、Start と Length で指定した範囲だけを繰り返し再生します。特定のフレーズを集中して作り込みたいときに便利です。</p>
+    <p>曲のテンポは、ツールバー左側の <span class="ui">BPM</span> で変更できます。</p>
   </div>
 
   <div class="next"><a href="#lyrics">次へ: 歌詞を入力しよう ↓</a></div>
@@ -173,73 +173,73 @@ footer a:hover{text-decoration:underline}
 <section id="lyrics">
   <p class="step">STEP 4</p>
   <h2>歌詞を入力しよう</h2>
-  <p>歌声の Generator は、ピアノロールのノートに歌詞を付けると、その歌詞で歌います。</p>
+  <p>歌声用の Generator では、ピアノロールのノートに歌詞を割り当てて歌わせることができます。</p>
 
   <h3>歌声の Generator を作る</h3>
   <p><span class="ui">+ Generator › Voice</span> から選びます。</p>
   <ul>
-    <li><strong>Modelled Voice (JP)</strong> … 日本語で歌う内蔵の歌声。何も用意せずにすぐ使えます。まずはこれがおすすめです。</li>
-    <li><strong>Modelled Voice (EN)</strong> … 英語で歌う内蔵の歌声。</li>
-    <li><strong>UTAU Singer</strong> … UTAU 形式の音源フォルダで歌います。手元の音源を読み込むか、<span class="ui">+ Generator › Sound Library</span> からダウンロードした音源を使います。</li>
+    <li><strong>Modelled Voice (JP)</strong> … 日本語で歌う内蔵音源です。追加の準備なしですぐに使えるので、まずはこれがおすすめです。</li>
+    <li><strong>Modelled Voice (EN)</strong> … 英語で歌う内蔵音源です。</li>
+    <li><strong>UTAU Singer</strong> … UTAU 形式の音源フォルダを読み込んで歌わせます。手元の音源を選ぶか、<span class="ui">+ Generator › Sound Library</span> からダウンロードした音源を使います。</li>
   </ul>
 
   <figure>
     <video src="video/step4.mp4" poster="video/step4.webp" muted loop playsinline preload="metadata" aria-label="Modelled Voice (JP) のピアノロールで Lyrics を開き、「さくら さくら」と入れて Apply し、再生する操作" style="aspect-ratio:1260/520"></video>
-    <figcaption>Lyrics で歌詞をまとめて流し込む。打っている間からノートに歌詞が出る</figcaption>
+    <figcaption>Lyrics で歌詞をまとめて流し込む。入力中もノート上に歌詞が仮表示される</figcaption>
   </figure>
 
-  <h3>1 音ずつ打つ</h3>
+  <h3>1 音ずつ入力する</h3>
   <ol class="do">
-    <li>STEP 2 と同じように、Pianoroll タブでメロディのノートを置きます。</li>
-    <li>ノートを<strong>ダブルクリック</strong>して、歌詞を打ちます。<kbd>Tab</kbd> で次のノート、<kbd>Shift</kbd>+<kbd>Tab</kbd> で前のノートへ移れます。</li>
-    <li>歌詞のないノートは「あ」で歌います。</li>
+    <li>STEP 2 と同じように、Pianoroll タブでメロディのノートを配置します。</li>
+    <li>ノートを<strong>ダブルクリック</strong>して歌詞を入力します。<kbd>Tab</kbd> で次のノート、<kbd>Shift</kbd>+<kbd>Tab</kbd> で前のノートへ移動できます。</li>
+    <li>歌詞を指定しないノートは「あ」と発音します。</li>
   </ol>
 
   <h3>まとめて流し込む</h3>
   <ol class="do">
-    <li>ピアノロールのツールバーの <span class="ui">Lyrics</span> (<kbd>⌘L</kbd>) を押します。</li>
-    <li>欄に歌詞の文を打つか、貼り付けます。打っている間、ノートに歌詞が仮に入るので、割り当てを見ながら直せます。</li>
-    <li><span class="ui">Apply</span> (<kbd>⌘Return</kbd>) で確定します。<kbd>⌘Z</kbd> 1 回で元に戻せます。</li>
+    <li>ピアノロールのツールバーにある <span class="ui">Lyrics</span> (<kbd>⌘L</kbd>) をクリックします。</li>
+    <li>入力欄に歌詞を直接打つか、貼り付けます。入力中もノートに歌詞が仮割り当てされるので、プレビューを見ながら調整できます。</li>
+    <li><span class="ui">Apply</span> (<kbd>⌘Return</kbd>) で確定します。<kbd>⌘Z</kbd> 1 回でまとめて元に戻せます。</li>
   </ol>
-  <p>何も選んでいなければパターンの全部のノートに、1 つ選んでいればそこから後ろに、2 つ以上選んでいれば選んだノートに入ります。日本語は 1 文字 (1 モーラ) が 1 ノートで、「きゃ」は 1 つ、「っ」「ん」「ー」は前のノートにくっつきます。</p>
+  <p>ノートを何も選んでいなければパターン内の全ノートに、1 つだけ選んでいればそのノート以降に、2 つ以上選んでいれば選択したノートだけに順番に入ります。日本語は原則 1 文字 (1 モーラ) につき 1 ノートですが、「きゃ」などの拗音は 1 音として扱われ、「っ」「ん」「ー」は前のノートに引き継がれます。</p>
 
   <div class="tip">
-    <p>赤い斜線が付いたノートは、その歌詞を歌えない (音がない) ノートです。歌詞を見直してください。</p>
-    <p>歌声は裏で合成するので、打ち込んだ直後は少し遅れて鳴ることがあります。</p>
+    <p>赤い斜線が入ったノートは、対応する音声データがなく歌えない状態です。表記を見直してください。</p>
+    <p>歌声はバックグラウンドで合成しているため、打ち込んだ直後は発音までに少し時間がかかることがあります。</p>
   </div>
 
-  <div class="next"><a href="#render">次へ: レンダリング ↓</a></div>
+  <div class="next"><a href="#render">次へ: 曲を書き出そう ↓</a></div>
 </section>
 
 <section id="render">
   <p class="step">STEP 5</p>
-  <h2>レンダリング</h2>
-  <p>曲ができたら、オーディオファイルに書き出します。</p>
+  <h2>曲を書き出そう</h2>
+  <p>曲が完成したら、オーディオファイルとして書き出します。</p>
 
   <figure class="narrow">
     <video src="video/step5.mp4" poster="video/step5.webp" muted loop playsinline preload="metadata" aria-label="⌘E で Export Audio を開き、Loudness で -14 LUFS を選んで Export... にカーソルを合わせる操作" style="aspect-ratio:600/610"></video>
     <figcaption>書き出し画面</figcaption>
   </figure>
   <ol class="do">
-    <li><kbd>⌘E</kbd> (またはロゴのメニューの <span class="ui">Export Audio...</span>) で書き出し画面を開きます。</li>
-    <li>次の項目を選びます。
+    <li><kbd>⌘E</kbd> (またはロゴメニューの <span class="ui">Export Audio...</span>) で書き出し画面を開きます。</li>
+    <li>以下の項目を設定します。
       <ul>
-        <li><span class="ui">Content</span> … <span class="ui">Mixdown</span> で 1 つのファイルに、<span class="ui">Stems</span> で Generator ごとに 1 ファイルずつ。</li>
-        <li><span class="ui">Format</span> … WAV か Ogg Vorbis。</li>
-        <li><span class="ui">Range</span> … <span class="ui">Whole song</span> で曲全体、<span class="ui">Loop range</span> で LOOP の範囲だけ。</li>
-        <li><span class="ui">Loudness</span> … 配信向けの音量にそろえるなら <span class="ui">-14 LUFS</span>。そのままでよければ <span class="ui">As mixed</span>。</li>
+        <li><span class="ui">Content</span> … <span class="ui">Mixdown</span> で 1 つのファイルに、<span class="ui">Stems</span> で Generator ごとに別々のファイルとして書き出します。</li>
+        <li><span class="ui">Format</span> … WAV または Ogg Vorbis 形式から選べます。</li>
+        <li><span class="ui">Range</span> … <span class="ui">Whole song</span> で曲全体、<span class="ui">Loop range</span> で LOOP に指定した範囲だけを書き出します。</li>
+        <li><span class="ui">Loudness</span> … 配信向けの音量にそろえるなら <span class="ui">-14 LUFS</span>、ミキサーの出力そのままでよければ <span class="ui">As mixed</span> を選びます。</li>
       </ul>
     </li>
-    <li><span class="ui">Export...</span> を押して、保存先とファイル名を決めます。</li>
+    <li><span class="ui">Export...</span> をクリックし、保存先とファイル名を指定して書き出します。</li>
   </ol>
-  <p>書き出すのはいつもプレイリストの曲です。Pattern モードのままでも、Song の内容が書き出されます。</p>
+  <p>書き出されるのは常にプレイリスト上の曲です。Pattern モードを表示したまま実行しても、Song の内容が出力されます。</p>
 
   <div class="tip">
-    <p>曲そのものは <kbd>⌘S</kbd> で <code>.carve</code> ファイルに保存します。書き出した WAV からは曲を開き直せないので、こちらも忘れずに保存してください。</p>
+    <p>曲のデータ自体は <kbd>⌘S</kbd> で <code>.carve</code> ファイルとして保存します。書き出した WAV などからは編集画面を開き直せないため、こちらも忘れずに保存してください。</p>
   </div>
 
   <h3>この先は</h3>
-  <p>ゲーム向けのループ書き出し、ミキサーとエフェクト、MIDI キーボードでの録音など、ほかの機能は <a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">使い方ガイド</a> にあります。ロゴのメニューの <span class="ui">Open Sample Song</span> から、サンプル曲を開いて中を覗くのもおすすめです。</p>
+  <p>ゲーム向けのループ書き出しやミキサーとエフェクト、MIDI キーボードでの録音など、ほかの機能については <a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">使い方ガイド</a> をご覧ください。また、ロゴメニューの <span class="ui">Open Sample Song</span> からサンプル曲を開いて、実際のデータ構成を覗いてみるのもおすすめです。</p>
 </section>
 
 </main>
