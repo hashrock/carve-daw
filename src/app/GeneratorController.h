@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include "PerfProbe.h"
 
 #include <tracktion_engine/tracktion_engine.h>
 
@@ -207,7 +208,7 @@ private:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { triggerAsyncUpdate(); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { triggerAsyncUpdate(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
-    void handleAsyncUpdate() override  { refresh(); }
+    void handleAsyncUpdate() override  { carve::perf::Scope perfProbe ("controller.refresh"); refresh(); }
 
     void refresh();
     void fireSelectionChanged();

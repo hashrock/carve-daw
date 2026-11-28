@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "PerfProbe.h"
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -908,6 +909,7 @@ void PianoRollComponent::setTool (Tool newTool)
 
 void PianoRollComponent::patternChanged()
 {
+    carve::perf::Scope perfProbe ("roll.patternChanged");
     // The pattern length drives the component width, so any property change
     // may need a resize. setSize() early-outs when nothing moved, which makes
     // this cheap enough to run for note edits too.
@@ -1791,6 +1793,7 @@ void PianoRollComponent::pasteNotes()
 //==============================================================================
 void PianoRollComponent::paint (juce::Graphics& g)
 {
+    carve::perf::Scope perfProbe ("roll.paint");
     g.fillAll (juce::Colour (0xff232327));
 
     const auto lengthBeats = getLengthBeats();
@@ -2254,6 +2257,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
 void PianoRollComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    carve::perf::interval ("roll.dragGap");
+    carve::perf::Scope perfProbe ("roll.drag");
     if (twoFingerScroll.mouseDrag (e, getViewport()))
         return;
 
@@ -2538,6 +2543,7 @@ void PianoRollRuler::mouseUp (const juce::MouseEvent&)
 
 void PianoRollRuler::paint (juce::Graphics& g)
 {
+    carve::perf::Scope perfProbe ("ruler.paint");
     const auto height = (float) getHeight();
     const auto width = (float) getWidth();
 
@@ -2899,6 +2905,7 @@ void PianoRollVelocityLane::updateReadout (juce::Point<float> position)
 
 void PianoRollVelocityLane::paint (juce::Graphics& g)
 {
+    carve::perf::Scope perfProbe ("lane.paint");
     const auto width = (float) getWidth();
     const auto height = (float) getHeight();
     const auto origin = originX();

@@ -1,4 +1,5 @@
 #include "TransportBar.h"
+#include "PerfProbe.h"
 #include "model/SampleSongs.h"
 #include "Fonts.h"
 #include "TouchUi.h"
@@ -693,6 +694,7 @@ void TransportBar::refreshPatternLoop()
 
 void TransportBar::timerCallback()
 {
+    carve::perf::Scope perfProbe ("transport.timer");
     auto& transport = edit.getTransport();
     const bool playing = transport.isPlaying();
 

@@ -121,8 +121,20 @@ void UtauPlugin::setVoicebank (const juce::File& folder)
         return;
     }
 
+    // The bank in use, unless the folder changed or its files have had time
+    // to: looking means listing every folder of the bank -- thousands of
+    // recordings, on a big one -- and this is asked on every resync, which
+    // a note drag makes on every pointer move. On an iPad that look cost a
+    // sixth of a second a singer. So it is made at most every so often, and
+    // never while playing, where a stall is heard as well as felt.
+    if (bank != nullptr && folder == bankFolder
+         && (edit.getTransport().isPlaying() || nowMs() - lastBankCheckMs < bankRecheckMs))
+        return;
+
     juce::String error;
     auto loaded = voice::Voicebank::loadShared (folder, error);
+    bankFolder = folder;
+    lastBankCheckMs = nowMs();
 
     if (loaded == bank && error == loadError)
         return;

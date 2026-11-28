@@ -99,6 +99,9 @@ private:
     juce::String name;
     std::map<juce::String, OtoEntry> entries;
     std::array<std::pair<juce::String, juce::String>, 128> prefixMap;   // by MIDI note: prefix, suffix
+    static juce::Array<juce::File> otoFilesIn (const juce::File& folder);
+    static juce::String signatureOf (const juce::Array<juce::File>& otoFiles);
+
     juce::String signature;   // every oto.ini's path and time, to tell a changed bank
 };
 

@@ -184,6 +184,9 @@ private:
 
     std::shared_ptr<const voice::Voicebank> bank;
     juce::String loadError;
+    juce::File bankFolder;           // what bank was loaded from, and when that was last checked
+    double lastBankCheckMs = 0.0;
+    static constexpr double bankRecheckMs = 10000.0;
     model::Generator::VoiceStyle style;
 
     // The live-note recording, swapped in and out under the lock the audio
