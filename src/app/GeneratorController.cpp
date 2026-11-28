@@ -63,7 +63,7 @@ constexpr GeneratorChoice generatorChoices[]
     { 6,  "Drums",        "Drum Synth",     "analog-style kit",      model::Generator::drumSynthType,     "Drums",       false },
     { 11, "Drums",        "Acoustic Drums", "resynthesized kit",     model::Generator::acousticDrumsType, "Drums",       false },
     { 18, "Drums",        "Modelled Drums", "acoustic kit, drums computed", model::Generator::drumModelType, "Drum Model", false },
-    { 4,  "Drums",        "Drum Sampler",   "16 pads",               model::Generator::drumKitType,       "Drum Kit",    false },
+    { 4,  "Drums",        "Drum Sampler",   "64 pads",               model::Generator::drumKitType,       "Drum Kit",    false },
     { 10, "Drums",        "Kick Designer",  "gabber / hard kicks",   model::Generator::gabberKickType,    "Gabber Kick", true },
     { 15, "Voice",        "Modelled Voice (JP)", "Japanese singer",  model::Generator::vocalModelType,    "Vocal",       false },
     { 16, "Voice",        "Modelled Voice (EN)", "English singer",   model::Generator::vocalModelEnType,  "Vocal EN",    false },

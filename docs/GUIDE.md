@@ -173,7 +173,7 @@ README の「機能」を、画面ごと・機能ごとに詳しく書いたも�
     Fuzz / Thick Round / Muted Pick Punch / Thumb, Deep) がある。つなぎ方は曲の書き方なので、プリセットでは変わらない。下の
     指板の図は 4 本の弦の実際の振れと押さえている所で、弦をクリックするとその
     フレットの音が鳴る
-  - **Sampler** / **Drum Sampler** (旧 Drum Kit。16 パッド、GM 配列)
+  - **Sampler** / **Drum Sampler** (旧 Drum Kit。16 パッド × 4 バンクの 64 パッド、GM 配列)
   - **SF2 Player**: SF2 プレイヤー (発音は TinySoundFont)。プリセットは一覧から
     選び、選ぶとその音で鳴らして聞かせる。矢印キーで順に聞き比べ、上の欄で名前を
     絞り込める。バンク 128 は GM のドラムキット。同じ .sf2 を使う Generator
