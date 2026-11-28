@@ -145,10 +145,10 @@ public:
     void setSlideOut (double signedBeats);   // 0 none, negative down, positive up
     std::optional<double> getShownSlideOut() const;
 
-    // What a new note is drawn with, and what the selection plays: set from
-    // the roll's play-mode bar. Setting one with notes selected changes them,
-    // as one undo step, and makes it what the next note is drawn with too --
-    // the bar shows one setting, and it should be the one that is used.
+    // What the selection plays: set from the roll's play-mode bar, as one
+    // undo step. Nothing is kept for the next note -- a slice drawn after a
+    // reversed one should not come out reversed too, so a new note is always
+    // a plain one.
     void setPlayMode (model::Note::PlayMode);
     void setRetrigger (int divisionsPerBeat);
     void setBuzzPitch (int midiNote);
@@ -157,11 +157,11 @@ public:
     void setRollDynamics (model::Note::RollDynamics);
 
     // Everything back to a plain note: forward, no roll, no tune. For the
-    // selection, as one step, and for what is drawn next.
+    // selection, as one step.
     void resetPlayModes();
 
     // The selection's setting when every selected note agrees, nothing when
-    // they differ; the brush's when nothing is selected.
+    // they differ; a plain note's when nothing is selected.
     std::optional<model::Note::PlayMode> getShownPlayMode() const;
     std::optional<int> getShownRetrigger() const;
     std::optional<int> getShownBuzzPitch() const;
@@ -459,12 +459,6 @@ private:
     inline static model::Note::Technique techniqueBrush = model::Note::Technique::automatic;
     inline static double slideLengthBrush = model::Note::defaultSlideLength, slideOutBrush = 0.0;
     void paintTechniques (juce::Graphics&) const;
-    inline static model::Note::PlayMode playModeBrush = model::Note::PlayMode::forward;
-    inline static int retriggerBrush = 0;
-    inline static int buzzPitchBrush = model::Note::defaultBuzzPitch;
-    inline static bool buzzRampBrush = false;
-    inline static int tuneBrush = 0;
-    inline static model::Note::RollDynamics rollDynamicsBrush = model::Note::RollDynamics::flat;
 
     // The selection's value of one note setting when all agree, nothing
     // when they differ, the brush's when nothing is selected; and the same
@@ -609,6 +603,7 @@ private:
     // than creeping from wherever the last event left them.
     std::vector<juce::ValueTree> resizeTargets;
     std::vector<double> resizeOriginLengths;   // parallel to resizeTargets
+    bool handleGestureStretched = false;   // the note bar's drag changed lengths, not only places
 
     // Velocity gesture: what the selection was at the press, for the same
     // reason. Parallel to selectedNotes as it stood then; a selection that
