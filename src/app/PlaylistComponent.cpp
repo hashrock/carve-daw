@@ -345,7 +345,7 @@ void PlaylistComponent::updateSize()
         rowsHeight += rowTotalHeight (row);
 
     // addRowHeight is the band under the last row that holds "+ Generator".
-    setSize (width, headerHeight + juce::jmax (rowHeight, rowsHeight) + addRowHeight);
+    setSize (width, headerHeight() + juce::jmax (rowHeight, rowsHeight) + addRowHeight);
 
     // Zero and one row share the same minimum height, so adding the first
     // generator need not trigger resized(). Its button still has to move.
@@ -367,7 +367,7 @@ int PlaylistComponent::rowTotalHeight (int row) const
 
 float PlaylistComponent::rowY (int row) const
 {
-    int y = headerHeight;
+    int y = headerHeight();
     for (int r = 0; r < row; ++r)
         y += rowTotalHeight (r);
     return (float) y;
@@ -375,11 +375,11 @@ float PlaylistComponent::rowY (int row) const
 
 int PlaylistComponent::rowAt (float y) const
 {
-    if (y < (float) headerHeight)
+    if (y < (float) headerHeight())
         return -1;
 
     const int numRows = song.getNumGenerators();
-    float bottom = (float) headerHeight;
+    float bottom = (float) headerHeight();
 
     for (int row = 0; row < numRows; ++row)
     {
@@ -463,11 +463,11 @@ void PlaylistComponent::layOutToolStrip()
     const auto origin = visibleOrigin();
     const auto y = origin.y + toolStrip::verticalPadding;
     const auto h = toolStrip::buttonHeight;
-    paintToolButton.setBounds (origin.x + 6, y, toolStrip::toolWidth, h);
+    paintToolButton.setBounds (origin.x + toolbarInset + 6, y, toolStrip::toolWidth, h);
     selectToolButton.setBounds (paintToolButton.getRight(), y, toolStrip::toolWidth, h);
 
     // The rack has no tools to pick, so zoom takes their place.
-    zoomOutButton.setBounds (rackMode ? origin.x + 6 : selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
+    zoomOutButton.setBounds (rackMode ? origin.x + toolbarInset + 6 : selectToolButton.getRight() + 12, y, toolStrip::zoomWidth, h);
     zoomInButton.setBounds (zoomOutButton.getRight(), y, toolStrip::zoomWidth, h);
 
     // "+ Generator" sits under the last row rather than in the toolbar: the row
@@ -796,15 +796,16 @@ void PlaylistComponent::updateShortcutHelp()
     // What the bar lists is what works *now*: the active tool, whether there is
     // a selection to act on, and whether a held modifier has re-pointed the
     // drag. Ordered most-useful-first, because the bar drops the overflow.
+    // What every app does the same way -- click to select, drag to move,
+    // Delete, copy and cut -- is left out: the bar is for what is not
+    // guessed.
     std::vector<ShortcutHelpBar::Entry> entries;
     const auto mods = juce::ModifierKeys::getCurrentModifiers();
 
     if (rackMode)
     {
-        entries.push_back ({ "click", "select generator" });
         entries.push_back ({ "click pattern name", "play another pattern" });
         entries.push_back ({ "double click", "edit pattern" });
-        entries.push_back ({ "click ruler", "move playhead" });
 
         if (onShortcutHelpChanged)
             onShortcutHelpChanged (std::move (entries));
@@ -826,7 +827,6 @@ void PlaylistComponent::updateShortcutHelp()
         // Same treatment for an automation lane: its gestures exist nowhere
         // else, so the bar lists them alone while the pointer is over one.
         entries.push_back ({ "click", "add automation point" });
-        entries.push_back ({ "drag", "move point" });
         entries.push_back ({ "Alt+click", "delete point" });
         entries.push_back ({ "double click", "add point on the line" });
     }
@@ -849,22 +849,21 @@ void PlaylistComponent::updateShortcutHelp()
             // Only ⌘ makes the band add to the selection; a ⇧-band replaces
             // it (see SelectionModifiers.h), so "extending" is the wrong test
             // for this entry even though it is the right one for the click.
-            entries.push_back ({ "drag", selection::isRubberBandExtendModifier (mods) ? "add to selection"
-                                                                                       : "select clips" });
-            entries.push_back ({ "click clip", extending ? "add / remove" : "select" });
+            if (selection::isRubberBandExtendModifier (mods))
+                entries.push_back ({ "drag", "add to selection" });
 
-            // With ⇧ holding the select tool up for the paint tool, a drag
-            // from a clip is the band too, so there is no separate "drag
-            // clip" to list.
-            if (! bandStartsOnClips (mods))
-                entries.push_back ({ "drag clip", "move selection" });
+            if (extending)
+                entries.push_back ({ "click clip", "add / remove" });
 
             entries.push_back ({ "Cmd+drag clip", "duplicate" });
         }
         else
         {
             entries.push_back ({ "drag", "paint pattern" });
-            entries.push_back ({ "drag clip", extending ? "extend selection" : "move" });
+
+            if (extending)
+                entries.push_back ({ "drag clip", "extend selection" });
+
             entries.push_back ({ "Cmd+drag clip", "duplicate" });
             entries.push_back ({ "Shift", "select tool" });
         }
@@ -872,16 +871,13 @@ void PlaylistComponent::updateShortcutHelp()
 
     if (! hoverMarkerLane && hoverLaneRow < 0 && ! mods.isAltDown())
     {
-        entries.push_back ({ "drag clip edge", "clip length" });
         entries.push_back ({ "Cmd+drag clip edge", "pattern length" });
     }
 
     if (! selectedClips.empty())
     {
         entries.push_back ({ "Cmd+D", "duplicate" });
-        entries.push_back ({ "Delete", "remove" });
         entries.push_back ({ "right-click", "delete selected" });
-        entries.push_back ({ "Cmd+C / Cmd+X", "copy / cut" });
     }
 
     // Paste is worth listing whenever there is something to paste, selection or
@@ -1338,7 +1334,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
     const auto lengthBeats = getContentLengthBeats();
     const int numRows = song.getNumGenerators();
-    const auto gridTop = (float) headerHeight;
+    const auto gridTop = (float) headerHeight();
 
     // Vertical grid, thinned as we zoom out: beat lines only while a beat is
     // still a few pixels wide, then every 2nd / 4th / ... bar, so the lines
@@ -1518,7 +1514,7 @@ void PlaylistComponent::paint (juce::Graphics& g)
 
     // playhead
     g.setColour (juce::Colours::orangered);
-    g.drawVerticalLine ((int) beatToX (playheadBeats), (float) headerHeight, (float) getHeight());
+    g.drawVerticalLine ((int) beatToX (playheadBeats), (float) headerHeight(), (float) getHeight());
 
     // Rubber band over the grid but under the header, so a band dragged up
     // into the ruler does not paint over it.
@@ -1622,7 +1618,7 @@ void PlaylistComponent::paintRack (juce::Graphics& g)
     g.fillAll (juce::Colour (0xff1f1f23));
 
     const int numRows = song.getNumGenerators();
-    const auto gridTop = (float) headerHeight;
+    const auto gridTop = (float) headerHeight();
     const auto loopRight = beatToX (rackLoopBeats);
 
     // The loop's bars and beats, and nothing past its end: the rack is only
@@ -1761,14 +1757,6 @@ void PlaylistComponent::paintRack (juce::Graphics& g)
     const auto header = headerBounds();
     g.setColour (juce::Colour (0xff1b1b1f));
     g.fillRect (toolbarBounds());
-
-    const auto lane = markerLaneBounds();
-    g.setColour (juce::Colour (0xff1b1b1f));
-    g.fillRect (lane);
-    g.setColour (juce::Colour (0xffe08a3c).withAlpha (0.85f));
-    g.setFont (uiFont (timelineTextHeight));
-    g.drawText ("PATTERN MODE  -  every generator's current pattern, looping together. Song shows the playlist.",
-                lane.withTrimmedLeft ((float) labelWidth + 8.0f).toNearestInt(), juce::Justification::centredLeft);
 
     paintRuler (g);
     g.setColour (juce::Colour (0xff3a3a40));

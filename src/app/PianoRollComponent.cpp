@@ -629,6 +629,17 @@ std::vector<juce::ValueTree> PianoRollComponent::getLyricTargets() const
     return targets;
 }
 
+std::vector<juce::ValueTree> PianoRollComponent::getAllNotesInSingingOrder() const
+{
+    std::vector<juce::ValueTree> notes;
+
+    if (pattern)
+        for (const auto& note : model::singing::inSingingOrder (pattern->getNotes()))
+            notes.push_back (note.state);
+
+    return notes;
+}
+
 juce::String PianoRollComponent::getLyricText (const std::vector<juce::ValueTree>& notes) const
 {
     if (! pattern)
@@ -2454,14 +2465,77 @@ void PianoRollRuler::seekTo (float x)
     onSeek (beat);
 }
 
+void PianoRollRuler::setLengthLabel (const juce::String& text)
+{
+    if (text != lengthLabel)
+    {
+        lengthLabel = text;
+        repaint();
+    }
+}
+
+// A tab hanging off the end line, on its right while there is room there and
+// on its left once the end is at the ruler's right edge.
+juce::Rectangle<float> PianoRollRuler::lengthHandleBounds() const
+{
+    const auto endX = roll.beatToX (roll.getLengthBeats()) - (float) scrollOffset;
+    const auto font = juce::Font (uiFont (fonts::small, juce::Font::bold));
+    const auto width = juce::GlyphArrangement::getStringWidth (font, lengthLabel) + 22.0f;
+    const auto height = (float) getHeight() - 2.0f;
+    const bool onRight = endX + width <= (float) getWidth();
+
+    return { onRight ? endX : endX - width, 1.0f, width, height };
+}
+
+bool PianoRollRuler::isOverLengthHandle (juce::Point<float> position) const
+{
+    const auto endX = roll.beatToX (roll.getLengthBeats()) - (float) scrollOffset;
+    return lengthHandleBounds().contains (position) || std::abs (position.x - endX) <= 4.0f;
+}
+
+void PianoRollRuler::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (isOverLengthHandle (e.position) ? juce::MouseCursor::LeftRightResizeCursor
+                                                    : juce::MouseCursor::NormalCursor);
+}
+
 void PianoRollRuler::mouseDown (const juce::MouseEvent& e)
 {
+    draggingLength = onLengthDragged != nullptr && isOverLengthHandle (e.position);
+
+    if (draggingLength)
+    {
+        if (onLengthDragStarted)
+            onLengthDragStarted();
+
+        return;
+    }
+
     seekTo (e.position.x);
 }
 
 void PianoRollRuler::mouseDrag (const juce::MouseEvent& e)
 {
-    seekTo (e.position.x);   // scrub
+    if (! draggingLength)
+    {
+        seekTo (e.position.x);   // scrub
+        return;
+    }
+
+    // To the nearest bar line, at least one bar: a pattern is thought of in
+    // bars, and the roll's grid lines are where the pointer is aimed.
+    const auto beatsPerBar = roll.getBeatsPerBar();
+    const auto beat = roll.xToBeat (e.position.x + (float) scrollOffset);
+    const auto bars = juce::jlimit (1.0, maxBars, std::round (beat / beatsPerBar));
+    const auto beats = bars * beatsPerBar;
+
+    if (! juce::exactlyEqual (beats, roll.getLengthBeats()))
+        onLengthDragged (beats);
+}
+
+void PianoRollRuler::mouseUp (const juce::MouseEvent&)
+{
+    draggingLength = false;
 }
 
 void PianoRollRuler::paint (juce::Graphics& g)
@@ -2545,8 +2619,37 @@ void PianoRollRuler::paint (juce::Graphics& g)
 
     if (endX >= 0.0f && endX <= width)
     {
-        g.setColour (juce::Colour (0xff6a6a74));
-        g.drawVerticalLine ((int) endX, 0.0f, height);
+        const auto accent = juce::Colour (0xffe08a3c);
+        g.setColour (accent);
+        g.fillRect (endX - 1.0f, 0.0f, 2.0f, height);
+
+        // The handle: a tab that says how long the pattern is and is what
+        // makes it longer.
+        if (lengthLabel.isNotEmpty())
+        {
+            const auto tab = lengthHandleBounds();
+            g.setColour (draggingLength ? accent.brighter (0.2f) : accent);
+            g.fillRoundedRectangle (tab, 3.0f);
+
+            // a double-headed arrow, then the length
+            const auto cy = tab.getCentreY();
+            const auto ax = tab.getX() + 5.0f;
+            juce::Path arrow;
+            arrow.startNewSubPath (ax, cy);
+            arrow.lineTo (ax + 9.0f, cy);
+            arrow.startNewSubPath (ax + 2.5f, cy - 2.5f);
+            arrow.lineTo (ax, cy);
+            arrow.lineTo (ax + 2.5f, cy + 2.5f);
+            arrow.startNewSubPath (ax + 6.5f, cy - 2.5f);
+            arrow.lineTo (ax + 9.0f, cy);
+            arrow.lineTo (ax + 6.5f, cy + 2.5f);
+            g.setColour (juce::Colour (0xff141416));
+            g.strokePath (arrow, juce::PathStrokeType (1.3f));
+
+            g.setFont (uiFont (fonts::small, juce::Font::bold));
+            g.drawText (lengthLabel, tab.withTrimmedLeft (17.0f).withTrimmedRight (3.0f),
+                        juce::Justification::centredLeft, false);
+        }
     }
 
     g.setColour (juce::Colour (0xff3a3a40));

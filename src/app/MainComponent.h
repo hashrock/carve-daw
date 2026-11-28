@@ -176,9 +176,8 @@ private:
     // view contributes.
     static std::vector<ShortcutHelpBar::Entry> globalShortcutHelp()
     {
+        // Undo and save go without saying: they are where every app has them.
         return { { "Space", "play/stop" },
-                 { "Cmd+Z", "undo" },
-                 { "Cmd+S", "save" },
                  { "Cmd+E", "export" },
                  { "Cmd+B", "browser" } };
     }

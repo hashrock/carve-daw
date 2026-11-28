@@ -21,7 +21,7 @@ enum class Icon
     zoomIn, zoomOut, rowsTaller, rowsShorter,
     folder, audioFile, star, arrowUp, speaker,
     capture, keyboard,
-    trash
+    trash, magnet
 };
 
 namespace icons
@@ -369,6 +369,20 @@ namespace icons
                     p.addTriangle (0.5f, 0.6f, 0.28f, 0.82f, 0.72f, 0.82f);
                 }
                 break;
+
+            case Icon::magnet:
+            {
+                // A horseshoe, open at the top, with its two poles marked off.
+                juce::Path shoe;
+                shoe.startNewSubPath (0.2f, 0.36f);
+                shoe.lineTo (0.2f, 0.54f);
+                shoe.cubicTo (0.2f, 1.0f, 0.8f, 1.0f, 0.8f, 0.54f);
+                shoe.lineTo (0.8f, 0.36f);
+                p = stroked (shoe, 0.26f);
+                p.addRectangle (0.07f, 0.04f, 0.26f, 0.24f);
+                p.addRectangle (0.67f, 0.04f, 0.26f, 0.24f);
+                break;
+            }
 
             case Icon::zoomIn:
             case Icon::zoomOut:

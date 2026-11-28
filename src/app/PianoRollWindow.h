@@ -295,6 +295,125 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LyricsPanel)
 };
 
+// A singer's strip under the toolbar: what the pattern sings, read back as one
+// line, and how many of its notes have no lyric yet. The line is the way in --
+// a click (or Cmd+L) opens the Lyrics panel on it -- so typing a song in is
+// in sight from the moment the roll opens, rather than behind a button.
+class LyricsBar : public juce::Component
+{
+public:
+    static constexpr int preferredHeight = 32;
+
+    std::function<void()> onEdit;
+
+    LyricsBar()
+    {
+        field.onClick = [this] { if (onEdit) onEdit(); };
+        field.setTooltip ("Lyrics (Cmd+L): type or paste a line of lyrics over the notes -- "
+                          "the selected ones, or from the selected one on, or all of them");
+        field.setWantsKeyboardFocus (false);
+        addAndMakeVisible (field);
+
+        status.setFont (uiFont (fonts::small));
+        status.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (status);
+    }
+
+    void show (const juce::String& text, int numNotes, int numWithout)
+    {
+        field.text = text.replace ("\n", "  /  ").trim();
+        field.repaint();
+
+        auto plural = [] (int n, const char* one, const char* many) { return juce::String (n) + " " + (n == 1 ? one : many); };
+
+        if (numNotes == 0)
+        {
+            status.setText ("No notes yet", juce::dontSendNotification);
+            status.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+        }
+        else if (numWithout > 0)
+        {
+            status.setText (plural (numWithout, "note", "notes") + " without lyrics", juce::dontSendNotification);
+            status.setColour (juce::Label::textColourId, juce::Colour (0xfff0b070));
+        }
+        else
+        {
+            status.setText (plural (numNotes, "note", "notes"), juce::dontSendNotification);
+            status.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
+        }
+    }
+
+    juce::Rectangle<int> getFieldBounds() const  { return field.getBounds(); }
+
+    void setEnabledForPattern (bool enabled)  { field.setEnabled (enabled); }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff24242a));
+        g.setColour (juce::Colour (0xff3a3a40));
+        g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+
+        // The badge: which kind of strip this is, as the tab colour of a voice.
+        const auto badge = badgeBounds().toFloat();
+        const auto colour = juce::Colour (0xff5aa0d0);
+        g.setColour (colour.withAlpha (0.15f));
+        g.fillRoundedRectangle (badge, 3.0f);
+        g.setColour (colour);
+        g.drawRoundedRectangle (badge.reduced (0.5f), 3.0f, 1.0f);
+        g.setFont (uiFont (fonts::small, juce::Font::bold));
+        g.drawText ("LYRICS", badge.toNearestInt(), juce::Justification::centred, false);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (8, 4);
+        area.removeFromLeft (badgeBounds().getWidth() + 8);
+        status.setBounds (area.removeFromRight (170));
+        area.removeFromRight (8);
+        field.setBounds (area);
+    }
+
+private:
+    juce::Rectangle<int> badgeBounds() const
+    {
+        return { 8, 7, 58, getHeight() - 14 };
+    }
+
+    // Looks like a text box, opens the panel: the panel is where lyrics are
+    // typed, with the preview on the notes, so the strip never edits in place.
+    struct Field : juce::Button
+    {
+        Field() : juce::Button ("Lyrics")  { setMouseCursor (juce::MouseCursor::IBeamCursor); }
+
+        juce::String text;
+
+        void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+        {
+            const auto area = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (juce::Colour (0xff1b1b1f));
+            g.fillRoundedRectangle (area, 4.0f);
+            g.setColour (juce::Colour (highlighted || down ? 0xff8a8a94 : 0xff4a4a54));
+            g.drawRoundedRectangle (area, 4.0f, 1.0f);
+
+            auto inner = getLocalBounds().reduced (8, 0);
+            g.setFont (uiFont (fonts::small));
+            g.setColour (juce::Colour (0xff6a6a74));
+            g.drawText ("Cmd+L", inner.removeFromRight (44), juce::Justification::centredRight, false);
+
+            const bool empty = text.isEmpty();
+            g.setFont (uiFont (fonts::normal));
+            g.setColour (juce::Colour (empty ? 0xff6a6a74 : 0xffe6e6ea).withMultipliedAlpha (isEnabled() ? 1.0f : 0.5f));
+            g.drawText (empty ? juce::String ("Click to type the lyrics...") : text,
+                        inner, juce::Justification::centredLeft, true);
+        }
+    };
+
+    Field field;
+    juce::Label status;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LyricsBar)
+};
+
 // Content of the pattern editor window: a toolbar over a scrolling piano roll,
 // with a velocity lane under it and a shortcut help bar along the bottom.
 //
@@ -925,30 +1044,19 @@ public:
     PianoRollContent (te::Engine& engine, juce::UndoManager& um)
         : undoManager (um), settings (createSettingsFile (engine)), pianoRoll (um)
     {
-        nameLabel.setEditable (false, true, false);
-        nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2c2c31));
-        nameLabel.setColour (juce::Label::outlineColourId, juce::Colour (0xff3a3a40));
-        nameLabel.onTextChange = [this] { applyName(); };
+        // The length is set where it shows: the handle on the ruler at the
+        // pattern's end. One undo step a drag. Shrinking leaves notes past the
+        // new end in the pattern, deliberately, so that undoing a mistaken
+        // shorten restores everything.
+        ruler.onLengthDragStarted = [this] { undoManager.beginNewTransaction(); };
+        ruler.onLengthDragged = [this] (double beats)
+        {
+            if (pattern)
+                pattern->setLengthBeats (beats, &undoManager);
+        };
 
-        // Steppers rather than a plain field: nudging the pattern a bar longer
-        // is the common edit, and typing a number is the rare one.
-        lengthSlider.setSliderStyle (juce::Slider::IncDecButtons);
-        lengthSlider.setIncDecButtonsMode (juce::Slider::incDecButtonsDraggable_Vertical);
-        lengthSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 30, 22);
-        lengthSlider.setRange (1.0, maxBars, 1.0);
-        lengthSlider.setNumDecimalPlacesToDisplay (0);
-        lengthSlider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff2c2c31));
-        lengthSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a40));
-        lengthSlider.onValueChange = [this] { applyLength(); };
-
-        // Text filled in by refreshFromPattern(), which is the only place that
-        // knows the signature; it is a header rather than a suffix on the
-        // spinner so that the unit reads before the number.
-        lengthHeader.setJustificationType (juce::Justification::centredRight);
-
-        lengthNote.setFont (uiFont (fonts::small));
-        lengthNote.setColour (juce::Label::textColourId, juce::Colour (0xff8a8a94));
-
+        gridHeader.setFont (uiFont (fonts::small));
+        gridHeader.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
         gridHeader.setText ("Grid", juce::dontSendNotification);
         gridHeader.setJustificationType (juce::Justification::centredRight);
 
@@ -963,6 +1071,12 @@ public:
         };
 
         pianoRoll.setSnapEnabled (settings->getBoolValue (snapKey, pianoRoll.isSnapEnabled()));
+        snapButton.setClickingTogglesState (true);
+        snapButton.setTooltip ("Snap to the grid (hold Ctrl to ignore it)");
+        snapButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+        snapButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe08a3c));
+        snapButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        snapButton.setWantsKeyboardFocus (false);
         snapButton.setToggleState (pianoRoll.isSnapEnabled(), juce::dontSendNotification);
         snapButton.onClick = [this]
         {
@@ -982,10 +1096,7 @@ public:
         quantiseButton.setWantsKeyboardFocus (false);
         quantiseButton.onClick = [this] { showQuantisePanel(); };
 
-        lyricsButton.setTooltip ("Lyrics (Cmd+L): type or paste a line of lyrics over the notes -- "
-                                 "the selected ones, or from the selected one on, or all of them");
-        lyricsButton.setWantsKeyboardFocus (false);
-        lyricsButton.onClick = [this] { showLyricsPanel(); };
+        lyricsBar.onEdit = [this] { showLyricsPanel(); };
         pianoRoll.onLyricsRequested = [this] { showLyricsPanel(); };
 
         for (auto* b : { &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
@@ -1058,7 +1169,7 @@ public:
 
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
-        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); updateNoteBar(); };
+        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); refreshLyricsBar(); updateNoteBar(); };
 
         techniqueBar.onTechniqueChosen = [this] (model::Note::Technique technique)
         {
@@ -1140,12 +1251,17 @@ public:
         viewport.onVisibleAreaChanged = [this] { updateStrips(); updateNoteBar(); };
 
         for (auto* c : std::initializer_list<juce::Component*> {
-                 &nameLabel, &drawToolButton, &selectToolButton, &zoomOutButton, &zoomInButton,
-                 &rowsShorterButton, &rowsTallerButton, &lengthHeader, &lengthSlider, &lengthNote, &gridHeader, &gridBox,
+                 &drawToolButton, &selectToolButton, &gridHeader, &gridBox,
                  &snapButton, &quantiseButton, &ruler, &viewport, &velocityLane, &shortcutBar })
             addAndMakeVisible (c);
 
-        addChildComponent (lyricsButton);
+        // Zoom is a corner of the roll rather than a place in the toolbar:
+        // it is reached for now and then, and Cmd-scroll does it anyway.
+        for (auto* b : { &zoomOutButton, &zoomInButton, &rowsShorterButton, &rowsTallerButton })
+            zoomCorner.addAndMakeVisible (b);
+
+        addAndMakeVisible (zoomCorner);
+        addChildComponent (lyricsBar);
 
         if (isTouchUi)
         {
@@ -1165,6 +1281,19 @@ public:
 
     // fired after a rename so the window can refresh its title bar
     std::function<void (const juce::String&)> onPatternRenamed;
+
+    // What the toolbar starts with: the window's pattern picker, which is
+    // the owner's, so the pattern and the tools that edit it share one line.
+    void setToolbarLead (juce::Component* lead, int width)
+    {
+        toolbarLead = lead;
+        toolbarLeadWidth = width;
+
+        if (lead != nullptr)
+            addAndMakeVisible (lead);
+
+        resized();
+    }
 
     // A press on the ruler asked for the transport to move to this pattern
     // beat. Where that is in the song is the owner's problem: the editor has
@@ -1200,9 +1329,10 @@ public:
     {
         pianoRoll.setShowsLyrics (shouldShow);
 
-        if (lyricsButton.isVisible() != shouldShow)
+        if (lyricsBar.isVisible() != shouldShow)
         {
-            lyricsButton.setVisible (shouldShow);
+            lyricsBar.setVisible (shouldShow);
+            refreshLyricsBar();
             resized();
         }
     }
@@ -1376,14 +1506,24 @@ public:
     void paint (juce::Graphics& g) override
     {
         g.setColour (juce::Colour (0xff2a2a2f));
-        g.fillRect (getLocalBounds().removeFromTop (toolbarHeight));
+        g.fillRect (getLocalBounds().removeFromTop (toolbarHeight()));
+        g.setColour (juce::Colour (0xff3a3a40));
+        g.drawHorizontalLine (toolbarHeight() - 1, 0.0f, (float) getWidth());
+
+        g.setColour (juce::Colour (0xff44444c));
+        for (const auto& line : toolbarSeparators)
+            g.fillRect (line);
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
-        auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, toolStrip::verticalPadding);
+        layOutToolbar();
+        area.removeFromTop (toolbarHeight());
         shortcutBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
+
+        if (lyricsBar.isVisible())
+            lyricsBar.setBounds (area.removeFromTop (LyricsBar::preferredHeight));
 
         if (playModeBar.isVisible())
             playModeBar.setBounds (area.removeFromTop (PlayModeBar::preferredHeight));
@@ -1407,32 +1547,148 @@ public:
 
         scrollToContentIfReady();
         updateNoteBar();
-
-        auto place = [&toolbar] (juce::Component& c, int width, int gap = 6)
-        {
-            c.setBounds (toolbar.removeFromLeft (width));
-            toolbar.removeFromLeft (gap);
-        };
-
-        place (nameLabel, 180, 18);
-        place (drawToolButton, toolStrip::toolWidth, 0);
-        place (selectToolButton, toolStrip::toolWidth, 12);
-        place (zoomOutButton, toolStrip::zoomWidth, 0);
-        place (zoomInButton, toolStrip::zoomWidth, 6);
-        place (rowsShorterButton, toolStrip::zoomWidth, 0);
-        place (rowsTallerButton, toolStrip::zoomWidth, 18);
-        place (lengthHeader, 74, 4);
-        place (lengthSlider, 64, 6);
-        place (lengthNote, 130, 18);
-        place (gridHeader, 34, 4);
-        place (gridBox, 74, 18);
-        place (snapButton, 70, 12);
-        place (quantiseButton, 74);
-        place (lyricsButton, 64);
+        layOutZoomCorner();
     }
 
 private:
-    static constexpr int toolbarHeight = toolStrip::height;
+    // The toolbar is groups of controls that belong together: the pattern,
+    // the tool, the grid, quantise. What belongs to one kind of generator --
+    // lyrics, a slicer's play modes, a bass's techniques -- is a strip of its
+    // own under it, so this line is the same for every generator. A window
+    // too narrow for it all wraps whole groups rather than cutting the last
+    // ones off.
+    int toolbarRows = 1;
+    int toolbarHeight() const  { return toolbarRows * toolStrip::height; }
+
+    static constexpr int separatorGap = 17;   // room for a divider between groups
+    static constexpr int iconToolWidth = 30;  // a tool that is only a symbol
+    juce::Array<juce::Rectangle<float>> toolbarSeparators;
+    juce::Component* toolbarLead = nullptr;
+    int toolbarLeadWidth = 0;
+
+    // The zoom buttons, floating in the roll's bottom right corner, clear of
+    // its scrollbars.
+    struct ZoomCorner : juce::Component
+    {
+        void paint (juce::Graphics& g) override
+        {
+            const auto area = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (juce::Colour (0xeb1e1e22));
+            g.fillRoundedRectangle (area, 6.0f);
+            g.setColour (juce::Colour (0xff44444c));
+            g.drawRoundedRectangle (area, 6.0f, 1.0f);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (4);
+            int i = 0;
+
+            for (auto* child : getChildren())
+            {
+                child->setBounds (area.removeFromLeft (toolStrip::zoomWidth));
+
+                if (++i == 2)
+                    area.removeFromLeft (6);
+            }
+        }
+
+        static constexpr int width = 4 * toolStrip::zoomWidth + 6 + 8;
+        static constexpr int height = toolStrip::buttonHeight + 8;
+    };
+
+    ZoomCorner zoomCorner;
+
+    void layOutZoomCorner()
+    {
+        const auto scrollbar = viewport.getScrollBarThickness();
+        const auto view = viewport.getBounds();
+        zoomCorner.setBounds (view.getRight() - scrollbar - 8 - ZoomCorner::width,
+                              view.getBottom() - scrollbar - 8 - ZoomCorner::height,
+                              ZoomCorner::width, ZoomCorner::height);
+        zoomCorner.toFront (false);
+    }
+
+    void layOutToolbar()
+    {
+        struct Item { juce::Component* component; int width; int gap; };
+        std::vector<std::vector<Item>> groups;
+
+        if (toolbarLead != nullptr)
+            groups.push_back ({ { toolbarLead, toolbarLeadWidth, separatorGap } });
+
+        groups.push_back ({ { &drawToolButton, iconToolWidth, 0 }, { &selectToolButton, iconToolWidth, separatorGap } });
+        groups.push_back ({ { &gridHeader, 32, 2 }, { &gridBox, 74, 0 }, { &snapButton, iconToolWidth, 12 } });
+        groups.push_back ({ { &quantiseButton, 78, 6 } });
+
+        const int left = 6;
+        const int right = getWidth() - 6;
+        // Too narrow for one line: the pattern on the first, the tools on
+        // the second.
+        const size_t secondLineFrom = toolbarLead != nullptr ? 1 : groups.size();
+
+        auto widthOf = [] (const std::vector<Item>& group)
+        {
+            int width = 0;
+
+            for (const auto& item : group)
+                if (item.component->isVisible())
+                    width += item.width + item.gap;
+
+            return width;
+        };
+
+        int total = left;
+
+        for (const auto& group : groups)
+            total += widthOf (group);
+
+        const bool split = total - groups.back().back().gap > right;
+        int x = left;
+        int row = 0;
+        std::optional<int> separatorAt;   // after the group just placed, if it asks for one
+        toolbarSeparators.clear();
+
+        for (size_t i = 0; i < groups.size(); ++i)
+        {
+            const auto& group = groups[i];
+            const auto width = widthOf (group);
+
+            if (width == 0)
+                continue;
+
+            // The gap after a group's last control is only room to the next.
+            const auto lastGap = group.back().gap;
+
+            if (x > left && ((split && i == secondLineFrom) || x + width - lastGap > right))
+            {
+                x = left;
+                ++row;
+                separatorAt.reset();
+            }
+
+            if (separatorAt)
+                toolbarSeparators.add ({ (float) *separatorAt, (float) (row * toolStrip::height + 9),
+                                         1.0f, (float) (toolStrip::height - 18) });
+
+            for (const auto& item : group)
+            {
+                if (! item.component->isVisible())
+                    continue;
+
+                item.component->setBounds (x, row * toolStrip::height + toolStrip::verticalPadding,
+                                           item.width, toolStrip::buttonHeight);
+                x += item.width + item.gap;
+            }
+
+            separatorAt.reset();
+
+            if (lastGap == separatorGap)
+                separatorAt = x - separatorGap / 2;
+        }
+
+        toolbarRows = row + 1;
+    }
     static constexpr const char* snapKey = "snap";
     static constexpr const char* laneKey = "lane";
     static constexpr const char* rowZoomKey = "rowZoom";
@@ -1499,7 +1755,7 @@ private:
     // move them.
     void showLyricsPanel()
     {
-        if (! pattern || ! lyricsButton.isVisible())
+        if (! pattern || ! lyricsBar.isVisible())
             return;
 
         const auto targets = pianoRoll.getLyricTargets();
@@ -1540,7 +1796,9 @@ private:
         };
 
         panel->start();
-        juce::CallOutBox::launchAsynchronously (std::move (panel), lyricsButton.getBounds(), this);
+        juce::CallOutBox::launchAsynchronously (std::move (panel),
+                                                lyricsBar.getFieldBounds().translated (lyricsBar.getX(), lyricsBar.getY()),
+                                                this);
     }
 
     // juce::Viewport only reports scrolling through this virtual, so the ruler
@@ -1560,8 +1818,6 @@ private:
     // lines under it cannot disagree about where a bar ends.
     double getBeatsPerBar() const  { return pianoRoll.getBeatsPerBar(); }
 
-    static constexpr double maxBars = 256.0;
-
     struct GridOption { const char* name; double beats; };
     static constexpr GridOption gridOptions[] = {
         { "1/4",   1.0 },
@@ -1579,7 +1835,12 @@ private:
     {
         if (pattern && tree == pattern->state
              && (property == model::ids::name || property == model::ids::lengthBeats))
+        {
             refreshFromPattern();
+
+            if (property == model::ids::name && onPatternRenamed)
+                onPatternRenamed (pattern->getName());
+        }
     }
 
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override         {}
@@ -1595,29 +1856,29 @@ private:
         velocityLane.repaint();
 
         const auto hasPattern = pattern.has_value();
-        nameLabel.setEnabled (hasPattern);
-        lengthSlider.setEnabled (hasPattern);
         quantiseButton.setEnabled (hasPattern);
-        lyricsButton.setEnabled (hasPattern);
+        lyricsBar.setEnabledForPattern (hasPattern);
         updateLengthUnit();
         updateShortcutBar();
+        refreshLyricsBar();
+    }
 
-        if (! hasPattern)
-        {
-            nameLabel.setText ("(no pattern)", juce::dontSendNotification);
+    void refreshLyricsBar()
+    {
+        if (! lyricsBar.isVisible())
             return;
-        }
 
-        // dontSendNotification so writing the value back does not re-enter
-        // applyName()/applyLength()
-        if (! nameLabel.isBeingEdited())
-            nameLabel.setText (pattern->getName(), juce::dontSendNotification);
+        const auto notes = pianoRoll.getAllNotesInSingingOrder();
+        int without = 0;
 
-        // A length the spinner cannot represent -- an off-bar pattern, or one
-        // whose beats do not divide into the current signature's bar -- shows
-        // rounded; it is only rewritten if the user actually nudges it, and the
-        // exact beat count is spelled out beside it either way.
-        lengthSlider.setValue (pattern->getLengthBeats() / getBeatsPerBar(), juce::dontSendNotification);
+        for (const auto& note : notes)
+            if (note[model::ids::lyric].toString().trim().isEmpty())
+                ++without;
+
+        // Notes with no lyric read back as the singer's default; while none
+        // has one there is nothing typed to show, so the prompt shows instead.
+        const auto text = without == (int) notes.size() ? juce::String() : pianoRoll.getLyricText (notes);
+        lyricsBar.show (text, (int) notes.size(), without);
     }
 
     // Says what the spinner's bars are bars *of*, and what the length is in the
@@ -1628,15 +1889,19 @@ private:
     // all the note says so rather than implying the bar count travels with it.
     void updateLengthUnit()
     {
-        const auto sig = pianoRoll.getGridTimeSig();
-
-        lengthHeader.setText ("Bars of " + timeSigText (sig), juce::dontSendNotification);
-
         if (! pattern)
         {
-            lengthNote.setText ({}, juce::dontSendNotification);
+            ruler.setLengthLabel ({});
             return;
         }
+
+        // A length that is not a whole number of bars -- an off-bar pattern,
+        // or one whose beats do not divide into the signature's bar -- is
+        // given in beats alone.
+        const auto beats = pattern->getLengthBeats();
+        const auto bars = beats / getBeatsPerBar();
+        const auto wholeBars = std::abs (bars - std::round (bars)) < 1.0e-6;
+        const auto barCount = (int) std::round (bars);
 
         // The bars the spinner counts are the song's opening ones. If the song
         // changes signature later, this pattern may well be placed there, where
@@ -1644,9 +1909,17 @@ private:
         // let the spinner imply its bar count travels with the pattern.
         const bool varies = song && songSignatureVaries (*song);
 
-        lengthNote.setText ("= " + trimmedNumber (pattern->getLengthBeats()) + " beats"
-                                + (varies ? ", bars vary" : ""),
-                            juce::dontSendNotification);
+        juce::String label;
+
+        if (wholeBars)
+            label << barCount << (barCount == 1 ? " bar" : " bars") << " (" << timeSigText (pianoRoll.getGridTimeSig()) << ")  ";
+
+        label << trimmedNumber (beats) << " beats";
+
+        if (varies)
+            label << ", bars vary";
+
+        ruler.setLengthLabel (label);
     }
 
     void updateToolStrip()
@@ -1686,21 +1959,25 @@ private:
         {
             // Cmd is the only key that makes a band add: Shift asked for the
             // select tool, and a Shift-band starts a fresh selection.
-            entries.push_back ({ "drag", bandExtending ? "add to selection" : "select notes" });
-            entries.push_back ({ "click note", extending ? "add / remove" : "select" });
-            entries.push_back ({ "drag note", "move selection" });
+            // Click to select and drag to move go without saying.
+            if (bandExtending)
+                entries.push_back ({ "drag", "add to selection" });
+
+            if (extending)
+                entries.push_back ({ "click note", "add / remove" });
+
             entries.push_back ({ "Cmd+drag note", "duplicate" });
         }
         else
         {
             entries.push_back ({ "click", "add note" });
-            entries.push_back ({ "drag note", extending ? "extend selection" : "move" });
+
+            if (extending)
+                entries.push_back ({ "drag note", "extend selection" });
+
             entries.push_back ({ "Cmd+drag note", "duplicate" });
             entries.push_back ({ "Shift", "select tool" });
         }
-
-        if (! mods.isAltDown())
-            entries.push_back ({ "drag edge", "resize" });
 
         // Only while the toolbar has snap on: with it off there is nothing for
         // the key to override, and listing it would suggest otherwise.
@@ -1718,18 +1995,16 @@ private:
 
         if (hasSelection)
         {
-            entries.push_back ({ "Backspace", "delete selected" });
             entries.push_back ({ "right-click", "delete selected" });
-            entries.push_back ({ "Cmd+C/X", "copy / cut" });
         }
 
+        entries.push_back ({ "drag ruler end", "pattern length" });
         entries.push_back ({ "Q", "quantise pattern" });
 
         // Listed whether or not there is anything to paste: this bar is
         // rebuilt on every selection change, so a rubber-band drag would be
         // reading the system clipboard once per mouse event to find out.
         entries.push_back ({ "Cmd+V", "paste at pointer" });
-        entries.push_back ({ "Cmd+A", "select all" });
 
         entries.push_back ({ selectTool ? "D" : "E", selectTool ? "draw tool" : "select tool" });
 
@@ -1739,48 +2014,6 @@ private:
         entries.push_back ({ "Cmd+scroll", "zoom" });
 
         shortcutBar.setEntries (std::move (entries));
-    }
-
-    void applyName()
-    {
-        if (! pattern)
-            return;
-
-        const auto name = nameLabel.getText().trim();
-
-        if (name.isNotEmpty() && name != pattern->getName())
-        {
-            undoManager.beginNewTransaction();
-            pattern->setName (name, &undoManager);
-
-            if (onPatternRenamed)
-                onPatternRenamed (name);
-        }
-
-        refreshFromPattern();   // rewrite the text if the edit was rejected
-    }
-
-    void applyLength()
-    {
-        if (! pattern)
-            return;
-
-        // The slider clamps to its own range, so anything that arrives here is
-        // already a legal bar count -- of the roll's signature, which is what
-        // the header beside it says it is counting.
-        const auto beats = lengthSlider.getValue() * getBeatsPerBar();
-
-        // Shrinking leaves notes past the new end in the pattern: they are kept
-        // deliberately, so that undoing a mistaken shorten restores everything.
-        // One transaction per step of the spinner, so each nudge undoes on its
-        // own rather than joining whatever gesture came before it.
-        if (! juce::exactlyEqual (beats, pattern->getLengthBeats()))
-        {
-            undoManager.beginNewTransaction();
-            pattern->setLengthBeats (beats, &undoManager);
-        }
-
-        refreshFromPattern();
     }
 
     // Under the selection while there is one, from its left edge -- where it
@@ -1837,15 +2070,14 @@ private:
     std::optional<model::Song> song;
     TimeSigWatcher timeSigWatcher;
 
-    juce::Label nameLabel, lengthHeader, lengthNote, gridHeader;
-    juce::Slider lengthSlider;
+    juce::Label gridHeader;
     juce::ComboBox gridBox;
-    juce::ToggleButton snapButton { "Snap" };
-    IconButton drawToolButton { "Draw", Icon::pencil }, selectToolButton { "Select", Icon::select };
+    IconButton snapButton { "", Icon::magnet };
+    IconButton drawToolButton { "", Icon::pencil }, selectToolButton { "", Icon::select };
     IconButton zoomOutButton { "", Icon::zoomOut }, zoomInButton { "", Icon::zoomIn };
     IconButton rowsShorterButton { "", Icon::rowsShorter }, rowsTallerButton { "", Icon::rowsTaller };
     juce::TextButton quantiseButton { "Quantise" };
-    juce::TextButton lyricsButton { "Lyrics" };
+    LyricsBar lyricsBar;
     RollViewport viewport;
     PianoRollComponent pianoRoll;
     PianoRollRuler ruler { pianoRoll };

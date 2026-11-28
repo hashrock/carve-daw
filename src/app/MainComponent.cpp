@@ -285,6 +285,7 @@ MainComponent::MainComponent (te::Engine& engineToUse)
     };
 
     addAndMakeVisible (playlistViewport);
+    addAndMakeVisible (transportBar->getTransportStrip());
     addAndMakeVisible (clipProperties);
     addChildComponent (browser);
     addAndMakeVisible (helpBar);
@@ -1906,12 +1907,33 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     transportBar->setBounds (area.removeFromTop (transportBar->getHeightForWidth (area.getWidth())));
     helpBar.setBounds (area.removeFromBottom (ShortcutHelpBar::preferredHeight));
-    clipProperties.setBounds (area.removeFromRight (210));
+
+    // The transport strip goes at the head of the playlist's toolbar, over
+    // the view it plays. Where the playlist is too narrow for both -- an iPad
+    // held upright, the browser open on a small window -- it takes a line of
+    // its own across the window instead, above the browser and the panel.
+    auto& strip = transportBar->getTransportStrip();
+    const auto stripWidth = transportBar->getTransportStripWidth();
+    constexpr int clipPanelWidth = 210;
+    constexpr int playlistToolsWidth = 220;   // Paint, Select and zoom
+    const auto playlistWidth = area.getWidth() - clipPanelWidth
+                               - (browser.isVisible() ? SampleBrowser::preferredWidth : 0);
+    const bool inToolbar = playlistWidth >= stripWidth + playlistToolsWidth;
+
+    if (! inToolbar)
+        strip.setBounds (area.removeFromTop (toolStrip::height));
+
+    clipProperties.setBounds (area.removeFromRight (clipPanelWidth));
 
     if (browser.isVisible())
         browser.setBounds (area.removeFromLeft (SampleBrowser::preferredWidth));
 
+    if (inToolbar)
+        strip.setBounds (area.getX(), area.getY(), stripWidth, toolStrip::height);
+
+    playlist.setToolbarInset (inToolbar ? stripWidth : 0);
     playlistViewport.setBounds (area);
+    strip.toFront (false);
     playlist.hostViewportResized();   // its minimum width is the viewport's
 }
 

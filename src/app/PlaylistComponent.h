@@ -156,6 +156,18 @@ public:
     void setRack (bool shouldShowRack, std::map<juce::String, juce::String> currentPatterns, double loopBeats);
     bool isShowingRack() const  { return rackMode; }
 
+    // Room left at the toolbar's start for what the host lays over it (the
+    // transport strip): the toolbar's own buttons begin after it.
+    void setToolbarInset (int inset)
+    {
+        if (inset != toolbarInset)
+        {
+            toolbarInset = inset;
+            layOutToolStrip();
+            repaint();
+        }
+    }
+
     // Called by the host when the viewport we sit in changes size. Our width
     // is clamped to at least the viewport's, so the header band spans the
     // window -- but nothing else tells us the viewport grew.
@@ -226,7 +238,9 @@ private:
     static constexpr int toolbarHeight = toolStrip::height;
     static constexpr int markerLaneHeight = 20;
     static constexpr int rulerHeight = 20;
-    static constexpr int headerHeight = toolbarHeight + markerLaneHeight + rulerHeight;
+    // Pattern mode has no markers to show, so no lane for them.
+    int laneHeight() const    { return rackMode ? 0 : markerLaneHeight; }
+    int headerHeight() const  { return toolbarHeight + laneHeight() + rulerHeight; }
 
     // Zoom limits, in pixels per beat. The bottom of the range is where a
     // 4-beat bar is still ~12px wide, which is about as far out as the grid
@@ -364,7 +378,7 @@ private:
     // has to exclude this, not just the reserved strip at the very top.
     juce::Rectangle<float> headerBounds() const
     {
-        return { 0.0f, (float) visibleOrigin().y, (float) getWidth(), (float) headerHeight };
+        return { 0.0f, (float) visibleOrigin().y, (float) getWidth(), (float) headerHeight() };
     }
 
     // The row-label column is pinned to the left edge of the visible area the
@@ -379,12 +393,12 @@ private:
 
     juce::Rectangle<float> markerLaneBounds() const
     {
-        return headerBounds().withTrimmedTop ((float) toolbarHeight).withHeight ((float) markerLaneHeight);
+        return headerBounds().withTrimmedTop ((float) toolbarHeight).withHeight ((float) laneHeight());
     }
 
     juce::Rectangle<float> rulerBounds() const
     {
-        return headerBounds().withTrimmedTop ((float) (toolbarHeight + markerLaneHeight));
+        return headerBounds().withTrimmedTop ((float) (toolbarHeight + laneHeight()));
     }
 
     std::optional<model::Pattern> patternForRow (const model::Generator&) const;
@@ -578,6 +592,7 @@ private:
     void showRackPatternMenu (const model::Generator&, juce::Rectangle<float> pill);
 
     bool rackMode = false;
+    int toolbarInset = 0;
     std::map<juce::String, juce::String> rackPatterns;
     double rackLoopBeats = 4.0;
 
