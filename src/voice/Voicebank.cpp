@@ -501,27 +501,17 @@ void Voicebank::readPrefixMap (const juce::File& file)
     }
 }
 
-std::shared_ptr<const Voicebank> Voicebank::load (const juce::File& folderToLoad, juce::String& error)
+// The folder's own oto.ini first, then its subfolders' in name order, and
+// theirs: a singer's folder holds banks, and a bank's folder can hold pitch
+// subfolders.
+juce::Array<juce::File> Voicebank::otoFilesIn (const juce::File& folder)
 {
-    if (! folderToLoad.isDirectory())
-    {
-        error = "Voicebank folder not found: " + folderToLoad.getFullPathName();
-        return {};
-    }
-
-    auto bank = std::make_shared<Voicebank>();
-    bank->folder = folderToLoad;
-    bank->name = readName (folderToLoad);
-
-    // The folder's own oto.ini first, then its subfolders' in name order, and
-    // theirs: a singer's folder holds banks, and a bank's folder can hold
-    // pitch subfolders.
     juce::Array<juce::File> otoFiles;
 
-    if (auto own = folderToLoad.getChildFile ("oto.ini"); own.existsAsFile())
+    if (auto own = folder.getChildFile ("oto.ini"); own.existsAsFile())
         otoFiles.add (own);
 
-    auto subfolders = folderToLoad.findChildFiles (juce::File::findDirectories, false);
+    auto subfolders = folder.findChildFiles (juce::File::findDirectories, false);
     subfolders.sort();
 
     for (const auto& sub : subfolders)
@@ -537,7 +527,33 @@ std::shared_ptr<const Voicebank> Voicebank::load (const juce::File& folderToLoad
                 otoFiles.add (oto);
     }
 
+    return otoFiles;
+}
+
+// What addOto builds up as it reads, without the reading.
+juce::String Voicebank::signatureOf (const juce::Array<juce::File>& otoFiles)
+{
+    juce::String signature;
+
     for (const auto& oto : otoFiles)
+        signature << oto.getFullPathName() << ":" << oto.getLastModificationTime().toMilliseconds() << ";";
+
+    return signature;
+}
+
+std::shared_ptr<const Voicebank> Voicebank::load (const juce::File& folderToLoad, juce::String& error)
+{
+    if (! folderToLoad.isDirectory())
+    {
+        error = "Voicebank folder not found: " + folderToLoad.getFullPathName();
+        return {};
+    }
+
+    auto bank = std::make_shared<Voicebank>();
+    bank->folder = folderToLoad;
+    bank->name = readName (folderToLoad);
+
+    for (const auto& oto : otoFilesIn (folderToLoad))
         bank->addOto (oto);
 
     if (auto map = folderToLoad.getChildFile ("prefix.map"); map.existsAsFile())
@@ -559,16 +575,27 @@ std::shared_ptr<const Voicebank> Voicebank::loadShared (const juce::File& folder
     static std::map<juce::String, std::weak_ptr<const Voicebank>> cache;
 
     const std::lock_guard<std::mutex> lock (mutex);
+    const auto key = folderToLoad.getFullPathName();
+
+    // Asked on every resync, for every singer -- which is every pointer move
+    // of a note drag. Parsing the bank each time cost a third of a second on
+    // an iPad, so the files' paths and times are compared first, and an
+    // unchanged bank is handed back as it is.
+    if (auto it = cache.find (key); it != cache.end())
+        if (auto existing = it->second.lock(); existing != nullptr
+             && folderToLoad.isDirectory() && existing->signature == signatureOf (otoFilesIn (folderToLoad)))
+        {
+            error = {};
+            return existing;
+        }
+
     auto loaded = load (folderToLoad, error);
 
     if (loaded == nullptr)
         return {};
 
-    // Parsed either way -- the parse is what says whether the files changed,
-    // and it is quick next to synthesising a single note -- but handed out
-    // shared when it matches, so every generator singing from this bank holds
-    // the same one.
-    const auto key = folderToLoad.getFullPathName();
+    // Handed out shared when it matches, so every generator singing from this
+    // bank holds the same one.
 
     if (auto it = cache.find (key); it != cache.end())
         if (auto existing = it->second.lock(); existing != nullptr && existing->signature == loaded->signature)

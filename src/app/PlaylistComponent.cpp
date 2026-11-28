@@ -1,4 +1,5 @@
 #include "PlaylistComponent.h"
+#include "PerfProbe.h"
 #include "Fonts.h"
 #include "TimelineView.h"
 #include "TouchUi.h"
@@ -321,6 +322,7 @@ void PlaylistComponent::fitRackToView()
 
 void PlaylistComponent::refresh()
 {
+    carve::perf::Scope perfProbe ("playlist.refresh");
     pruneSelection();
     selectionChanged();   // an undo or a reload can have taken clips out from under us
     updateSize();
@@ -1334,6 +1336,7 @@ void PlaylistComponent::paintRuler (juce::Graphics& g)
 
 void PlaylistComponent::paint (juce::Graphics& g)
 {
+    carve::perf::Scope perfProbe ("playlist.paint");
     if (rackMode)
     {
         paintRack (g);

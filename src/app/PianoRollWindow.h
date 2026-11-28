@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include "PerfProbe.h"
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -1169,7 +1170,7 @@ public:
 
         // The lane is a sibling of the roll rather than a child of it, so the
         // roll's own repaint does not reach it.
-        pianoRoll.onNotesChanged = [this] { velocityLane.repaint(); refreshPlayModeBar(); refreshLyricsBar(); updateNoteBar(); };
+        pianoRoll.onNotesChanged = [this] { carve::perf::Scope perfProbe ("content.notesChanged"); velocityLane.repaint(); refreshPlayModeBar(); refreshLyricsBar(); updateNoteBar(); };
 
         techniqueBar.onTechniqueChosen = [this] (model::Note::Technique technique)
         {

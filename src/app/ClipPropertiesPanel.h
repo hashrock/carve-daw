@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include "PerfProbe.h"
 #include <memory>
 #include <vector>
 
@@ -61,7 +62,7 @@ private:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override       { triggerAsyncUpdate(); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override               { triggerAsyncUpdate(); }
     void valueTreeParentChanged (juce::ValueTree&) override                             {}
-    void handleAsyncUpdate() override  { refresh(); }
+    void handleAsyncUpdate() override  { carve::perf::Scope perfProbe ("clipPanel.refresh"); refresh(); }
 
     // Where a beat falls in the song's bars, as a continuous coordinate: bar
     // index plus the fraction of that bar already gone. Subtracting two of

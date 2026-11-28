@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "PerfProbe.h"
 
 #include "sync/EffectChains.h"
 #include "sync/EngineIds.h"
@@ -1946,6 +1947,7 @@ std::optional<double> MainComponent::patternBeatOfPlayhead (double songBeat) con
 
 void MainComponent::timerCallback()
 {
+    carve::perf::Scope perfProbe ("main.timer");
     const auto position = edit->getTransport().getPosition();
     const auto songBeat = edit->tempoSequence.toBeats (position).inBeats();
 

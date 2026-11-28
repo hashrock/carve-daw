@@ -1,4 +1,5 @@
 #include "EditSync.h"
+#include "PerfProbe.h"
 
 #include <map>
 #include <tuple>
@@ -522,6 +523,7 @@ namespace
         }
         else if (generator.isSampler())
         {
+            perf::Scope p ("sync.instrument.sampler");
             ensureSamplerInstrument (edit, track, generator);
         }
         else if (generator.isSoundFont())
@@ -530,6 +532,7 @@ namespace
         }
         else if (generator.isUtau())
         {
+            perf::Scope p ("sync.instrument.utau");
             ensureUtauInstrument (edit, track, generator);
         }
         else if (generator.isBreak())
@@ -2477,8 +2480,8 @@ double auditionLengthBeats (const model::Song& song, const Audition& audition)
 void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstruments,
                      const Audition* audition)
 {
-    syncTempoSequence (song, edit);
-    syncMasterBus (song, edit);
+    { perf::Scope p ("sync.tempo"); syncTempoSequence (song, edit); }
+    { perf::Scope p ("sync.master"); syncMasterBus (song, edit); }
 
     const auto generators = song.getGenerators();
     const auto groups = song.getGroups();
@@ -2494,6 +2497,7 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
     // sync at a track full of shared reverb, which is how the first attempt at
     // this died.
     {
+        perf::Scope layoutProbe ("sync.layout");
         auto all = te::getAudioTracks (edit);
 
         // Bus tracks whose bus is gone, then surplus generator tracks from the
@@ -2649,23 +2653,32 @@ void syncSongToEdit (const model::Song& song, te::Edit& edit, bool rebuildInstru
         if (rebuildInstruments)
             removeInstruments (track);
 
-        ensureInstrument (edit, track, song, generator);
-        syncEffects (edit, track, generator);
-        syncSends (song, edit, track, generator);
-        applyMixerState (song, generator, track);
-        applyRouting (song, edit, track, generator);
+        { perf::Scope p ("sync.instrument"); ensureInstrument (edit, track, song, generator); }
+        { perf::Scope p ("sync.effects"); syncEffects (edit, track, generator); }
+        { perf::Scope p ("sync.sends"); syncSends (song, edit, track, generator); }
+        { perf::Scope p ("sync.mixer"); applyMixerState (song, generator, track); }
+        { perf::Scope p ("sync.routing"); applyRouting (song, edit, track, generator); }
 
         if (generator.isAudio())
+        {
+            perf::Scope p ("sync.audioClips");
             syncAudioClips (song, generator, edit, track);
+        }
         else
+        {
+            perf::Scope p (generator.isVocalModel() ? "sync.clips.vocal"
+                           : generator.isUtau()     ? "sync.clips.utau"
+                           : generator.isBreak()    ? "sync.clips.break"
+                                                    : "sync.clips");
             rebuildClips (song, generator, edit, track, audition, auditionLoopBeats);
+        }
     }
 
-    syncGroups (song, edit);
-    syncSidechains (song, tracks);
-    syncAutomation (song, edit, tracks);
-    syncModifiers (song, tracks);
-    syncReturns (song, edit);
+    { perf::Scope p ("sync.groups"); syncGroups (song, edit); }
+    { perf::Scope p ("sync.sidechains"); syncSidechains (song, tracks); }
+    { perf::Scope p ("sync.automation"); syncAutomation (song, edit, tracks); }
+    { perf::Scope p ("sync.modifiers"); syncModifiers (song, tracks); }
+    { perf::Scope p ("sync.returns"); syncReturns (song, edit); }
 
    #if JUCE_DEBUG
     // Every debug session is a search for the class of bug this checks for:
@@ -2788,13 +2801,17 @@ void EditSync::scheduleResync()
 
 void EditSync::resyncNow()
 {
+    carve::perf::Scope perfProbe ("sync.full");
     cancelPendingUpdate();
     stopTimer();
     lastResyncMs = juce::Time::getMillisecondCounter();
     syncSongToEdit (song, edit, std::exchange (firstSync, false), audition ? &*audition : nullptr);
 
     if (onSynced)
+    {
+        perf::Scope p ("sync.onSynced");
         onSynced();
+    }
 }
 
 void EditSync::reloadAudioClip (const juce::String& placementId)
