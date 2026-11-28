@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1c20">
+<title>クイックスタート — Carve DAW</title>
+<meta name="description" content="Carve DAW で 1 曲作って書き出すまでの手順。Generator を作り、パターンを打ち込み、並べて、歌わせて、書き出す。">
+<link rel="icon" href="img/favicon.png">
+<script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible{outline:2px solid var(--orange);outline-offset:4px}
+.wrap{width:min(760px,calc(100% - 40px));margin-inline:auto}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;font-size:1.25rem;font-weight:750;letter-spacing:-.04em;text-decoration:none}
+.brand img{width:32px;height:32px;filter:invert(96%)}
+.brand span{font-size:.75rem;font-weight:500;letter-spacing:.12em;color:var(--muted)}
+header nav{padding-right:36px;font-size:.875rem}
+header nav a{color:var(--muted);text-decoration:none}
+header nav a:hover{color:var(--text)}
+.intro{padding:48px 0 8px}
+h1{font-size:2rem;letter-spacing:-.04em;margin:0 0 8px}
+p,li,dd{line-height:1.9;color:var(--muted)}
+p{margin:0 0 12px}
+.lead{color:var(--text);font-size:1.0625rem}
+strong{color:var(--text);font-weight:650}
+.toc{list-style:none;padding:0;margin:28px 0 0;display:grid;gap:6px;counter-reset:toc}
+.toc li{counter-increment:toc}
+.toc a{display:flex;align-items:center;gap:14px;text-decoration:none;color:var(--text);padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.toc a::before{content:counter(toc);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--orange);color:#1c1c20;font-size:.8125rem;font-weight:750;flex:none}
+.toc a:hover{border-color:var(--orange)}
+section{padding:48px 0 16px;border-top:1px solid var(--line);margin-top:40px;scroll-margin-top:16px}
+section+section{margin-top:24px}
+.step{font-size:.75rem;font-weight:650;letter-spacing:.12em;color:var(--orange);margin:0 0 6px}
+h2{font-size:1.5rem;letter-spacing:-.03em;margin:0 0 16px}
+h3{font-size:1rem;margin:28px 0 8px}
+ol.do{padding-left:1.4em;margin:0 0 12px}
+ol.do li{padding-left:.2em;margin-bottom:4px}
+ul{padding-left:1.2em;margin:0 0 12px}
+figure{margin:20px 0 24px}
+figure img,figure video{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:#111114}
+figure.narrow{max-width:420px}
+figcaption{font-size:.8125rem;color:var(--muted);margin-top:8px}
+kbd,code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.85em;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--text)}
+kbd{border-bottom-width:2px}
+.ui{color:var(--text);font-weight:600;white-space:nowrap}
+.tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--orange);border-radius:4px;padding:12px 16px;margin:16px 0}
+.tip p{margin:0}
+.tip p+p{margin-top:6px}
+.next{display:flex;justify-content:flex-end;margin-top:20px}
+.next a{color:var(--orange);text-decoration:none;font-size:.875rem}
+.next a:hover{text-decoration:underline}
+.link{color:var(--orange)}
+footer{border-top:1px solid var(--line);margin-top:48px;padding:22px 0 30px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:.75rem}
+footer a{text-decoration:none;margin-left:16px}footer a:first-child{margin-left:0}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<hashrock-switcher floating theme="dark"></hashrock-switcher>
+<header class="wrap">
+  <a class="brand" href="./" aria-label="Carve DAW ホーム"><img src="img/logo.svg" width="32" height="32" alt="">Carve <span>DAW</span></a>
+  <nav><a href="./support.html">サポート</a></nav>
+</header>
+<main class="wrap">
+
+<div class="intro">
+  <h1>クイックスタート</h1>
+  <p class="lead">音源を置き、フレーズを打ち込み、曲に並べて、歌わせて、WAV に書き出すまで。ひととおり触れば Carve DAW の流れがつかめます。</p>
+  <p>アプリを起動すると、空の曲 (Untitled) が開きます。ファイルや曲の操作は、左上のロゴのメニューにまとまっています。</p>
+
+  <ol class="toc">
+    <li><a href="#generator">Generator を作ろう</a></li>
+    <li><a href="#pattern">パターンを編集しよう</a></li>
+    <li><a href="#song">パターンを並べよう</a></li>
+    <li><a href="#lyrics">歌詞を入力しよう</a></li>
+    <li><a href="#render">レンダリング</a></li>
+  </ol>
+</div>
+
+<section id="generator">
+  <p class="step">STEP 1</p>
+  <h2>Generator を作ろう</h2>
+  <p>Carve DAW では、音を出すもの (シンセ、ドラム、歌声、サンプラーなど) を <strong>Generator</strong> と呼びます。1 つの Generator が、曲の 1 パートになります。</p>
+
+  <figure>
+    <video src="video/step1.mp4" poster="video/step1.webp" muted loop playsinline preload="metadata" aria-label="+ Generator のメニューから Drums の Drum Synth を選び、できた行の名前をダブルクリックして Generator ウィンドウを開く操作" style="aspect-ratio:960/540"></video>
+    <figcaption>Generator を追加して、ウィンドウを開くまで</figcaption>
+  </figure>
+  <ol class="do">
+    <li>メイン画面の左の列の、いちばん下にある <span class="ui">+ Generator</span> をクリックします。</li>
+    <li>種類別のサブメニューから音源を選びます。まずはドラムなら <span class="ui">Drums › Drum Synth</span>、ベースやコードなら <span class="ui">Synth &amp; Keys › Slate Synth</span> が手軽です。</li>
+    <li>左の列に新しい行が増えます。これがその Generator です。</li>
+  </ol>
+
+  <p>新しい Generator には、最初から空のパターンが 1 つ入っています。すぐに打ち込みを始められます。</p>
+
+  <h3>Generator ウィンドウ</h3>
+  <p>行の名前を<strong>ダブルクリック</strong>すると、Generator ウィンドウが開きます。上の 2 つのタブで中身を切り替えます。</p>
+  <ul>
+    <li><span class="ui">Inst</span> … 音源のつまみ。上端の <span class="ui">Presets</span> から、用意された音色 (Factory Presets) を選べます。</li>
+    <li><span class="ui">Pianoroll</span> … パターンの打ち込み (次の STEP)。</li>
+  </ul>
+
+  <div class="tip">
+    <p>行の名前を右クリックすると、名前の変更・複製・削除のメニューが出ます。行の <kbd>M</kbd> / <kbd>S</kbd> はミュートとソロです。</p>
+  </div>
+
+  <div class="next"><a href="#pattern">次へ: パターンを編集しよう ↓</a></div>
+</section>
+
+<section id="pattern">
+  <p class="step">STEP 2</p>
+  <h2>パターンを編集しよう</h2>
+  <p><strong>パターン</strong>は、Generator が鳴らす数小節のフレーズです。1 つの Generator はパターンをいくつでも持てます (A メロ用、サビ用、など)。</p>
+
+  <figure>
+    <video src="video/step2.mp4" poster="video/step2.webp" muted loop playsinline preload="metadata" aria-label="Pianoroll タブでキック、スネア、ハイハットのノートをクリックで置き、Space で再生する操作" style="aspect-ratio:1000/746"></video>
+    <figcaption>ドラムのパターンを打ち込んで、Space で鳴らす</figcaption>
+  </figure>
+
+  <ol class="do">
+    <li>Generator ウィンドウの <span class="ui">Pianoroll</span> タブを開きます。</li>
+    <li><span class="ui">Draw</span> ツール (<kbd>D</kbd>) で、グリッドをクリックするとノートが置かれます。ドラッグすると移動、ノートの右端をドラッグすると長さが変わります。</li>
+    <li>消すときはノートを右クリックします。<span class="ui">Select</span> ツール (<kbd>E</kbd>) で囲むと、まとめて選んで動かせます。</li>
+    <li>パターンの長さは <span class="ui">Bars of 4/4</span> の欄で、音符の細かさは <span class="ui">Grid</span> で変えます。</li>
+  </ol>
+
+  <h3>鳴らしてみる</h3>
+  <p>メイン画面の上のツールバーで <span class="ui">Pattern</span> が選ばれていることを確かめて、<kbd>Space</kbd> を押します。各 Generator がいま選んでいるパターンが、全部同時にループで鳴ります。打ち込みながら聴けます。</p>
+
+  <h3>パターンを増やす</h3>
+  <p>Pianoroll タブの右上の <span class="ui">+ New</span> で空のパターンを、<span class="ui">Clone</span> で今のパターンの複製を作れます。左上の欄からパターンを切り替え、名前を付けられます。</p>
+
+  <div class="tip">
+    <p>ドラムの Generator では、鍵盤の代わりにキックやスネアなどの音色の名前が縦に並びます。</p>
+  </div>
+
+  <div class="next"><a href="#song">次へ: パターンを並べよう ↓</a></div>
+</section>
+
+<section id="song">
+  <p class="step">STEP 3</p>
+  <h2>パターンを並べよう</h2>
+  <p>パターンができたら、<strong>プレイリスト</strong>に並べて曲にします。</p>
+
+  <figure>
+    <video src="video/step3.mp4" poster="video/step3.webp" muted loop playsinline preload="metadata" aria-label="Song に切り替え、Paint ツールで Generator の行を 8 小節なぞってクリップを並べ、再生する操作" style="aspect-ratio:1050/400"></video>
+    <figcaption>行が Generator、色付きの箱 (クリップ) がパターン</figcaption>
+  </figure>
+
+  <ol class="do">
+    <li>ツールバーで <span class="ui">Song</span> に切り替えます。画面がプレイリストになります。</li>
+    <li><span class="ui">Paint</span> ツール (<kbd>B</kbd>) で、Generator の行をドラッグします。その Generator で選んでいるパターンが、なぞった小節にクリップとして置かれます。</li>
+    <li>クリップはドラッグで移動、右端のドラッグで長さを変えられます (パターンより長くすると繰り返します)。<kbd>⌘D</kbd> で複製、<kbd>Delete</kbd> か右クリックで削除です。</li>
+    <li>クリップの右上の <span class="ui">▾</span> をクリックすると、そのクリップのパターンを別のものに差し替えられます。</li>
+    <li><kbd>Space</kbd> で、曲を再生 / 停止します。</li>
+  </ol>
+
+  <div class="tip">
+    <p>ツールバーの <span class="ui">LOOP</span> にチェックを入れると、Start と Length の範囲だけを繰り返し再生します。サビだけ詰めたいときに便利です。</p>
+    <p>テンポはツールバー左の <span class="ui">BPM</span> で変えます。</p>
+  </div>
+
+  <div class="next"><a href="#lyrics">次へ: 歌詞を入力しよう ↓</a></div>
+</section>
+
+<section id="lyrics">
+  <p class="step">STEP 4</p>
+  <h2>歌詞を入力しよう</h2>
+  <p>歌声の Generator は、ピアノロールのノートに歌詞を付けると、その歌詞で歌います。</p>
+
+  <h3>歌声の Generator を作る</h3>
+  <p><span class="ui">+ Generator › Voice</span> から選びます。</p>
+  <ul>
+    <li><strong>Modelled Voice (JP)</strong> … 日本語で歌う内蔵の歌声。何も用意せずにすぐ使えます。まずはこれがおすすめです。</li>
+    <li><strong>Modelled Voice (EN)</strong> … 英語で歌う内蔵の歌声。</li>
+    <li><strong>UTAU Singer</strong> … UTAU 形式の音源フォルダで歌います。手元の音源を読み込むか、<span class="ui">+ Generator › Sound Library</span> からダウンロードした音源を使います。</li>
+  </ul>
+
+  <figure>
+    <video src="video/step4.mp4" poster="video/step4.webp" muted loop playsinline preload="metadata" aria-label="Modelled Voice (JP) のピアノロールで Lyrics を開き、「さくら さくら」と入れて Apply し、再生する操作" style="aspect-ratio:1260/520"></video>
+    <figcaption>Lyrics で歌詞をまとめて流し込む。打っている間からノートに歌詞が出る</figcaption>
+  </figure>
+
+  <h3>1 音ずつ打つ</h3>
+  <ol class="do">
+    <li>STEP 2 と同じように、Pianoroll タブでメロディのノートを置きます。</li>
+    <li>ノートを<strong>ダブルクリック</strong>して、歌詞を打ちます。<kbd>Tab</kbd> で次のノート、<kbd>Shift</kbd>+<kbd>Tab</kbd> で前のノートへ移れます。</li>
+    <li>歌詞のないノートは「あ」で歌います。</li>
+  </ol>
+
+  <h3>まとめて流し込む</h3>
+  <ol class="do">
+    <li>ピアノロールのツールバーの <span class="ui">Lyrics</span> (<kbd>⌘L</kbd>) を押します。</li>
+    <li>欄に歌詞の文を打つか、貼り付けます。打っている間、ノートに歌詞が仮に入るので、割り当てを見ながら直せます。</li>
+    <li><span class="ui">Apply</span> (<kbd>⌘Return</kbd>) で確定します。<kbd>⌘Z</kbd> 1 回で元に戻せます。</li>
+  </ol>
+  <p>何も選んでいなければパターンの全部のノートに、1 つ選んでいればそこから後ろに、2 つ以上選んでいれば選んだノートに入ります。日本語は 1 文字 (1 モーラ) が 1 ノートで、「きゃ」は 1 つ、「っ」「ん」「ー」は前のノートにくっつきます。</p>
+
+  <div class="tip">
+    <p>赤い斜線が付いたノートは、その歌詞を歌えない (音がない) ノートです。歌詞を見直してください。</p>
+    <p>歌声は裏で合成するので、打ち込んだ直後は少し遅れて鳴ることがあります。</p>
+  </div>
+
+  <div class="next"><a href="#render">次へ: レンダリング ↓</a></div>
+</section>
+
+<section id="render">
+  <p class="step">STEP 5</p>
+  <h2>レンダリング</h2>
+  <p>曲ができたら、オーディオファイルに書き出します。</p>
+
+  <figure class="narrow">
+    <video src="video/step5.mp4" poster="video/step5.webp" muted loop playsinline preload="metadata" aria-label="⌘E で Export Audio を開き、Loudness で -14 LUFS を選んで Export... にカーソルを合わせる操作" style="aspect-ratio:600/610"></video>
+    <figcaption>書き出し画面</figcaption>
+  </figure>
+  <ol class="do">
+    <li><kbd>⌘E</kbd> (またはロゴのメニューの <span class="ui">Export Audio...</span>) で書き出し画面を開きます。</li>
+    <li>次の項目を選びます。
+      <ul>
+        <li><span class="ui">Content</span> … <span class="ui">Mixdown</span> で 1 つのファイルに、<span class="ui">Stems</span> で Generator ごとに 1 ファイルずつ。</li>
+        <li><span class="ui">Format</span> … WAV か Ogg Vorbis。</li>
+        <li><span class="ui">Range</span> … <span class="ui">Whole song</span> で曲全体、<span class="ui">Loop range</span> で LOOP の範囲だけ。</li>
+        <li><span class="ui">Loudness</span> … 配信向けの音量にそろえるなら <span class="ui">-14 LUFS</span>。そのままでよければ <span class="ui">As mixed</span>。</li>
+      </ul>
+    </li>
+    <li><span class="ui">Export...</span> を押して、保存先とファイル名を決めます。</li>
+  </ol>
+  <p>書き出すのはいつもプレイリストの曲です。Pattern モードのままでも、Song の内容が書き出されます。</p>
+
+  <div class="tip">
+    <p>曲そのものは <kbd>⌘S</kbd> で <code>.carve</code> ファイルに保存します。書き出した WAV からは曲を開き直せないので、こちらも忘れずに保存してください。</p>
+  </div>
+
+  <h3>この先は</h3>
+  <p>ゲーム向けのループ書き出し、ミキサーとエフェクト、MIDI キーボードでの録音など、ほかの機能は <a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">使い方ガイド</a> にあります。ロゴのメニューの <span class="ui">Open Sample Song</span> から、サンプル曲を開いて中を覗くのもおすすめです。</p>
+</section>
+
+</main>
+<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./manual.html">クイックスタート</a><a href="./support.html">サポート / Support</a><a href="./privacy.html">プライバシーポリシー / Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
+<script>
+// Each clip plays while it is on screen and rests when it is not, so a reader
+// scrolling past five of them is not running five videos at once.
+const clips = document.querySelectorAll("figure video");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (reduceMotion) {
+  clips.forEach(v => v.controls = true);
+} else if ("IntersectionObserver" in window) {
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
+  }, { threshold: 0.4 });
+  clips.forEach(v => io.observe(v));
+} else {
+  clips.forEach(v => { v.autoplay = true; v.play().catch(() => {}); });
+}
+</script>
+</body>
+</html>
