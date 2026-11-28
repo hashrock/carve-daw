@@ -394,37 +394,26 @@ void PianoRollComponent::applyToSelection (Setter set)
 
 void PianoRollComponent::setPlayMode (model::Note::PlayMode mode)
 {
-    playModeBrush = mode;
     applyToSelection ([&] (model::Note& note) { note.setPlayMode (mode, &undoManager); });
 }
 
 void PianoRollComponent::setRetrigger (int divisionsPerBeat)
 {
-    retriggerBrush = divisionsPerBeat;
     applyToSelection ([&] (model::Note& note) { note.setRetrigger (divisionsPerBeat, &undoManager); });
 }
 
 void PianoRollComponent::setBuzzPitch (int midiNote)
 {
-    buzzPitchBrush = midiNote;
     applyToSelection ([&] (model::Note& note) { note.setBuzzPitch (midiNote, &undoManager); });
 }
 
 void PianoRollComponent::setBuzzRamped (bool ramped)
 {
-    buzzRampBrush = ramped;
     applyToSelection ([&] (model::Note& note) { note.setBuzzRamped (ramped, &undoManager); });
 }
 
 void PianoRollComponent::resetPlayModes()
 {
-    playModeBrush = model::Note::PlayMode::forward;
-    retriggerBrush = 0;
-    buzzPitchBrush = model::Note::defaultBuzzPitch;
-    buzzRampBrush = false;
-    tuneBrush = 0;
-    rollDynamicsBrush = model::Note::RollDynamics::flat;
-
     applyToSelection ([&] (model::Note& note)
     {
         note.setPlayMode (model::Note::PlayMode::forward, &undoManager);
@@ -438,44 +427,42 @@ void PianoRollComponent::resetPlayModes()
 
 void PianoRollComponent::setTune (int semitones)
 {
-    tuneBrush = semitones;
     applyToSelection ([&] (model::Note& note) { note.setTune (semitones, &undoManager); });
 }
 
 void PianoRollComponent::setRollDynamics (model::Note::RollDynamics dynamics)
 {
-    rollDynamicsBrush = dynamics;
     applyToSelection ([&] (model::Note& note) { note.setRollDynamics (dynamics, &undoManager); });
 }
 
 std::optional<int> PianoRollComponent::getShownTune() const
 {
-    return shownSetting (tuneBrush, [] (const model::Note& n) { return n.getTune(); });
+    return shownSetting (0, [] (const model::Note& n) { return n.getTune(); });
 }
 
 std::optional<model::Note::RollDynamics> PianoRollComponent::getShownRollDynamics() const
 {
-    return shownSetting (rollDynamicsBrush, [] (const model::Note& n) { return n.getRollDynamics(); });
+    return shownSetting (model::Note::RollDynamics::flat, [] (const model::Note& n) { return n.getRollDynamics(); });
 }
 
 std::optional<model::Note::PlayMode> PianoRollComponent::getShownPlayMode() const
 {
-    return shownSetting (playModeBrush, [] (const model::Note& n) { return n.getPlayMode(); });
+    return shownSetting (model::Note::PlayMode::forward, [] (const model::Note& n) { return n.getPlayMode(); });
 }
 
 std::optional<int> PianoRollComponent::getShownRetrigger() const
 {
-    return shownSetting (retriggerBrush, [] (const model::Note& n) { return n.getRetrigger(); });
+    return shownSetting (0, [] (const model::Note& n) { return n.getRetrigger(); });
 }
 
 std::optional<int> PianoRollComponent::getShownBuzzPitch() const
 {
-    return shownSetting (buzzPitchBrush, [] (const model::Note& n) { return n.getBuzzPitch(); });
+    return shownSetting (model::Note::defaultBuzzPitch, [] (const model::Note& n) { return n.getBuzzPitch(); });
 }
 
 std::optional<bool> PianoRollComponent::getShownBuzzRamped() const
 {
-    return shownSetting (buzzRampBrush, [] (const model::Note& n) { return n.isBuzzRamped(); });
+    return shownSetting (false, [] (const model::Note& n) { return n.isBuzzRamped(); });
 }
 
 void PianoRollComponent::paintPlayMode (juce::Graphics& g, const model::Note& note, juce::Rectangle<float> r) const
@@ -1422,6 +1409,7 @@ void PianoRollComponent::beginHandleGesture()
             anchor = state;
 
     draggedNote = model::Note (anchor);
+    handleGestureStretched = false;
     beginSelectionDrag();
 
     resizeTargets = selectedNotes;
@@ -1446,10 +1434,18 @@ void PianoRollComponent::stretchSelectionBy (double deltaBeats)
         deltaBeats = std::round (deltaBeats / gridBeats) * gridBeats;
 
     resizeSelectionBy (deltaBeats, {});
+    handleGestureStretched = true;
 }
 
 void PianoRollComponent::endHandleGesture()
 {
+    // A stretch from the note bar sets the length new notes are drawn at,
+    // as a resize drag on the note's edge does: the anchor's, which is the
+    // note a move lands on the grid.
+    if (handleGestureStretched && draggedNote)
+        lastNoteLength = draggedNote->getLength();
+
+    handleGestureStretched = false;
     draggedNote.reset();
     resizeTargets.clear();
     resizeOriginLengths.clear();
@@ -2234,16 +2230,8 @@ void PianoRollComponent::mouseDown (const juce::MouseEvent& e)
 
     draggedNote = pattern->addNote (start, length, pitch, defaultNoteVelocity, &undoManager);
 
-    // Drawn with what the play-mode bar says, on a generator that has one.
-    if (showsPlayModesFlag)
-    {
-        draggedNote->setPlayMode (playModeBrush, &undoManager);
-        draggedNote->setRetrigger (retriggerBrush, &undoManager);
-        draggedNote->setBuzzPitch (buzzPitchBrush, &undoManager);
-        draggedNote->setBuzzRamped (buzzRampBrush, &undoManager);
-        draggedNote->setTune (tuneBrush, &undoManager);
-        draggedNote->setRollDynamics (rollDynamicsBrush, &undoManager);
-    }
+    // A slicer's play modes are not carried: what the play-mode bar set was
+    // for the notes selected then, and a new note plays forward, untuned.
 
     if (showsTechniquesFlag)
     {

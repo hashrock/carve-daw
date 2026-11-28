@@ -53,8 +53,8 @@ inline juce::Font atLeastMinimumHeight (juce::Font font)
 // the handful of getters that return a font is what makes the minimum hold
 // everywhere rather than only where uiFont() is called.
 //
-// Nothing else here is styled: the rest is JUCE's default look, which is what
-// the app was written against.
+// Nothing else here is styled but the scroll bars' width on a touch screen:
+// the rest is JUCE's default look, which is what the app was written against.
 class CarveLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
@@ -101,6 +101,13 @@ public:
     juce::Font getAlertWindowFont() override
     {
         return atLeastMinimumHeight (juce::LookAndFeel_V4::getAlertWindowFont());
+    }
+
+    // Every viewport, list and text box that does not set its own: on a
+    // touch screen, wide enough for a finger (see touchScrollBarThickness).
+    int getDefaultScrollbarWidth() override
+    {
+        return isTouchUi ? touchScrollBarThickness : juce::LookAndFeel_V4::getDefaultScrollbarWidth();
     }
 
     // On a touch screen the secondary windows stay above the main one (see
