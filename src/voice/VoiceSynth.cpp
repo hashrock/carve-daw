@@ -265,19 +265,44 @@ std::optional<RenderedNote> renderNote (const NoteRender& request, juce::String&
     };
 
     // The pitch the note is sung at: its own, and when it follows straight on
-    // from another, a glide from that one across the note's start -- 40 ms
-    // either side, eased, in log frequency.
+    // from another, a glide from that one across the note's start -- the
+    // portamento either side (40 ms unless the voice says otherwise), eased,
+    // in log frequency.
     const auto noteStartMs = request.preutterMs;
-    constexpr double glideMs = 40.0;
+    const auto glideMs = juce::jlimit (0.0, 200.0, request.portamentoMs);
+
+    // A vibrato, when asked for, that waits for the note to settle and then
+    // grows in -- a held note sung, not a siren. 100 is half a semitone
+    // either way at its widest.
+    constexpr double vibratoDelayMs = 180.0, vibratoGrowMs = 250.0;
+    const auto vibratoCents = juce::jlimit (0.0, 100.0, request.vibrato) * 0.5;
+    const auto vibratoHz = juce::jlimit (3.0, 8.0, request.vibratoRate);
 
     auto targetHzAt = [&] (double outMs)
     {
-        if (! request.fromHz || *request.fromHz <= 0.0)
-            return request.targetHz;
+        auto hz = request.targetHz;
 
-        const auto a = juce::jlimit (0.0, 1.0, (outMs - (noteStartMs - glideMs)) / (2.0 * glideMs));
-        const auto eased = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * a);
-        return std::exp (std::log (*request.fromHz) * (1.0 - eased) + std::log (request.targetHz) * eased);
+        if (request.fromHz && *request.fromHz > 0.0)
+        {
+            const auto a = glideMs <= 0.0 ? (outMs >= noteStartMs ? 1.0 : 0.0)
+                                           : juce::jlimit (0.0, 1.0, (outMs - (noteStartMs - glideMs)) / (2.0 * glideMs));
+            const auto eased = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * a);
+            hz = std::exp (std::log (*request.fromHz) * (1.0 - eased) + std::log (request.targetHz) * eased);
+        }
+
+        if (vibratoCents > 0.0)
+        {
+            const auto held = outMs - noteStartMs - vibratoDelayMs;
+
+            if (held > 0.0)
+            {
+                const auto grown = juce::jmin (1.0, held / vibratoGrowMs);
+                const auto phase = juce::MathConstants<double>::twoPi * vibratoHz * held / 1000.0;
+                hz *= std::pow (2.0, vibratoCents * grown * std::sin (phase) / 1200.0);
+            }
+        }
+
+        return hz;
     };
 
     const auto outFrames = juce::jmax (2, (int) std::ceil (request.lengthMs / framePeriodMs) + 1);

@@ -638,6 +638,11 @@ void MainComponent::openGeneratorWindow (GeneratorWindow::Tab tab)
             if (safe != nullptr)
                 safe->generatorController->chooseVoicebankForSelected();
         };
+        inst.onOpenSoundLibrary = [safe = juce::Component::SafePointer (this)]
+        {
+            if (safe != nullptr)
+                safe->openSoundLibrary();
+        };
         inst.onVoicebankDropped = [safe = juce::Component::SafePointer (this)] (const juce::File& folder)
         {
             if (safe != nullptr)

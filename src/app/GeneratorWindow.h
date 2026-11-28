@@ -185,6 +185,7 @@ public:
 
     // The singer's: its Load button and a voicebank folder dropped on it.
     std::function<void()> onLoadVoicebank;
+    std::function<void()> onOpenSoundLibrary;   // the singer's "Get More Singers..."
     std::function<void (const juce::File&)> onVoicebankDropped;
     std::function<void (const juce::Identifier&, double)> onVoiceStyleChanged;
 
@@ -632,6 +633,12 @@ public:
             {
                 utau = std::make_unique<UtauEditor> (*singer);
                 utau->onLoadVoicebank = [this] { if (onLoadVoicebank) onLoadVoicebank(); };
+                utau->onOpenSoundLibrary = [this] { if (onOpenSoundLibrary) onOpenSoundLibrary(); };
+                utau->getSingers = [this]
+                {
+                    return getRecentMedia ? getRecentMedia (MediaKind::voicebank)
+                                          : std::vector<RecentMediaList::Item>();
+                };
                 utau->onVoicebankDropped = [this] (const juce::File& folder)
                 {
                     if (onVoicebankDropped)

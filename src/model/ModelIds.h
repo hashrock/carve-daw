@@ -55,8 +55,10 @@
 // │     │        whose `file` is the voicebank's folder rather than a file.
 // │     │        Its voice settings are on the GENERATOR itself, so they
 // │     │        survive a change of voicebank: voiceGender, voiceBreath,
-// │     │        voiceBrightness, voiceModulation (see VoiceStyle). Each is
-// │     │        stored only when it differs from its default.
+// │     │        voiceBrightness, voiceModulation, and how it moves between
+// │     │        and within notes: voiceVibrato, voiceVibratoRate,
+// │     │        voicePortamento (see VoiceStyle). Each is stored only when
+// │     │        it differs from its default.
 // │     ├─ SLICES                           "break" generators only
 // │     │  └─ SLICE {start}                 seconds into the loop (its one SOUND).
 // │     │        Kept in order. Slice i plays from its start up to the next
@@ -238,6 +240,9 @@ CARVE_DECLARE_ID (voiceGender)
 CARVE_DECLARE_ID (voiceBreath)
 CARVE_DECLARE_ID (voiceBrightness)
 CARVE_DECLARE_ID (voiceModulation)
+CARVE_DECLARE_ID (voiceVibrato)
+CARVE_DECLARE_ID (voiceVibratoRate)
+CARVE_DECLARE_ID (voicePortamento)
 CARVE_DECLARE_ID (minNote)
 CARVE_DECLARE_ID (maxNote)
 CARVE_DECLARE_ID (breakBars)

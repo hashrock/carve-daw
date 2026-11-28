@@ -420,6 +420,9 @@ public:
 
     void setDialTooltip (const juce::String& tip)  { dial.setTooltip (tip); }
 
+    // " Hz", " ms": shown after the value while it is on show.
+    void setValueSuffix (const juce::String& suffix)  { dial.setTextValueSuffix (suffix); }
+
     void refresh() override {}
 
 protected:

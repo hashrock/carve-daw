@@ -36,6 +36,11 @@ struct NoteRender
     // The voice's colouring (model::Generator::VoiceStyle, same ranges). The
     // defaults change nothing.
     double gender = 0.0, breath = 50.0, brightness = 0.0, modulation = 0.0;
+
+    // How the pitch moves: a vibrato that grows in once the note is held
+    // (depth 0..100, rate in Hz), and how long the glide from the note before
+    // takes either side of this one's start.
+    double vibrato = 0.0, vibratoRate = 5.5, portamentoMs = 40.0;
 };
 
 struct RenderedNote
