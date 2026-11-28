@@ -1091,6 +1091,7 @@ void MainComponent::openSettings()
 
 void MainComponent::openSoundLibrary (const juce::String& packId)
 {
+    carve::perf::Scope perfProbe ("lib.open");
     if (soundLibraryWindow == nullptr)
     {
         auto onClose = [safe = juce::Component::SafePointer (this)]

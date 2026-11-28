@@ -1,4 +1,5 @@
 #include "SoundLibrary.h"
+#include "PerfProbe.h"
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -413,6 +414,7 @@ void SoundLibrary::loadCachedList()
 
 void SoundLibrary::parseList (const juce::String& json, bool fromNetwork)
 {
+    carve::perf::Scope perfProbe ("lib.parseList");
     const auto parsed = juce::JSON::parse (json);
 
     if ((int) parsed["schema"] != 1 || ! parsed["packs"].isArray())
@@ -444,6 +446,7 @@ void SoundLibrary::parseList (const juce::String& json, bool fromNetwork)
 
 void SoundLibrary::refreshList()
 {
+    carve::perf::Scope perfProbe ("lib.refreshList");
     if (listThread != nullptr && listThread->isThreadRunning())
         return;
 
@@ -497,6 +500,7 @@ void SoundLibrary::refreshList()
 
 void SoundLibrary::scanInstalled()
 {
+    carve::perf::Scope perfProbe ("lib.scanInstalled");
     installed.clear();
 
     for (const auto& folder : root.findChildFiles (juce::File::findDirectories, false))
@@ -571,6 +575,7 @@ std::vector<std::pair<SoundLibrary::Pack, juce::File>> SoundLibrary::getInstalle
 
 SoundLibrary::Status SoundLibrary::getStatus (const juce::String& id) const
 {
+    carve::perf::Scope perfProbe ("lib.getStatus");
     Status status;
 
     if (const auto it = installed.find (id); it != installed.end())
