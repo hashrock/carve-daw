@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1c20">
+<title>Quick Start — Carve DAW</title>
+<meta name="description" content="Five steps from an empty song to an exported track in Carve DAW: add an instrument, write a phrase, arrange a song, add lyrics and export.">
+<link rel="icon" href="img/favicon.png">
+<link rel="alternate" hreflang="ja" href="manual.html">
+<link rel="alternate" hreflang="en" href="manual-en.html">
+<script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+a:focus-visible{outline:2px solid var(--orange);outline-offset:4px}
+.wrap{width:min(760px,calc(100% - 40px));margin-inline:auto}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;font-size:1.25rem;font-weight:750;letter-spacing:-.04em;text-decoration:none}
+.brand img{width:32px;height:32px;filter:invert(96%)}
+.brand span{font-size:.75rem;font-weight:500;letter-spacing:.12em;color:var(--muted)}
+header nav{padding-right:36px;font-size:.875rem}
+header nav a{color:var(--muted);text-decoration:none}
+header nav a:hover{color:var(--text)}
+.intro{padding:48px 0 8px}
+h1{font-size:2rem;letter-spacing:-.04em;margin:0 0 8px}
+p,li,dd{line-height:1.9;color:var(--muted)}
+p{margin:0 0 12px}
+.lead{color:var(--text);font-size:1.0625rem}
+strong{color:var(--text);font-weight:650}
+.toc{list-style:none;padding:0;margin:28px 0 0;display:grid;gap:6px;counter-reset:toc}
+.toc li{counter-increment:toc}
+.toc a{display:flex;align-items:center;gap:14px;text-decoration:none;color:var(--text);padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.toc a::before{content:counter(toc);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--orange);color:#1c1c20;font-size:.8125rem;font-weight:750;flex:none}
+.toc a:hover{border-color:var(--orange)}
+section{padding:48px 0 16px;border-top:1px solid var(--line);margin-top:40px;scroll-margin-top:16px}
+section+section{margin-top:24px}
+.step{font-size:.75rem;font-weight:650;letter-spacing:.12em;color:var(--orange);margin:0 0 6px}
+h2{font-size:1.5rem;letter-spacing:-.03em;margin:0 0 16px}
+h3{font-size:1rem;margin:28px 0 8px}
+ol.do{padding-left:1.4em;margin:0 0 12px}
+ol.do li{padding-left:.2em;margin-bottom:4px}
+ul{padding-left:1.2em;margin:0 0 12px}
+figure{margin:20px 0 24px}
+figure img,figure video{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:#111114}
+figure.narrow{max-width:420px}
+figcaption{font-size:.8125rem;color:var(--muted);margin-top:8px}
+kbd,code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.85em;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--text)}
+kbd{border-bottom-width:2px}
+.ui{color:var(--text);font-weight:600;white-space:nowrap}
+.tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--orange);border-radius:4px;padding:12px 16px;margin:16px 0}
+.tip p{margin:0}
+.tip p+p{margin-top:6px}
+.next{display:flex;justify-content:flex-end;margin-top:20px}
+.next a{color:var(--orange);text-decoration:none;font-size:.875rem}
+.next a:hover{text-decoration:underline}
+.link{color:var(--orange)}
+footer{border-top:1px solid var(--line);margin-top:48px;padding:22px 0 30px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:.75rem}
+footer a{text-decoration:none;margin-left:16px}footer a:first-child{margin-left:0}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<hashrock-switcher floating theme="dark"></hashrock-switcher>
+<header class="wrap">
+  <a class="brand" href="./" aria-label="Carve DAW home"><img src="img/logo.svg" width="32" height="32" alt="">Carve <span>DAW</span></a>
+  <nav><a href="./manual.html" lang="ja">日本語</a> · <a href="./support.html#en">Support</a></nav>
+</header>
+<main class="wrap">
+
+<div class="intro">
+  <h1>Quick Start</h1>
+  <p class="lead">From adding an instrument to writing a phrase, arranging it into a song, making it sing and exporting it. Follow these steps once and you will know how Carve DAW works.</p>
+  <p>When the app starts, an empty song (Untitled) is open. File and song commands are in the menu under the logo at the top left.</p>
+
+  <ol class="toc">
+    <li><a href="#generator">Add a generator</a></li>
+    <li><a href="#pattern">Write a pattern</a></li>
+    <li><a href="#song">Arrange your patterns</a></li>
+    <li><a href="#lyrics">Add lyrics</a></li>
+    <li><a href="#render">Export your song</a></li>
+  </ol>
+</div>
+
+<section id="generator">
+  <p class="step">STEP 1</p>
+  <h2>Add a generator</h2>
+  <p>In Carve DAW, anything that makes sound (a synth, a drum kit, a singing voice, a sampler) is a <strong>generator</strong>. Each generator plays one part of the song.</p>
+
+  <figure>
+    <video src="video/step1-en.mp4" poster="video/step1-en.webp" muted loop playsinline preload="metadata" aria-label="Choosing Drums, Drum Synth from the + Generator menu, then double-clicking the new row's name to open the generator window" style="aspect-ratio:960/540"></video>
+    <figcaption>Adding a generator and opening its window</figcaption>
+  </figure>
+  <ol class="do">
+    <li>Click <span class="ui">+ Generator</span> at the bottom of the left-hand column of the main window.</li>
+    <li>Choose an instrument from the submenus. For drums, <span class="ui">Drums › Drum Synth</span> is a good start; for bass or chords, try <span class="ui">Synth &amp; Keys › Slate Synth</span>.</li>
+    <li>A new row appears in the left-hand column. That row is the generator.</li>
+  </ol>
+
+  <p>A new generator comes with an empty pattern, so you can start writing right away.</p>
+
+  <h3>The generator window</h3>
+  <p><strong>Double-click</strong> the row's name to open the generator window. The two tabs at the top switch between its views.</p>
+  <ul>
+    <li><span class="ui">Inst</span> … the instrument's controls. The <span class="ui">Presets</span> menu at the top has ready-made sounds (Factory Presets).</li>
+    <li><span class="ui">Pianoroll</span> … where you write the pattern (next step).</li>
+  </ul>
+
+  <div class="tip">
+    <p>Right-click a row's name to rename, duplicate or delete the generator. A row's <kbd>M</kbd> and <kbd>S</kbd> buttons are mute and solo.</p>
+  </div>
+
+  <div class="next"><a href="#pattern">Next: Write a pattern ↓</a></div>
+</section>
+
+<section id="pattern">
+  <p class="step">STEP 2</p>
+  <h2>Write a pattern</h2>
+  <p>A <strong>pattern</strong> is a phrase of a few bars that a generator plays. A generator can have as many patterns as you like: one for the verse, one for the chorus, and so on.</p>
+
+  <figure>
+    <video src="video/step2-en.mp4" poster="video/step2-en.webp" muted loop playsinline preload="metadata" aria-label="Clicking kick, snare and hi-hat notes into the Pianoroll tab, then pressing Space to play them" style="aspect-ratio:1000/746"></video>
+    <figcaption>Writing a drum pattern and playing it with Space</figcaption>
+  </figure>
+
+  <ol class="do">
+    <li>Open the <span class="ui">Pianoroll</span> tab of the generator window.</li>
+    <li>With the <span class="ui">Draw</span> tool (<kbd>D</kbd>), click the grid to place a note. Drag a note to move it; drag its right edge to change its length.</li>
+    <li>Right-click a note to delete it. With the <span class="ui">Select</span> tool (<kbd>E</kbd>), drag a box around notes to select and move several at once.</li>
+    <li>Set the pattern's length with <span class="ui">Bars of 4/4</span> and the grid's resolution with <span class="ui">Grid</span>.</li>
+  </ol>
+
+  <h3>Open a pattern from the timeline</h3>
+  <p>You can also open the generator window from the main window's timeline. In Pattern mode, each generator's row shows the pattern it is playing. <strong>Double-click</strong> that pattern and the generator window opens on its Pianoroll tab. In Song mode, double-clicking a clip in the playlist does the same (Step 3).</p>
+  <figure>
+    <img src="img/manual-open-pattern-en.webp" width="1260" height="886" loading="lazy" alt="The main window in Pattern mode. The Melody pattern in the Lead row has been double-clicked, and the Lead / Melody generator window is open below it on the Pianoroll tab.">
+    <figcaption>Double-click a pattern in Pattern mode to open its piano roll</figcaption>
+  </figure>
+  <p>Click the pattern name at the start of a row to switch which pattern that row plays.</p>
+
+  <h3>Listen to it</h3>
+  <p>Check that <span class="ui">Pattern</span> is selected in the toolbar at the top of the main window, then press <kbd>Space</kbd>. Every generator's current pattern loops at the same time, so you can listen while you write.</p>
+
+  <h3>Make more patterns</h3>
+  <p>At the top right of the Pianoroll tab, <span class="ui">+ New</span> makes an empty pattern and <span class="ui">Clone</span> makes a copy of the current one. Switch between patterns and rename them with the box at the top left.</p>
+
+  <div class="tip">
+    <p>In a drum generator, the rows are labelled with the kit's sounds, such as kick and snare, instead of piano keys.</p>
+  </div>
+
+  <div class="next"><a href="#song">Next: Arrange your patterns ↓</a></div>
+</section>
+
+<section id="song">
+  <p class="step">STEP 3</p>
+  <h2>Arrange your patterns</h2>
+  <p>Once you have patterns, lay them out in the <strong>playlist</strong> to build a song.</p>
+
+  <figure>
+    <video src="video/step3-en.mp4" poster="video/step3-en.webp" muted loop playsinline preload="metadata" aria-label="Switching to Song, dragging the Paint tool along a generator's row for eight bars to place clips, then playing" style="aspect-ratio:1050/400"></video>
+    <figcaption>Rows are generators; the coloured blocks (clips) are patterns</figcaption>
+  </figure>
+
+  <ol class="do">
+    <li>Switch to <span class="ui">Song</span> in the toolbar. The main window shows the playlist.</li>
+    <li>With the <span class="ui">Paint</span> tool (<kbd>B</kbd>), drag along a generator's row. That generator's selected pattern is placed as clips across the bars you drag over.</li>
+    <li>Drag a clip to move it, or drag its right edge to change its length (longer than its pattern, it repeats). <kbd>⌘D</kbd> duplicates; <kbd>Delete</kbd> or a right-click removes.</li>
+    <li><strong>Double-click</strong> a clip to open its pattern on the generator window's Pianoroll tab and edit it.</li>
+    <li>Click the <span class="ui">▾</span> at the top right of a clip to swap in a different pattern.</li>
+    <li>Press <kbd>Space</kbd> to play and stop the song.</li>
+  </ol>
+
+  <div class="tip">
+    <p>Tick <span class="ui">LOOP</span> in the toolbar to repeat just the range set by Start and Length — handy for working on one section.</p>
+    <p>Change the tempo with <span class="ui">BPM</span> at the left of the toolbar.</p>
+  </div>
+
+  <div class="next"><a href="#lyrics">Next: Add lyrics ↓</a></div>
+</section>
+
+<section id="lyrics">
+  <p class="step">STEP 4</p>
+  <h2>Add lyrics</h2>
+  <p>A singing generator sings the lyrics you give the notes in its piano roll.</p>
+
+  <h3>Add a singing generator</h3>
+  <p>Choose one from <span class="ui">+ Generator › Voice</span>.</p>
+  <ul>
+    <li><strong>Modelled Voice (EN)</strong> … a built-in voice that sings in English. It needs nothing else, so start here.</li>
+    <li><strong>Modelled Voice (JP)</strong> … a built-in voice that sings in Japanese.</li>
+    <li><strong>UTAU Singer</strong> … sings with an UTAU voicebank folder: one of your own, or one downloaded from <span class="ui">+ Generator › Sound Library</span>.</li>
+  </ul>
+
+  <figure>
+    <video src="video/step4-en.mp4" poster="video/step4-en.webp" muted loop playsinline preload="metadata" aria-label="Opening Lyrics in the Modelled Voice (EN) piano roll, typing hello hello my friend, applying it and playing" style="aspect-ratio:1260/520"></video>
+    <figcaption>Lyrics fills in a whole line at once, and the notes show the words as you type</figcaption>
+  </figure>
+
+  <h3>One note at a time</h3>
+  <ol class="do">
+    <li>Place the melody's notes on the Pianoroll tab, as in Step 2.</li>
+    <li><strong>Double-click</strong> a note and type its lyric. <kbd>Tab</kbd> moves to the next note and <kbd>Shift</kbd>+<kbd>Tab</kbd> to the previous one.</li>
+    <li>To spread a word over several notes, give the following notes <code>+</code> (hello, then +, sings hel / lo).</li>
+  </ol>
+
+  <h3>A whole line at once</h3>
+  <ol class="do">
+    <li>Click <span class="ui">Lyrics</span> (<kbd>⌘L</kbd>) in the piano roll's toolbar.</li>
+    <li>Type or paste the words. The notes show the lyrics as you type, so you can see where each one lands.</li>
+    <li>Press <span class="ui">Apply</span> (<kbd>⌘Return</kbd>). A single <kbd>⌘Z</kbd> takes it all back.</li>
+  </ol>
+  <p>With no notes selected, the lyrics go to every note in the pattern; with one selected, to that note and the ones after it; with two or more, to the selected notes only. In English each syllable takes one note, and the <code>+</code> for a word's later syllables is filled in for you. Hyphens set the split yourself (twin-kle).</p>
+
+  <div class="tip">
+    <p>A note with red diagonal lines can't be sung — the voice has no sound for that lyric. Check its spelling.</p>
+    <p>Voices are synthesised in the background, so a note you have just written may take a moment before it sounds.</p>
+  </div>
+
+  <div class="next"><a href="#render">Next: Export your song ↓</a></div>
+</section>
+
+<section id="render">
+  <p class="step">STEP 5</p>
+  <h2>Export your song</h2>
+  <p>When the song is done, export it as an audio file.</p>
+
+  <figure class="narrow">
+    <video src="video/step5-en.mp4" poster="video/step5-en.webp" muted loop playsinline preload="metadata" aria-label="Opening Export Audio with ⌘E, choosing -14 LUFS under Loudness and pointing at Export..." style="aspect-ratio:600/610"></video>
+    <figcaption>The Export Audio window</figcaption>
+  </figure>
+  <ol class="do">
+    <li>Press <kbd>⌘E</kbd> (or choose <span class="ui">Export Audio...</span> from the logo menu).</li>
+    <li>Set the options.
+      <ul>
+        <li><span class="ui">Content</span> … <span class="ui">Mixdown</span> for one file, or <span class="ui">Stems</span> for one file per generator.</li>
+        <li><span class="ui">Format</span> … WAV or Ogg Vorbis.</li>
+        <li><span class="ui">Range</span> … <span class="ui">Whole song</span>, or <span class="ui">Loop range</span> for just the LOOP range.</li>
+        <li><span class="ui">Loudness</span> … <span class="ui">-14 LUFS</span> to match streaming services, or <span class="ui">As mixed</span> to leave the level as it is.</li>
+      </ul>
+    </li>
+    <li>Click <span class="ui">Export...</span> and choose where to save the file.</li>
+  </ol>
+  <p>The export is always the song in the playlist. Even if Pattern mode is showing, what you get is the Song.</p>
+
+  <div class="tip">
+    <p>Save the song itself with <kbd>⌘S</kbd> as a <code>.carve</code> file. An exported WAV can't be opened again for editing, so don't forget to save.</p>
+  </div>
+
+  <h3>Where next</h3>
+  <p>Looping exports for games, the mixer and effects, recording from a MIDI keyboard and the rest are covered in the <a class="link" href="https://github.com/hashrock/carve-daw/blob/main/docs/GUIDE.md">user guide</a> (in Japanese). You can also open a sample song from <span class="ui">Open Sample Song</span> in the logo menu and look at how it is put together.</p>
+</section>
+
+</main>
+<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./manual-en.html">Quick Start</a><a href="./support.html#en">Support</a><a href="./privacy.html#en">Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
+<script>
+// Each clip plays while it is on screen and rests when it is not, so a reader
+// scrolling past five of them is not running five videos at once.
+const clips = document.querySelectorAll("figure video");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (reduceMotion) {
+  clips.forEach(v => v.controls = true);
+} else if ("IntersectionObserver" in window) {
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
+  }, { threshold: 0.4 });
+  clips.forEach(v => io.observe(v));
+} else {
+  clips.forEach(v => { v.autoplay = true; v.play().catch(() => {}); });
+}
+</script>
+</body>
+</html>

@@ -7,6 +7,8 @@
 <title>クイックスタート — Carve DAW</title>
 <meta name="description" content="Carve DAW で 1 曲作って書き出すまでの 5 ステップ。音源の追加、フレーズ打ち込み、曲の組み立て、歌詞入力まで。">
 <link rel="icon" href="img/favicon.png">
+<link rel="alternate" hreflang="ja" href="manual.html">
+<link rel="alternate" hreflang="en" href="manual-en.html">
 <script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
 <style>
 :root{color-scheme:dark;--bg:#1c1c20;--panel:#242429;--text:#f1f0ec;--muted:#a6a6ac;--line:#38383e;--orange:#e78e38}
@@ -65,7 +67,7 @@ footer a:hover{text-decoration:underline}
 <hashrock-switcher floating theme="dark"></hashrock-switcher>
 <header class="wrap">
   <a class="brand" href="./" aria-label="Carve DAW ホーム"><img src="img/logo.svg" width="32" height="32" alt="">Carve <span>DAW</span></a>
-  <nav><a href="./support.html">サポート</a></nav>
+  <nav><a href="./manual-en.html" lang="en">English</a> · <a href="./support.html">サポート</a></nav>
 </header>
 <main class="wrap">
 
@@ -131,6 +133,14 @@ footer a:hover{text-decoration:underline}
     <li>パターンの長さは <span class="ui">Bars of 4/4</span> で、グリッドの細かさは <span class="ui">Grid</span> で設定します。</li>
   </ol>
 
+  <h3>タイムラインから開く</h3>
+  <p>Generator ウィンドウは、メイン画面のタイムラインからも開けます。Pattern モードでは、各 Generator の行にいま鳴っているパターンが並んでいます。そのパターンを<strong>ダブルクリック</strong>すると、Generator ウィンドウがそのパターンの Pianoroll タブで開きます。Song モードでも、プレイリストのクリップをダブルクリックすれば同じように開きます (STEP 3)。</p>
+  <figure>
+    <img src="img/manual-open-pattern.webp" width="1260" height="886" loading="lazy" alt="Pattern モードのメイン画面。Lead の行の Melody パターンをダブルクリックすると、その下に Lead / Melody の Generator ウィンドウが Pianoroll タブで開いている。">
+    <figcaption>Pattern モードでパターンをダブルクリックすると、そのパターンのピアノロールが開く</figcaption>
+  </figure>
+  <p>行の頭にあるパターン名をクリックすると、その行で鳴らすパターンを切り替えられます。</p>
+
   <h3>鳴らしてみる</h3>
   <p>メイン画面上部のツールバーで <span class="ui">Pattern</span> が選ばれていることを確かめて、<kbd>Space</kbd> を押します。各 Generator で現在選ばれているパターンが同時にループ再生されるため、音を聴きながら打ち込めます。</p>
 
@@ -158,6 +168,7 @@ footer a:hover{text-decoration:underline}
     <li>ツールバーで <span class="ui">Song</span> に切り替えます。画面がプレイリスト表示になります。</li>
     <li><span class="ui">Paint</span> ツール (<kbd>B</kbd>) で、Generator の行をドラッグします。その Generator で現在選んでいるパターンが、なぞった小節にクリップとして置かれます。</li>
     <li>クリップはドラッグで移動、右端のドラッグで長さを変えられます (元のパターンより長く伸ばすと繰り返し再生されます)。<kbd>⌘D</kbd> で複製、<kbd>Delete</kbd> キーまたは右クリックで削除できます。</li>
+    <li>クリップを<strong>ダブルクリック</strong>すると、そのパターンが Generator ウィンドウの Pianoroll タブで開き、すぐに編集できます。</li>
     <li>クリップの右上にある <span class="ui">▾</span> をクリックすると、そのクリップのパターンを別のものに差し替えられます。</li>
     <li><kbd>Space</kbd> で曲を再生・停止します。</li>
   </ol>
@@ -243,7 +254,7 @@ footer a:hover{text-decoration:underline}
 </section>
 
 </main>
-<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./manual.html">クイックスタート</a><a href="./support.html">サポート / Support</a><a href="./privacy.html">プライバシーポリシー / Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
+<footer class="wrap"><a href="./">Carve DAW</a><span><a href="./manual.html">クイックスタート</a><a href="./manual-en.html">Quick Start</a><a href="./support.html">サポート / Support</a><a href="./privacy.html">プライバシーポリシー / Privacy</a><a href="https://github.com/hashrock">Made by hashrock ↗</a></span></footer>
 <script>
 // Each clip plays while it is on screen and rests when it is not, so a reader
 // scrolling past five of them is not running five videos at once.

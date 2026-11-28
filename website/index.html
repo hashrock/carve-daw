@@ -959,7 +959,7 @@ footer .powered img {
       </a>
       <div class="footer-links">
         <span>Built with JUCE</span>
-        <a href="manual.html" data-i18n="linkManual">Quick Start (Japanese)</a>
+        <a id="link-manual" href="manual-en.html" data-i18n="linkManual">Quick Start</a>
         <a id="link-support" href="support.html#en" data-i18n="linkSupport">Support</a>
         <a id="link-privacy" href="privacy.html#en" data-i18n="linkPrivacy">Privacy</a>
         <a href="https://github.com/hashrock/carve-daw/blob/main/LICENSING.md" data-i18n="linkLicensing">Licensing</a>
@@ -1016,11 +1016,12 @@ footer .powered img {
       kLicense: "License",
       vLicense: "Free · AGPL-3.0-or-later (GitHub) · App Store",
       bottomSub: "Free · No sign-up · Mac & iPad",
-      linkManual: "Quick Start (Japanese)",
+      linkManual: "Quick Start",
       linkSupport: "Support",
       linkPrivacy: "Privacy",
       linkLicensing: "Licensing",
       linkSource: "Source ↗",
+      manualHref: "manual-en.html",
       supportHref: "support.html#en",
       privacyHref: "privacy.html#en"
     },
@@ -1073,6 +1074,7 @@ footer .powered img {
       linkPrivacy: "プライバシー",
       linkLicensing: "ライセンス",
       linkSource: "ソース ↗",
+      manualHref: "manual.html",
       supportHref: "support.html",
       privacyHref: "privacy.html"
     }
@@ -1090,6 +1092,7 @@ footer .powered img {
   };
 
   const toggle = document.getElementById("lang-toggle");
+  const manualLink = document.getElementById("link-manual");
   const supportLink = document.getElementById("link-support");
   const privacyLink = document.getElementById("link-privacy");
   const descMeta = document.querySelector('meta[name="description"]');
@@ -1107,6 +1110,7 @@ footer .powered img {
     }
     toggle.textContent = t.toggle;
     toggle.setAttribute("aria-label", t.toggleLabel);
+    manualLink.href = t.manualHref;
     supportLink.href = t.supportHref;
     privacyLink.href = t.privacyHref;
   };
