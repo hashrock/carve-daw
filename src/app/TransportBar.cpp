@@ -23,6 +23,28 @@ namespace
         return juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
     }
 
+    // The master knob's travel, 0..1, against dB: 0 dB straight up, the
+    // right half up to the fader's +6, the left half the fader's own curve
+    // from silence. Turning tracktion's fader position straight into an
+    // angle put 0 dB at two o'clock, where it read as a knob turned past it.
+    constexpr float masterKnobMaxDb = 6.0f;
+
+    float masterKnobToDb (double travel)
+    {
+        if (travel >= 0.5)
+            return (float) ((travel - 0.5) * 2.0) * masterKnobMaxDb;
+
+        return te::volumeFaderPositionToDB ((float) (travel * 2.0) * te::decibelsToVolumeFaderPosition (0.0f));
+    }
+
+    double dbToMasterKnob (float db)
+    {
+        if (db >= 0.0f)
+            return 0.5 + 0.5 * juce::jmin (db, masterKnobMaxDb) / masterKnobMaxDb;
+
+        return 0.5 * te::decibelsToVolumeFaderPosition (db) / te::decibelsToVolumeFaderPosition (0.0f);
+    }
+
     juce::String padded (int value, int digits)
     {
         auto text = juce::String (std::abs (value)).paddedLeft ('0', digits);
@@ -378,7 +400,7 @@ TransportBar::TransportBar (te::Edit& editToControl, model::Song songModel, juce
     saveButton.onClick = [this] { if (onSave) onSave(); };
 
     masterKnob.setRange (0.0, 1.0);
-    masterKnob.setDoubleClickReturnValue (true, te::decibelsToVolumeFaderPosition (model::MasterBus::defaultVolumeDb));
+    masterKnob.setDoubleClickReturnValue (true, dbToMasterKnob (model::MasterBus::defaultVolumeDb));
     masterKnob.setTooltip ("Master level");
     masterKnob.onDragStart = [this] { undoManager.beginNewTransaction(); };
     masterKnob.onValueChange = [this] { setMasterVolumeFromKnob(); };
@@ -618,7 +640,7 @@ void TransportBar::setMasterVolumeFromKnob()
 {
     // The model is the source of truth: the undo manager sees it, the mixer's
     // master strip reads it back, and EditSync pushes it into the Edit.
-    song.getMasterBus().setVolumeDb (te::volumeFaderPositionToDB ((float) masterKnob.getValue()),
+    song.getMasterBus().setVolumeDb (masterKnobToDb (masterKnob.getValue()),
                                      &undoManager);
 }
 
@@ -720,7 +742,7 @@ void TransportBar::timerCallback()
     // listener here -- so it is read back every tick, unless the knob is
     // the thing moving it.
     if (! masterKnob.isMouseButtonDown())
-        masterKnob.setValue (te::decibelsToVolumeFaderPosition (song.getMasterBus().getVolumeDb()),
+        masterKnob.setValue (dbToMasterKnob (song.getMasterBus().getVolumeDb()),
                              juce::dontSendNotification);
 
     // The level at the end of the graph, which only exists while there is a
